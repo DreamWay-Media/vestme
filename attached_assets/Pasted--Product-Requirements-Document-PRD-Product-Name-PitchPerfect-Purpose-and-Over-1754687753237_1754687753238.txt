@@ -1,0 +1,234 @@
+**Product Requirements Document (PRD)**
+
+---
+
+## Product Name: **PitchPerfect**
+
+## Purpose and Overview
+
+PitchPerfect is an AI-powered application that enables entrepreneurs and startup founders to generate professional-grade pitch decks efficiently. The tool uses generative AI to assist in crafting slide content, visual layout, branding, and even outreach. It is designed for speed, customization, and effectiveness—empowering founders to focus on storytelling rather than formatting.
+
+PitchPerfect will feature a hybrid database architecture combining PostgreSQL with JSON support, ensuring both flexibility and structure. This makes it ideal for managing highly varied content like pitch decks, brand kits, and CRM data.
+
+---
+
+## **Purpose**
+
+---
+
+PitchPerfect is a cloud-based AI application that creates professional startup pitch decks automatically. Users input their business information during the “Discovery” stage, and the AI:
+
+1. **Analyzes** the provided business details (text, files, brand assets).
+2. **Crawls** the provided business website for additional context.
+3. **Learns** the business profile (industry, target market, value proposition).
+4. **Generates** a complete, branded pitch deck with minimal manual input.
+
+---
+
+## Target Users
+
+- Startup founders
+- Business development teams
+- Independent entrepreneurs
+- Agencies creating investor or client presentations
+
+## **MVP Scope**
+
+### Must-Have for v1.0
+
+1. User authentication & account management.
+2. Project creation & management.
+3. Discovery stage data collection.
+4. AI-powered business analysis (from Discovery + website crawl).
+5. AI pitch deck generation.
+6. Brand Kit creation & application.
+7. Deck export to PDF.
+8. Basic CRM (import & store contacts).
+9. Campaign send & open tracking.
+10. Project dashboard with deck stats.
+
+---
+
+## **Feature Requirements**
+
+### **1. Discovery Stage – Business Learning AI**
+
+**Goal:** Enable AI to fully understand the user’s business before deck creation.
+
+**Workflow:**
+
+- **Step 1:** User inputs:
+    - Business name, description, industry.
+    - Website URL.
+    - Uploads files (business plan, product sheets, images, logos).
+- **Step 2:** AI executes:
+    - Text analysis on all provided info.
+    - Web crawling (read-only) of provided URL to extract:
+        - About page
+        - Product/service pages
+        - Team bios
+        - Key metrics (if public)
+    - Semantic summarization into structured business profile (JSON format).
+- **Step 3:** Profile stored in DB, linked to Project.
+- **Step 4:** Output preview for user review before pitch deck generation.
+
+**Acceptance Criteria:**
+
+- AI correctly stores structured JSON with fields:
+    
+    ```
+    json
+    CopyEdit
+    {
+      "business_name": "",
+      "industry": "",
+      "value_proposition": "",
+      "target_market": "",
+      "competitors": [],
+      "key_metrics": {},
+      "brand_tone": "",
+      "unique_selling_points": []
+    }
+    
+    ```
+    
+- Crawl only user-provided domains.
+- Fail gracefully if crawl blocked (fall back to user-provided data).
+
+---
+
+### **2. AI Pitch Deck Generation**
+
+- Input: Structured business profile from Discovery stage.
+- Output: Complete deck with:
+    - Title slide
+    - Problem / Solution
+    - Market Opportunity
+    - Business Model
+    - Go-to-Market
+    - Competition
+    - Team
+    - Financial Projections
+    - Call-to-Action
+- Automatically applies Brand Kit.
+- Saves as a Deck entity in DB.
+
+---
+
+### **3. Brand Kit**
+
+- Create/edit brand profiles (colors, fonts, logos).
+- Auto-apply to any generated deck.
+- Store in JSONB format for quick reuse.
+
+---
+
+### **4. Database (PostgreSQL + JSONB)**
+
+**Entities:**
+
+- `users`
+- `projects`
+- `brands`
+- `decks`
+- `crm_contacts`
+- `campaigns`
+- `activity_log`
+
+**Key Relations:**
+
+- `users` 1—N `projects`
+- `projects` N—M `decks`
+- `projects` N—M `brands`
+- `projects` N—M `campaigns`
+
+---
+
+### **5. APIs & Integrations**
+
+- **AI Processing:** OpenAI API or Claude for text; Puppeteer or Playwright for crawling.
+- **Fonts:** Google Fonts API.
+- **Images:** Unsplash/Pexels API.
+- **Email:** SendGrid API.
+
+---
+
+### **6. Acceptance Criteria for AI Business Learning**
+
+- Must parse text from at least 90% of non-media content on provided site.
+- Must generate a business profile JSON that maps directly into deck templates.
+- Deck must be generated within 30 seconds for standard inputs.
+
+---
+
+### **7. Future Enhancements**
+
+- Live deck collaboration.
+- CRM sync with HubSpot/Salesforce.
+- Interactive Q&A mode during live presentations.
+
+---
+
+## 
+
+## Workflow Design
+
+1 - User creates the project
+
+- Step 1 - Discovery
+    - Project Name
+    - Project description
+    - Project URL
+    - Upload business files/assets
+- Step 2 - Brand Kit
+    - Upload/Generate Logo
+    - Select Google Fonts or upload custom web fonts.
+    - Select Primary, Secondary & Accent colors.
+    - Upload images, graphics, and brand assets.
+- Step 3 - Pitch deck
+    - Upload existing pitch deck from PDF, Google Slides, or PowerPoint.
+    - Auto-generate with AI
+    - Start from scratch
+    - Use templates
+- Step 4 - Run a campaign
+    - Manage CRM
+    - Create Audience
+    - Write or generate a teaser
+    - Attach the PRD
+    - Distribute/Blast
+- Step 5 - Monitor & report
+    - Check the statistics of existing campaigns
+    - Generate a report on the current state
+    - Follow up
+
+## Pages
+
+- Dashboard
+    - stat widgets
+    - recent projects
+    - Latest updates
+- Projects
+    - Add new project
+    - Project list
+        - edit project
+        - delete project
+- CRM
+    - Import contacts
+    - contact list
+        - edit-contact
+        - delete contact
+- Account
+    - user info edit
+- Settings
+
+### Platform
+
+- Cloud-based app hosted on Replit for fast iteration and testing.
+- Developed in TypeScript with React (using Cursor IDE).
+
+### Database
+
+- **Hybrid Postgres + JSON**: PostgreSQL as the primary store with JSONB support for complex content schemas (like nested slide elements).
+- Highly indexable for search (Postgres full-text search + vector embeddings for semantic search in future AI extensions)
+
+---

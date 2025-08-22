@@ -1,0 +1,263 @@
+import { useEffect, useState } from "react";
+import { Link, useLocation, useParams } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
+import { isUnauthorizedError } from "@/lib/authUtils";
+import { cn } from "@/lib/utils";
+import { 
+  ChevronLeft, 
+  Search, 
+  Palette, 
+  FileText, 
+  Send, 
+  BarChart3,
+  Settings,
+  CheckCircle,
+  Circle,
+  Clock
+} from "lucide-react";
+
+interface ProjectLayoutProps {
+  children: React.ReactNode;
+}
+
+interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  industry?: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  businessProfile?: any;
+}
+
+const sidebarItems = [
+  {
+    id: "discovery",
+    label: "Discovery",
+    icon: Search,
+    path: "/discovery",
+    description: "Business analysis and research"
+  },
+  {
+    id: "brand-kit",
+    label: "Brand Kit",
+    icon: Palette,
+    path: "/brand-kit",
+    description: "Visual identity and branding"
+  },
+  {
+    id: "deck-generator",
+    label: "Deck Generator",
+    icon: FileText,
+    path: "/generate-deck",
+    description: "Create and customize pitch deck"
+  },
+  {
+    id: "campaign",
+    label: "Campaign",
+    icon: Send,
+    path: "/campaign",
+    description: "Investor outreach and campaigns"
+  },
+  {
+    id: "analytics",
+    label: "Analytics",
+    icon: BarChart3,
+    path: "/analytics",
+    description: "Performance metrics and insights"
+  },
+  {
+    id: "settings",
+    label: "Settings",
+    icon: Settings,
+    path: "/settings",
+    description: "Project configuration"
+  }
+];
+
+const getStepStatus = (stepId: string, projectStatus: string, businessProfile?: any) => {
+  switch (stepId) {
+    case "discovery":
+      return projectStatus === "draft" ? "pending" : "completed";
+    case "brand-kit":
+      return ["draft"].includes(projectStatus) ? "pending" : 
+             ["discovery"].includes(projectStatus) ? "current" : "completed";
+    case "deck-generator":
+      return ["draft", "discovery"].includes(projectStatus) ? "pending" :
+             ["brand_kit"].includes(projectStatus) ? "current" : "completed";
+    case "campaign":
+      return ["draft", "discovery", "brand_kit"].includes(projectStatus) ? "pending" :
+             ["deck_ready"].includes(projectStatus) ? "current" : "completed";
+    case "analytics":
+      return ["draft", "discovery", "brand_kit", "deck_ready"].includes(projectStatus) ? "pending" : "completed";
+    case "settings":
+      return "available";
+    default:
+      return "pending";
+  }
+};
+
+const getStatusIcon = (status: string) => {
+  switch (status) {
+    case "completed":
+      return <CheckCircle className="h-4 w-4 text-green-600" />;
+    case "current":
+      return <Clock className="h-4 w-4 text-primary-600" />;
+    case "available":
+      return <Circle className="h-4 w-4 text-gray-400" />;
+    default:
+      return <Circle className="h-4 w-4 text-gray-300" />;
+  }
+};
+
+export default function ProjectLayout({ children }: ProjectLayoutProps) {
+  const params = useParams();
+  const projectId = params.projectId;
+  const [location] = useLocation();
+  const { toast } = useToast();
+  const { isAuthenticated, isLoading } = useAuth();
+
+  // Redirect to home if not authenticated
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      toast({
+        title: "Unauthorized",
+        description: "You are logged out. Logging in again...",
+        variant: "destructive",
+      });
+      setTimeout(() => {
+        window.location.href = "/api/login";
+      }, 500);
+      return;
+    }
+  }, [isAuthenticated, isLoading, toast]);
+
+  const { data: project, isLoading: projectLoading } = useQuery({
+    queryKey: ["/api/projects", projectId],
+    enabled: !!projectId && isAuthenticated,
+    retry: false,
+  }) as { data: Project | undefined, isLoading: boolean };
+
+  if (isLoading || !isAuthenticated || projectLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <i className="fas fa-spinner fa-spin text-primary-600 text-xl"></i>
+          </div>
+          <p className="text-gray-600">Loading project...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const currentPath = location.split(`/projects/${projectId}`)[1] || "/discovery";
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="flex h-screen">
+        {/* Sidebar */}
+        <div className="w-64 bg-white shadow-sm border-r border-gray-200 flex flex-col">
+          {/* Project Header */}
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center space-x-3 mb-4">
+              <Link 
+                to="/projects"
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <ChevronLeft className="h-5 w-5 text-gray-600" />
+              </Link>
+              <div className="flex-1">
+                <h1 className="text-lg font-semibold text-gray-900 truncate">
+                  {project?.name || "Loading..."}
+                </h1>
+                <p className="text-sm text-gray-500">{project?.industry}</p>
+              </div>
+            </div>
+            
+            {project?.description && (
+              <p className="text-sm text-gray-600 leading-relaxed">
+                {project.description}
+              </p>
+            )}
+          </div>
+
+          {/* Navigation Items */}
+          <nav className="flex-1 p-4 space-y-1">
+            {sidebarItems.map((item) => {
+              const isActive = currentPath === item.path;
+              const status = getStepStatus(item.id, project?.status || "draft", project?.businessProfile);
+              const isDisabled = status === "pending";
+              const Icon = item.icon;
+
+              return (
+                <Link
+                  key={item.id}
+                  to={`/projects/${projectId}${item.path}`}
+                  className={cn(
+                    "block w-full",
+                    isDisabled && "pointer-events-none"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "flex items-center space-x-3 px-3 py-3 rounded-lg transition-all duration-200",
+                      isActive
+                        ? "bg-primary-50 text-primary-700 border border-primary-200"
+                        : isDisabled
+                        ? "text-gray-400 cursor-not-allowed"
+                        : "text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+                    )}
+                  >
+                    <div className="flex items-center space-x-3 flex-1">
+                      <Icon className="h-5 w-5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <div className="font-medium">{item.label}</div>
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          {item.description}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0">
+                      {getStatusIcon(status)}
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </nav>
+
+          {/* Progress Footer */}
+          <div className="p-4 border-t border-gray-200">
+            <div className="text-xs text-gray-500 mb-2">Project Progress</div>
+            <div className="space-y-1">
+              {sidebarItems.slice(0, 4).map((item) => {
+                const status = getStepStatus(item.id, project?.status || "draft", project?.businessProfile);
+                return (
+                  <div key={item.id} className="flex items-center space-x-2">
+                    <div className="flex-shrink-0">
+                      {getStatusIcon(status)}
+                    </div>
+                    <div className="text-xs text-gray-600 truncate">
+                      {item.label}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <main className="flex-1 overflow-y-auto">
+            {children}
+          </main>
+        </div>
+      </div>
+    </div>
+  );
+}

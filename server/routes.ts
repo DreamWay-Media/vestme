@@ -1,0 +1,1778 @@
+import type { Express } from "express";
+import { createServer, type Server } from "http";
+import { storage } from "./storage";
+import { setupAuth, isAuthenticated } from "./replitAuth";
+import {
+  ObjectStorageService,
+  ObjectNotFoundError,
+} from "./objectStorage";
+import { ObjectPermission } from "./objectAcl";
+import { analyzeBusinessFromData, generatePitchDeckSlides, enhanceBusinessDescription } from "./services/openai";
+import { FinancialAnalyzer } from "./services/financialAnalyzer";
+import { generatePitchDeckPDF, validateSlideContent } from "./services/pdfGenerator";
+import { WebsiteCrawler } from "./services/websiteCrawler";
+import { BusinessResearcher } from "./services/businessResearcher";
+import { generateBrandKitSuggestions } from "./services/brandKit";
+import { BrandAnalyzer } from "./services/brandAnalyzer";
+import { insertProjectSchema, insertBrandKitSchema, insertDeckSchema, insertCrmContactSchema, insertCampaignSchema, insertAudienceSchema } from "@shared/schema";
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  // Auth middleware
+  await setupAuth(app);
+
+  // Auth routes
+  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      res.json(user);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  // Dashboard routes
+  app.get('/api/dashboard/stats', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const stats = await storage.getDashboardStats(userId);
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching dashboard stats:", error);
+      res.status(500).json({ message: "Failed to fetch dashboard stats" });
+    }
+  });
+
+  app.get('/api/dashboard/recent-projects', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const projects = await storage.getUserProjects(userId);
+      // Return only the 5 most recent projects
+      res.json(projects.slice(0, 5));
+    } catch (error) {
+      console.error("Error fetching recent projects:", error);
+      res.status(500).json({ message: "Failed to fetch recent projects" });
+    }
+  });
+
+  app.get('/api/dashboard/recent-activities', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const activities = await storage.getUserActivities(userId, 10);
+      res.json(activities);
+    } catch (error) {
+      console.error("Error fetching recent activities:", error);
+      res.status(500).json({ message: "Failed to fetch recent activities" });
+    }
+  });
+
+  // PDF export route for decks
+  app.get('/api/decks/pdf/:fileName', async (req, res) => {
+    try {
+      const fileName = req.params.fileName;
+      console.log(`PDF request for: ${fileName}`);
+      
+      // Check if PDF exists in cache
+      (global as any).pdfCache = (global as any).pdfCache || new Map();
+      const pdfBuffer = (global as any).pdfCache.get(fileName);
+      
+      if (pdfBuffer) {
+        // Validate PDF buffer
+        if (!Buffer.isBuffer(pdfBuffer) || pdfBuffer.length === 0) {
+          console.error(`Invalid PDF buffer for: ${fileName}`);
+          return res.status(500).json({ message: "Invalid PDF file" });
+        }
+        
+        // Check if buffer starts with PDF header
+        const pdfHeader = pdfBuffer.slice(0, 4);
+        if (pdfHeader.toString() !== '%PDF') {
+          console.error(`Corrupted PDF file (invalid header): ${fileName}`);
+          return res.status(500).json({ message: "Corrupted PDF file" });
+        }
+        
+        console.log(`Serving valid PDF: ${fileName} (${pdfBuffer.length} bytes)`);
+        
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+        res.setHeader('Content-Length', pdfBuffer.length);
+        res.send(pdfBuffer);
+      } else {
+        console.log(`PDF not found in cache: ${fileName}`);
+        const availablePdfs = Array.from(((global as any).pdfCache || new Map()).keys());
+        console.log('Available PDFs:', availablePdfs);
+        
+        // PDF not found, return error
+        res.status(404).json({ 
+          message: "PDF not found. Please regenerate the deck to create a new PDF." 
+        });
+      }
+    } catch (error) {
+      console.error("Error serving PDF:", error);
+      res.status(500).json({ message: "Failed to serve PDF" });
+    }
+  });
+
+  // Object Storage routes
+  app.get("/objects/:objectPath(*)", isAuthenticated, async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    const objectStorageService = new ObjectStorageService();
+    try {
+      const objectFile = await objectStorageService.getObjectEntityFile(
+        req.path,
+      );
+      const canAccess = await objectStorageService.canAccessObjectEntity({
+        objectFile,
+        userId: userId,
+        requestedPermission: ObjectPermission.READ,
+      });
+      if (!canAccess) {
+        return res.sendStatus(401);
+      }
+      objectStorageService.downloadObject(objectFile, res);
+    } catch (error) {
+      console.error("Error checking object access:", error);
+      if (error instanceof ObjectNotFoundError) {
+        return res.sendStatus(404);
+      }
+      return res.sendStatus(500);
+    }
+  });
+
+  app.post("/api/objects/upload", isAuthenticated, async (req, res) => {
+    const objectStorageService = new ObjectStorageService();
+    const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+    res.json({ uploadURL });
+  });
+
+  app.put("/api/business-documents", isAuthenticated, async (req: any, res) => {
+    if (!req.body.documentURL) {
+      return res.status(400).json({ error: "documentURL is required" });
+    }
+
+    const userId = req.user?.claims?.sub;
+
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const objectPath = await objectStorageService.trySetObjectEntityAclPolicy(
+        req.body.documentURL,
+        {
+          owner: userId,
+          visibility: "private",
+        },
+      );
+
+      res.status(200).json({
+        objectPath: objectPath,
+      });
+    } catch (error) {
+      console.error("Error setting document ACL:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Project routes
+  app.get('/api/projects', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const projects = await storage.getUserProjects(userId);
+      res.json(projects);
+    } catch (error) {
+      console.error("Error fetching projects:", error);
+      res.status(500).json({ message: "Failed to fetch projects" });
+    }
+  });
+
+  app.post('/api/projects', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const projectData = insertProjectSchema.parse({
+        ...req.body,
+        userId
+      });
+
+      const project = await storage.createProject(projectData);
+
+      // Log activity
+      await storage.logActivity({
+        userId,
+        projectId: project.id,
+        action: 'project_created',
+        description: `Created new project: ${project.name}`,
+        metadata: { projectId: project.id }
+      });
+
+      res.json(project);
+    } catch (error) {
+      console.error("Error creating project:", error);
+      res.status(400).json({ message: "Failed to create project" });
+    }
+  });
+
+  app.get('/api/projects/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const project = await storage.getProject(req.params.id);
+      if (!project || project.userId !== req.user.claims.sub) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      res.json(project);
+    } catch (error) {
+      console.error("Error fetching project:", error);
+      res.status(500).json({ message: "Failed to fetch project" });
+    }
+  });
+
+  app.put('/api/projects/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const project = await storage.getProject(req.params.id);
+      if (!project || project.userId !== req.user.claims.sub) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const updatedProject = await storage.updateProject(req.params.id, req.body);
+      res.json(updatedProject);
+    } catch (error) {
+      console.error("Error updating project:", error);
+      res.status(500).json({ message: "Failed to update project" });
+    }
+  });
+
+  app.delete('/api/projects/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const project = await storage.getProject(req.params.id);
+      if (!project || project.userId !== req.user.claims.sub) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      await storage.deleteProject(req.params.id);
+      res.json({ message: "Project deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting project:", error);
+      res.status(500).json({ message: "Failed to delete project" });
+    }
+  });
+
+  // AI Business Analysis route
+  app.post('/api/projects/:id/analyze', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { documents } = req.body;
+      const project = await storage.getProject(req.params.id);
+      
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      console.log(`Starting analysis for project: ${project.name}`);
+      if (documents && documents.length > 0) {
+        console.log(`Processing ${documents.length} uploaded documents`);
+      }
+
+      let websiteContent = '';
+      let crawledData = null;
+      
+      // Crawl website if URL provided
+      if (project.websiteUrl) {
+        try {
+          const crawler = new WebsiteCrawler();
+          crawledData = await crawler.crawlWebsite(project.websiteUrl);
+          if (crawledData) {
+            websiteContent = crawledData.content;
+          }
+        } catch (error) {
+          console.warn("Website crawling failed:", error);
+          // Continue without website content
+        }
+      }
+
+      // Enhanced comprehensive business analysis with document context
+      const projectWithDocuments = {
+        ...project,
+        uploadedDocuments: documents || [],
+        hasDocuments: Boolean(documents && documents.length > 0)
+      };
+      
+      const businessProfile = await analyzeProjectWithEnhancedResearch(projectWithDocuments);
+
+      // Update project with business profile
+      const updatedProject = await storage.updateProject(req.params.id, {
+        businessProfile: {
+          ...businessProfile,
+          processedDocuments: documents || [],
+          analysisTimestamp: new Date().toISOString()
+        },
+        status: 'discovery'
+      });
+
+      // Log activity
+      await storage.logActivity({
+        userId,
+        projectId: project.id,
+        action: 'business_analyzed', 
+        description: `Enhanced business research completed for ${project.name}${documents && documents.length > 0 ? ` with ${documents.length} documents` : ''}`,
+        metadata: { projectId: project.id, documentCount: documents?.length || 0 }
+      });
+
+      res.json({
+        project: updatedProject,
+        businessProfile: updatedProject.businessProfile
+      });
+    } catch (error) {
+      console.error("Error analyzing business:", error);
+      res.status(500).json({ message: "Failed to analyze business data" });
+    }
+  });
+
+  // Update business profile
+  app.put('/api/projects/:id/business-profile', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const project = await storage.getProject(req.params.id);
+      
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      // Update the business profile with the new data
+      const updatedBusinessProfile = {
+        ...(project.businessProfile || {}),
+        ...req.body
+      };
+
+      // Update project
+      const updatedProject = await storage.updateProject(req.params.id, {
+        businessProfile: updatedBusinessProfile
+      });
+
+      // Log activity
+      await storage.logActivity({
+        userId,
+        projectId: project.id,
+        action: "business_profile_updated",
+        description: `Updated business profile for: ${project.name}`,
+        metadata: { projectId: project.id }
+      });
+
+      res.json({ businessProfile: updatedBusinessProfile });
+    } catch (error) {
+      console.error("Error updating business profile:", error);
+      res.status(500).json({ message: "Failed to update business profile" });
+    }
+  });
+
+  // Process uploaded logo route
+  app.post('/api/projects/:id/process-logo', isAuthenticated, async (req: any, res) => {
+    try {
+      const { logoUrl } = req.body;
+      
+      if (!logoUrl) {
+        return res.status(400).json({ error: "Logo URL is required" });
+      }
+
+      const objectStorageService = new ObjectStorageService();
+      const objectPath = objectStorageService.normalizeObjectEntityPath(logoUrl);
+      
+      // Set public ACL for logo
+      if (objectPath.startsWith('/objects/')) {
+        await objectStorageService.trySetObjectEntityAclPolicy(logoUrl, {
+          owner: req.user?.claims?.sub,
+          visibility: "public" as const
+        });
+      }
+      
+      res.json({ objectPath });
+    } catch (error) {
+      console.error("Error processing logo:", error);
+      res.status(500).json({ error: "Failed to process logo" });
+    }
+  });
+
+  // Brand Kit routes
+  app.post('/api/projects/:id/brand-kit', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const project = await storage.getProject(req.params.id);
+      
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      // Get business profile to extract website design elements
+      const businessProfile = project.businessProfile || {};
+      
+      // Generate brand kit suggestions using website design elements
+      const suggestions = generateBrandKitSuggestions(businessProfile);
+
+      const brandKitData = insertBrandKitSchema.parse({
+        name: req.body.name || `${project.name} Brand Kit`,
+        primaryColor: req.body.primaryColor || suggestions.primaryColor,
+        secondaryColor: req.body.secondaryColor || suggestions.secondaryColor,
+        accentColor: req.body.accentColor || suggestions.accentColor,
+        fontFamily: req.body.fontFamily || suggestions.fontFamily,
+        logoUrl: req.body.logoUrl || null,
+        projectId: req.params.id
+      });
+
+      const brandKit = await storage.createBrandKit(brandKitData);
+      
+      // Update project status
+      await storage.updateProject(req.params.id, { status: 'brand_kit' });
+
+      // Log activity
+      await storage.logActivity({
+        userId,
+        projectId: project.id,
+        action: 'brand_kit_created',
+        description: `Brand kit created for ${project.name}${suggestions.reasoning ? ` - ${suggestions.reasoning}` : ''}`,
+        metadata: { brandKitId: brandKit.id, extractedFromWebsite: !!(businessProfile as any)?.websiteContent?.designElements }
+      });
+
+      res.json({
+        ...brandKit,
+        suggestions: {
+          reasoning: suggestions.reasoning,
+          extractedElements: (businessProfile as any)?.websiteContent?.designElements || null
+        }
+      });
+    } catch (error) {
+      console.error("Error creating brand kit:", error);
+      res.status(400).json({ message: "Failed to create brand kit" });
+    }
+  });
+
+  app.get('/api/projects/:id/brand-kits', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const project = await storage.getProject(req.params.id);
+      
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const brandKits = await storage.getProjectBrandKits(req.params.id);
+      res.json(brandKits);
+    } catch (error) {
+      console.error("Error fetching brand kits:", error);
+      res.status(500).json({ message: "Failed to fetch brand kits" });
+    }
+  });
+
+  // AI Brand Analysis from Website
+  app.post('/api/projects/:id/analyze-brand', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const project = await storage.getProject(req.params.id);
+      
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      if (!project.websiteUrl) {
+        return res.status(400).json({ message: "Project must have a website URL for brand analysis" });
+      }
+
+      console.log(`Starting AI brand analysis for: ${project.name}`);
+      const brandAnalyzer = new BrandAnalyzer();
+      const brandExtraction = await brandAnalyzer.extractBrandFromWebsite(project.websiteUrl);
+      
+      // Create brand kit from extracted data
+      const brandKitData = insertBrandKitSchema.parse({
+        name: `AI-Generated Brand Kit for ${project.name}`,
+        primaryColor: brandExtraction.colors.primary,
+        secondaryColor: brandExtraction.colors.secondary,
+        accentColor: brandExtraction.colors.accent,
+        fontFamily: brandExtraction.typography.primaryFont,
+        logoUrl: brandExtraction.logo.logoUrl || null,
+        projectId: req.params.id
+      });
+
+      const brandKit = await storage.createBrandKit(brandKitData);
+      
+      // Update project status if not already at brand kit stage or beyond
+      if (project.status === 'discovery') {
+        await storage.updateProject(req.params.id, { status: 'brand_kit' });
+      }
+
+      // Log activity
+      await storage.logActivity({
+        userId,
+        projectId: project.id,
+        action: 'ai_brand_analysis',
+        description: `AI brand analysis completed for ${project.name} from website`,
+        metadata: { 
+          brandKitId: brandKit.id, 
+          websiteUrl: project.websiteUrl,
+          colorsExtracted: brandExtraction.colors.brandColors.length,
+          logoFound: !!brandExtraction.logo.logoUrl
+        }
+      });
+
+      res.json({
+        ...brandKit,
+        analysis: brandExtraction,
+        message: "Brand analysis completed successfully"
+      });
+    } catch (error) {
+      console.error("Error analyzing brand from website:", error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({ message: `Brand analysis failed: ${errorMessage}` });
+    }
+  });
+
+  // Deck generation route
+  app.post('/api/projects/:id/generate-deck', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const project = await storage.getProject(req.params.id);
+      
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      if (!project.businessProfile) {
+        return res.status(400).json({ message: "Business analysis must be completed first" });
+      }
+
+      // Get brand kit - either from request or get the project's default brand kit
+      let brandKit = null;
+      if (req.body.brandKitId) {
+        brandKit = await storage.getBrandKit(req.body.brandKitId);
+      } else {
+        // Get project's brand kits and use the first one
+        const brandKits = await storage.getProjectBrandKits(req.params.id);
+        if (brandKits && brandKits.length > 0) {
+          brandKit = brandKits[0];
+        }
+      }
+
+      // Generate slides using AI with latest business profile and brand kit
+      const brandingInfo = brandKit ? {
+        primaryColor: brandKit.primaryColor || undefined,
+        secondaryColor: brandKit.secondaryColor || undefined,
+        accentColor: brandKit.accentColor || undefined,
+        fontFamily: brandKit.fontFamily || undefined,
+        logoUrl: brandKit.logoUrl || undefined
+      } : undefined;
+
+      const slides = await generatePitchDeckSlides(
+        project.businessProfile as any,
+        brandingInfo
+      );
+
+      const deckData = insertDeckSchema.parse({
+        projectId: req.params.id,
+        brandKitId: brandKit?.id || null,
+        title: `${project.name} Pitch Deck`,
+        slides,
+        status: 'generated'
+      });
+
+      const deck = await storage.createDeck(deckData);
+      
+      // Generate PDF with complete slide data
+      try {
+        const pdfUrl = await generatePitchDeckPDF({
+          slides: slides as any,
+          title: `${project.name} Pitch Deck`,
+          branding: brandingInfo,
+          projectName: project.name
+        });
+        
+        // Update deck with PDF URL
+        await storage.updateDeck(deck.id, { pdfUrl });
+        console.log(`PDF generated successfully for deck ${deck.id}: ${pdfUrl}`);
+      } catch (pdfError) {
+        console.error("PDF generation failed:", pdfError);
+        // Continue without PDF - deck is still created
+      }
+
+      // Update project status
+      await storage.updateProject(req.params.id, { status: 'deck_ready' });
+
+      // Log activity
+      await storage.logActivity({
+        userId,
+        projectId: project.id,
+        action: 'deck_generated',
+        description: `Pitch deck generated for ${project.name}`,
+        metadata: { deckId: deck.id }
+      });
+
+      res.json(deck);
+    } catch (error) {
+      console.error("Error generating deck:", error);
+      res.status(500).json({ message: "Failed to generate pitch deck" });
+    }
+  });
+
+  // Deck routes
+  app.get('/api/projects/:id/decks', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const project = await storage.getProject(req.params.id);
+      
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const decks = await storage.getProjectDecks(req.params.id);
+      res.json(decks);
+    } catch (error) {
+      console.error("Error fetching decks:", error);
+      res.status(500).json({ message: "Failed to fetch decks" });
+    }
+  });
+
+  // Update slide content and styling
+  app.put('/api/decks/:deckId/slides/:slideId', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { deckId, slideId } = req.params;
+      const updates = req.body;
+      
+      // Get the deck first to verify ownership
+      const deck = await storage.getDeck(deckId);
+      if (!deck) {
+        return res.status(404).json({ message: "Deck not found" });
+      }
+      
+      // Get the project to verify user ownership
+      const project = await storage.getProject(deck.projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(403).json({ message: "Not authorized to edit this deck" });
+      }
+      
+      // Find and update the specific slide
+      const slides = Array.isArray(deck.slides) ? deck.slides : [];
+      const slideIndex = slides.findIndex(slide => slide.id === slideId);
+      
+      if (slideIndex === -1) {
+        return res.status(404).json({ message: "Slide not found" });
+      }
+      
+      // Update the slide with the new data - only allow specific properties for security
+      const { title, content, layout, styling } = updates;
+      slides[slideIndex] = { 
+        ...slides[slideIndex], 
+        ...(title !== undefined && { title }),
+        ...(content !== undefined && { content }),
+        ...(layout !== undefined && { layout }),
+        ...(styling !== undefined && { styling })
+      };
+      
+      // Update the deck with the modified slides
+      const updatedDeck = await storage.updateDeck(deckId, { slides });
+      
+      // Log activity with rich text formatting info
+      const activityDescription = `Updated slide "${updates.title || slides[slideIndex].title}" in deck "${deck.title}"`;
+      const hasRichContent = updates.content && (
+        updates.content.titleHtml || 
+        updates.content.descriptionHtml || 
+        updates.content.bulletPointsHtml || 
+        updates.content.callToActionHtml
+      );
+      
+      await storage.logActivity({
+        userId,
+        projectId: project.id,
+        action: 'slide_updated',
+        description: hasRichContent ? `${activityDescription} with rich text formatting` : activityDescription,
+        metadata: { 
+          deckId, 
+          slideId, 
+          slideTitle: updates.title || slides[slideIndex].title,
+          hasRichFormatting: Boolean(hasRichContent)
+        }
+      });
+      
+      res.json({ success: true, deck: updatedDeck });
+    } catch (error) {
+      console.error("Error updating slide:", error);
+      res.status(500).json({ message: "Failed to update slide" });
+    }
+  });
+
+  // Add PDF regeneration endpoint
+  app.post('/api/decks/:id/regenerate-pdf', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const deckId = req.params.id;
+      
+      const deck = await storage.getDeck(deckId);
+      if (!deck) {
+        return res.status(404).json({ message: "Deck not found" });
+      }
+
+      const project = await storage.getProject(deck.projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(403).json({ message: "Not authorized to regenerate PDF for this deck" });
+      }
+
+      // Get brand kit info for PDF generation
+      const brandKit = deck.brandKitId ? await storage.getBrandKit(deck.brandKitId) : null;
+      const brandingInfo = brandKit ? {
+        primaryColor: brandKit.primaryColor || undefined,
+        secondaryColor: brandKit.secondaryColor || undefined,
+        accentColor: brandKit.accentColor || undefined,
+        fontFamily: brandKit.fontFamily || undefined,
+        logoUrl: brandKit.logoUrl || undefined
+      } : undefined;
+
+      // Generate new PDF
+      const pdfUrl = await generatePitchDeckPDF({
+        slides: deck.slides as any,
+        title: deck.title,
+        branding: brandingInfo,
+        projectName: project.name
+      });
+
+      // Update deck with new PDF URL
+      await storage.updateDeck(deckId, { pdfUrl });
+
+      console.log(`PDF regenerated successfully for deck ${deckId}: ${pdfUrl}`);
+
+      res.json({ success: true, pdfUrl });
+    } catch (error) {
+      console.error("Error regenerating PDF:", error);
+      res.status(500).json({ message: "Failed to regenerate PDF" });
+    }
+  });
+
+  app.get('/api/decks/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const deck = await storage.getDeck(req.params.id);
+      if (!deck) {
+        return res.status(404).json({ message: "Deck not found" });
+      }
+
+      // Verify user owns this deck through project
+      const project = await storage.getProject(deck.projectId);
+      if (!project || project.userId !== req.user.claims.sub) {
+        return res.status(404).json({ message: "Deck not found" });
+      }
+
+      res.json(deck);
+    } catch (error) {
+      console.error("Error fetching deck:", error);
+      res.status(500).json({ message: "Failed to fetch deck" });
+    }
+  });
+
+  // Update brand kit route
+  app.put('/api/projects/:id/brand-kits/:brandKitId', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const project = await storage.getProject(req.params.id);
+      
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const brandKit = await storage.getBrandKit(req.params.brandKitId);
+      if (!brandKit || brandKit.projectId !== req.params.id) {
+        return res.status(404).json({ message: "Brand kit not found" });
+      }
+
+      const updateData = {
+        name: req.body.name,
+        primaryColor: req.body.primaryColor,
+        secondaryColor: req.body.secondaryColor,
+        accentColor: req.body.accentColor,
+        fontFamily: req.body.fontFamily,
+        logoUrl: req.body.logoUrl
+      };
+
+      const updatedBrandKit = await storage.updateBrandKit(req.params.brandKitId, updateData);
+
+      // Log activity
+      await storage.logActivity({
+        userId,
+        projectId: project.id,
+        action: 'brand_kit_updated',
+        description: `Brand kit updated for ${project.name}`,
+        metadata: { brandKitId: updatedBrandKit.id }
+      });
+
+      res.json(updatedBrandKit);
+    } catch (error) {
+      console.error("Error updating brand kit:", error);
+      res.status(500).json({ message: "Failed to update brand kit" });
+    }
+  });
+
+  // CRM routes
+  app.get('/api/crm/contacts', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const contacts = await storage.getUserContacts(userId);
+      res.json(contacts);
+    } catch (error) {
+      console.error("Error fetching contacts:", error);
+      res.status(500).json({ message: "Failed to fetch contacts" });
+    }
+  });
+
+  app.post('/api/crm/contacts', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const contactData = insertCrmContactSchema.parse({
+        ...req.body,
+        userId
+      });
+
+      const contact = await storage.createContact(contactData);
+      res.json(contact);
+    } catch (error) {
+      console.error("Error creating contact:", error);
+      res.status(400).json({ message: "Failed to create contact" });
+    }
+  });
+
+  app.post('/api/crm/contacts/import', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { csvData, contacts } = req.body;
+      
+      let contactsToImport = [];
+      
+      if (csvData) {
+        // Parse CSV data
+        const lines = csvData.trim().split('\n');
+        if (lines.length < 2) {
+          return res.status(400).json({ message: "CSV data must have at least a header row and one data row" });
+        }
+        
+        const headers = lines[0].split(',').map((h: string) => h.trim().toLowerCase());
+        const requiredHeaders = ['firstname', 'lastname', 'email'];
+        const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
+        
+        if (missingHeaders.length > 0) {
+          return res.status(400).json({ 
+            message: `Missing required headers: ${missingHeaders.join(', ')}` 
+          });
+        }
+        
+        for (let i = 1; i < lines.length; i++) {
+          const values = lines[i].split(',').map((v: string) => v.trim().replace(/^"|"$/g, ''));
+          const contact: any = { userId };
+          
+          headers.forEach((header: string, index: number) => {
+            const value = values[index] || '';
+            switch (header) {
+              case 'firstname':
+                contact.firstName = value;
+                break;
+              case 'lastname':
+                contact.lastName = value;
+                break;
+              case 'email':
+                contact.email = value;
+                break;
+              case 'company':
+                contact.company = value;
+                break;
+              case 'title':
+                contact.title = value;
+                break;
+              case 'phone':
+                contact.phone = value;
+                break;
+              case 'notes':
+                contact.notes = value;
+                break;
+              case 'tags':
+                contact.tags = value ? value.split(';').map((t: string) => t.trim()).filter((t: string) => t) : [];
+                break;
+            }
+          });
+          
+          if (contact.firstName && contact.lastName && contact.email) {
+            contactsToImport.push(contact);
+          }
+        }
+      } else if (contacts) {
+        contactsToImport = contacts.map((contact: any) => ({ ...contact, userId }));
+      } else {
+        return res.status(400).json({ message: "Either csvData or contacts array is required" });
+      }
+      
+      let imported = 0;
+      const errors = [];
+      
+      for (const contactData of contactsToImport) {
+        try {
+          const validatedData = insertCrmContactSchema.parse(contactData);
+          await storage.createContact(validatedData);
+          imported++;
+        } catch (error) {
+          console.error("Error importing contact:", error);
+          errors.push(`${contactData.firstName} ${contactData.lastName}: ${(error as Error).message}`);
+        }
+      }
+      
+      // Log activity
+      await storage.logActivity({
+        userId,
+        action: "contacts_imported",
+        description: `Imported ${imported} contacts`,
+        metadata: { imported, errors: errors.length }
+      });
+      
+      res.json({ 
+        imported, 
+        errors: errors.length, 
+        errorDetails: errors.slice(0, 10) // Limit error details
+      });
+    } catch (error) {
+      console.error("Error importing contacts:", error);
+      res.status(500).json({ message: "Failed to import contacts" });
+    }
+  });
+
+  app.put('/api/crm/contacts/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const contact = await storage.getContact(req.params.id);
+      if (!contact || contact.userId !== req.user.claims.sub) {
+        return res.status(404).json({ message: "Contact not found" });
+      }
+
+      const updatedContact = await storage.updateContact(req.params.id, req.body);
+      res.json(updatedContact);
+    } catch (error) {
+      console.error("Error updating contact:", error);
+      res.status(500).json({ message: "Failed to update contact" });
+    }
+  });
+
+  app.delete('/api/crm/contacts/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const contact = await storage.getContact(req.params.id);
+      if (!contact || contact.userId !== req.user.claims.sub) {
+        return res.status(404).json({ message: "Contact not found" });
+      }
+
+      await storage.deleteContact(req.params.id);
+      res.json({ message: "Contact deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting contact:", error);
+      res.status(500).json({ message: "Failed to delete contact" });
+    }
+  });
+
+  // Object storage routes for file uploads
+  app.get("/objects/:objectPath(*)", isAuthenticated, async (req, res) => {
+    const userId = (req.user as any)?.claims?.sub;
+    const objectStorageService = new ObjectStorageService();
+    try {
+      const objectFile = await objectStorageService.getObjectEntityFile(
+        req.path,
+      );
+      const canAccess = await objectStorageService.canAccessObjectEntity({
+        objectFile,
+        userId: userId,
+        requestedPermission: ObjectPermission.READ,
+      });
+      if (!canAccess) {
+        return res.sendStatus(401);
+      }
+      objectStorageService.downloadObject(objectFile, res);
+    } catch (error) {
+      console.error("Error checking object access:", error);
+      if (error instanceof ObjectNotFoundError) {
+        return res.sendStatus(404);
+      }
+      return res.sendStatus(500);
+    }
+  });
+
+  app.post("/api/objects/upload", isAuthenticated, async (req, res) => {
+    const objectStorageService = new ObjectStorageService();
+    const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+    res.json({ uploadURL });
+  });
+
+  app.put("/api/project-files", isAuthenticated, async (req, res) => {
+    if (!req.body.fileURL || !req.body.projectId) {
+      return res.status(400).json({ error: "fileURL and projectId are required" });
+    }
+
+    const userId = (req.user as any)?.claims?.sub;
+
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const objectPath = await objectStorageService.trySetObjectEntityAclPolicy(
+        req.body.fileURL,
+        {
+          owner: userId,
+          visibility: "private", // Project files are private
+        },
+      );
+
+      res.status(200).json({
+        objectPath: objectPath,
+      });
+    } catch (error) {
+      console.error("Error setting project file:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // CRM Contact routes
+  app.get('/api/crm/contacts', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const contacts = await storage.getUserContacts(userId);
+      res.json(contacts);
+    } catch (error) {
+      console.error("Error fetching contacts:", error);
+      res.status(500).json({ message: "Failed to fetch contacts" });
+    }
+  });
+
+  app.get('/api/crm/contacts/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      const contact = await storage.getContact(id);
+      if (!contact || contact.userId !== userId) {
+        return res.status(404).json({ message: "Contact not found" });
+      }
+      
+      res.json(contact);
+    } catch (error) {
+      console.error("Error fetching contact:", error);
+      res.status(500).json({ message: "Failed to fetch contact" });
+    }
+  });
+
+  app.post('/api/crm/contacts', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const contactData = insertCrmContactSchema.parse({
+        ...req.body,
+        userId,
+      });
+      const contact = await storage.createContact(contactData);
+      
+      // Log activity
+      await storage.logActivity({
+        userId,
+        action: "contact_created",
+        description: `Added new contact: ${contact.firstName} ${contact.lastName}`,
+        metadata: { contactId: contact.id }
+      });
+      
+      res.json(contact);
+    } catch (error) {
+      console.error("Error creating contact:", error);
+      res.status(500).json({ message: "Failed to create contact" });
+    }
+  });
+
+  app.put('/api/crm/contacts/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      // Verify contact belongs to user
+      const contact = await storage.getContact(id);
+      if (!contact || contact.userId !== userId) {
+        return res.status(404).json({ message: "Contact not found" });
+      }
+      
+      const updatedContact = await storage.updateContact(id, req.body);
+      res.json(updatedContact);
+    } catch (error) {
+      console.error("Error updating contact:", error);
+      res.status(500).json({ message: "Failed to update contact" });
+    }
+  });
+
+  app.delete('/api/crm/contacts/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      // Verify contact belongs to user
+      const contact = await storage.getContact(id);
+      if (!contact || contact.userId !== userId) {
+        return res.status(404).json({ message: "Contact not found" });
+      }
+      
+      await storage.deleteContact(id);
+      
+      // Log activity
+      await storage.logActivity({
+        userId,
+        action: "contact_deleted",
+        description: `Deleted contact: ${contact.firstName} ${contact.lastName}`,
+        metadata: { contactId: contact.id }
+      });
+      
+      res.json({ message: "Contact deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting contact:", error);
+      res.status(500).json({ message: "Failed to delete contact" });
+    }
+  });
+
+  // Audience routes
+  app.get('/api/crm/audiences', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const audiences = await storage.getUserAudiences(userId);
+      res.json(audiences);
+    } catch (error) {
+      console.error("Error fetching audiences:", error);
+      res.status(500).json({ message: "Failed to fetch audiences" });
+    }
+  });
+
+  app.get('/api/crm/audiences/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      const audience = await storage.getAudience(id);
+      if (!audience || audience.userId !== userId) {
+        return res.status(404).json({ message: "Audience not found" });
+      }
+      
+      res.json(audience);
+    } catch (error) {
+      console.error("Error fetching audience:", error);
+      res.status(500).json({ message: "Failed to fetch audience" });
+    }
+  });
+
+  app.post('/api/crm/audiences', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      let contactIds: string[] = [];
+      
+      // If specific contact IDs are provided (selected contacts), use those
+      if (req.body.filterCriteria?.contactIds && Array.isArray(req.body.filterCriteria.contactIds)) {
+        contactIds = req.body.filterCriteria.contactIds;
+      } else {
+        // Otherwise, get contacts based on filter criteria
+        const filteredContacts = await storage.getContactsByFilter(userId, req.body.filterCriteria);
+        contactIds = filteredContacts.map(contact => contact.id);
+      }
+      
+      const audienceData = insertAudienceSchema.parse({
+        ...req.body,
+        userId,
+        contactIds,
+      });
+      
+      const audience = await storage.createAudience(audienceData);
+      
+      // Log activity
+      await storage.logActivity({
+        userId,
+        action: "audience_created",
+        description: `Created audience: ${audience.name} with ${contactIds.length} contacts`,
+        metadata: { audienceId: audience.id, contactCount: contactIds.length }
+      });
+      
+      res.json(audience);
+    } catch (error) {
+      console.error("Error creating audience:", error);
+      res.status(500).json({ message: "Failed to create audience" });
+    }
+  });
+
+  app.put('/api/crm/audiences/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      // Verify audience belongs to user
+      const audience = await storage.getAudience(id);
+      if (!audience || audience.userId !== userId) {
+        return res.status(404).json({ message: "Audience not found" });
+      }
+      
+      let contactIds: string[] = [];
+      
+      // Frontend sends selected contact IDs directly as filterCriteria array
+      if (req.body.filterCriteria && Array.isArray(req.body.filterCriteria)) {
+        // This is the case when editing audience - frontend sends selected contact IDs as array
+        contactIds = req.body.filterCriteria;
+      } else if (req.body.filterCriteria?.contactIds && Array.isArray(req.body.filterCriteria.contactIds)) {
+        // This is for compatibility with other potential filter structures
+        contactIds = req.body.filterCriteria.contactIds;
+      } else if (req.body.filterCriteria && typeof req.body.filterCriteria === 'object') {
+        // Handle filter criteria based on tags, company, etc.
+        const filteredContacts = await storage.getContactsByFilter(userId, req.body.filterCriteria);
+        contactIds = filteredContacts.map(contact => contact.id);
+      }
+      
+      const updateData = {
+        ...req.body,
+        contactIds,
+        filterCriteria: req.body.filterCriteria
+      };
+      
+      const updatedAudience = await storage.updateAudience(id, updateData);
+      
+      // Log activity
+      await storage.logActivity({
+        userId,
+        action: "audience_updated",
+        description: `Updated audience: ${updatedAudience.name} with ${updateData.contactIds?.length || 0} contacts`,
+        metadata: { audienceId: updatedAudience.id, contactCount: updateData.contactIds?.length || 0 }
+      });
+      
+      res.json(updatedAudience);
+    } catch (error) {
+      console.error("Error updating audience:", error);
+      res.status(500).json({ message: "Failed to update audience" });
+    }
+  });
+
+  app.delete('/api/crm/audiences/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      // Verify audience belongs to user
+      const audience = await storage.getAudience(id);
+      if (!audience || audience.userId !== userId) {
+        return res.status(404).json({ message: "Audience not found" });
+      }
+      
+      await storage.deleteAudience(id);
+      
+      // Log activity
+      await storage.logActivity({
+        userId,
+        action: "audience_deleted",
+        description: `Deleted audience: ${audience.name}`,
+        metadata: { audienceId: audience.id }
+      });
+      
+      res.json({ message: "Audience deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting audience:", error);
+      res.status(500).json({ message: "Failed to delete audience" });
+    }
+  });
+
+  // Contact filtering for audience creation
+  app.post('/api/crm/contacts/filter', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const filteredContacts = await storage.getContactsByFilter(userId, req.body);
+      res.json(filteredContacts);
+    } catch (error) {
+      console.error("Error filtering contacts:", error);
+      res.status(500).json({ message: "Failed to filter contacts" });
+    }
+  });
+
+  // Campaign routes
+  app.get('/api/projects/:projectId/campaigns', isAuthenticated, async (req: any, res) => {
+    try {
+      const { projectId } = req.params;
+      const userId = req.user.claims.sub;
+      
+      // Verify project belongs to user
+      const project = await storage.getProject(projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      const campaigns = await storage.getProjectCampaigns(projectId);
+      res.json(campaigns);
+    } catch (error) {
+      console.error("Error fetching campaigns:", error);
+      res.status(500).json({ message: "Failed to fetch campaigns" });
+    }
+  });
+
+  app.get('/api/campaigns/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      const campaign = await storage.getCampaign(id);
+      if (!campaign) {
+        return res.status(404).json({ message: "Campaign not found" });
+      }
+      
+      // Verify user owns the project this campaign belongs to
+      const project = await storage.getProject(campaign.projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(403).json({ message: "Not authorized to view this campaign" });
+      }
+      
+      res.json(campaign);
+    } catch (error) {
+      console.error("Error fetching campaign:", error);
+      res.status(500).json({ message: "Failed to fetch campaign" });
+    }
+  });
+
+  app.post('/api/projects/:projectId/campaigns', isAuthenticated, async (req: any, res) => {
+    try {
+      const { projectId } = req.params;
+      const userId = req.user.claims.sub;
+      const { audienceId, ...campaignBody } = req.body;
+      
+      // Verify project belongs to user
+      const project = await storage.getProject(projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      // Get the project's deck
+      const decks = await storage.getProjectDecks(projectId);
+      if (decks.length === 0) {
+        return res.status(400).json({ message: "Project must have a deck before creating campaigns" });
+      }
+      
+      // Verify audience belongs to user (if provided)
+      let contactIds: string[] = [];
+      if (audienceId) {
+        const audience = await storage.getAudience(audienceId);
+        if (!audience || audience.userId !== userId) {
+          return res.status(404).json({ message: "Audience not found" });
+        }
+        contactIds = audience.contactIds || [];
+      }
+      
+      const campaignData = insertCampaignSchema.parse({
+        ...campaignBody,
+        projectId,
+        deckId: decks[0].id, // Use the latest deck
+      });
+      
+      const campaign = await storage.createCampaign(campaignData);
+      
+      // Add campaign recipients if audience is selected
+      if (contactIds.length > 0) {
+        await storage.addCampaignRecipients(campaign.id, contactIds);
+      }
+      
+      // Log activity
+      await storage.logActivity({
+        userId,
+        projectId,
+        action: "campaign_created",
+        description: `Created campaign: ${campaign.name}${audienceId ? ` with ${contactIds.length} recipients` : ''}`,
+        metadata: { 
+          campaignId: campaign.id,
+          audienceId,
+          recipientCount: contactIds.length
+        }
+      });
+      
+      res.json({ ...campaign, recipientCount: contactIds.length });
+    } catch (error) {
+      console.error("Error creating campaign:", error);
+      res.status(500).json({ message: "Failed to create campaign" });
+    }
+  });
+
+  app.put('/api/campaigns/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      const campaign = await storage.getCampaign(id);
+      if (!campaign) {
+        return res.status(404).json({ message: "Campaign not found" });
+      }
+      
+      // Verify user owns the project this campaign belongs to
+      const project = await storage.getProject(campaign.projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(403).json({ message: "Not authorized to update this campaign" });
+      }
+      
+      const updatedCampaign = await storage.updateCampaign(id, req.body);
+      
+      // Log activity
+      await storage.logActivity({
+        userId,
+        projectId: campaign.projectId,
+        action: "campaign_updated",
+        description: `Updated campaign: ${updatedCampaign.name}`,
+        metadata: { campaignId: campaign.id }
+      });
+      
+      res.json(updatedCampaign);
+    } catch (error) {
+      console.error("Error updating campaign:", error);
+      res.status(500).json({ message: "Failed to update campaign" });
+    }
+  });
+
+  app.get('/api/campaigns/:id/stats', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      const campaign = await storage.getCampaign(id);
+      if (!campaign) {
+        return res.status(404).json({ message: "Campaign not found" });
+      }
+      
+      // Verify user owns the project this campaign belongs to
+      const project = await storage.getProject(campaign.projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(403).json({ message: "Not authorized to view this campaign" });
+      }
+      
+      // Return campaign statistics
+      res.json({
+        sentCount: campaign.sentCount || 0,
+        openCount: campaign.openCount || 0,
+        clickCount: campaign.clickCount || 0,
+        responseRate: (campaign.sentCount || 0) > 0 ? Math.round((campaign.clickCount || 0) / (campaign.sentCount || 1) * 100) : 0
+      });
+    } catch (error) {
+      console.error("Error fetching campaign stats:", error);
+      res.status(500).json({ message: "Failed to fetch campaign stats" });
+    }
+  });
+
+  app.get('/api/projects/:projectId/analytics', isAuthenticated, async (req: any, res) => {
+    try {
+      const { projectId } = req.params;
+      const userId = req.user.claims.sub;
+      
+      // Verify project belongs to user
+      const project = await storage.getProject(projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      const analytics = await storage.getProjectAnalytics(projectId);
+      res.json(analytics);
+    } catch (error) {
+      console.error("Error fetching project analytics:", error);
+      res.status(500).json({ message: "Failed to fetch project analytics" });
+    }
+  });
+
+  app.post('/api/projects/:projectId/ai-improve-text', isAuthenticated, async (req: any, res) => {
+    try {
+      const { projectId } = req.params;
+      const { text, context } = req.body;
+      const userId = req.user.claims.sub;
+      
+      // Verify project belongs to user
+      const project = await storage.getProject(projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      const { improveSlideText } = await import('../services/openai');
+      const improvedText = await improveSlideText(text, context, project.businessProfile);
+      res.json({ improvedText });
+    } catch (error) {
+      console.error("Error improving text with AI:", error);
+      res.status(500).json({ message: "Failed to improve text" });
+    }
+  });
+
+  app.get('/api/campaigns/:id/recipients', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      const campaign = await storage.getCampaign(id);
+      if (!campaign) {
+        return res.status(404).json({ message: "Campaign not found" });
+      }
+      
+      // Verify user owns the project this campaign belongs to
+      const project = await storage.getProject(campaign.projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(403).json({ message: "Not authorized to view this campaign" });
+      }
+      
+      const recipients = await storage.getCampaignRecipients(id);
+      res.json(recipients);
+    } catch (error) {
+      console.error("Error fetching campaign recipients:", error);
+      res.status(500).json({ message: "Failed to fetch campaign recipients" });
+    }
+  });
+
+  app.post('/api/campaigns/:id/send', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.claims.sub;
+      
+      const campaign = await storage.getCampaign(id);
+      if (!campaign) {
+        return res.status(404).json({ message: "Campaign not found" });
+      }
+      
+      // Verify user owns the project this campaign belongs to
+      const project = await storage.getProject(campaign.projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(403).json({ message: "Not authorized to send this campaign" });
+      }
+      
+      // Get campaign recipients
+      const recipients = await storage.getCampaignRecipients(id);
+      
+      if (recipients.length === 0) {
+        return res.status(400).json({ message: "Campaign has no recipients. Please select an audience first." });
+      }
+      
+      // Update campaign status and sent count
+      await storage.updateCampaign(id, {
+        status: 'sent',
+        sentCount: recipients.length
+      });
+      
+      // Update all recipients status to 'sent'
+      for (const recipient of recipients) {
+        await storage.updateRecipientStatus(id, recipient.contactId, 'sent');
+      }
+      
+      // Log activity
+      await storage.logActivity({
+        userId,
+        projectId: campaign.projectId,
+        action: "campaign_sent",
+        description: `Sent campaign: ${campaign.name} to ${recipients.length} recipients`,
+        metadata: { campaignId: campaign.id, recipientCount: recipients.length }
+      });
+      
+      res.json({ 
+        success: true, 
+        message: `Campaign sent to ${recipients.length} recipients`,
+        sentCount: recipients.length
+      });
+    } catch (error) {
+      console.error("Error sending campaign:", error);
+      res.status(500).json({ message: "Failed to send campaign" });
+    }
+  });
+
+  // Add new slide to deck
+  app.post(`/api/decks/:deckId/slides`, isAuthenticated, async (req, res) => {
+    try {
+      const deckId = req.params.deckId;
+      const slideData = req.body;
+      
+      const deck = await storage.getDeck(deckId);
+      if (!deck) {
+        return res.status(404).json({ error: 'Deck not found' });
+      }
+
+      const newSlide = await storage.createSlide({
+        deckId,
+        ...slideData,
+      });
+      
+      res.json(newSlide);
+    } catch (error) {
+      console.error('Error creating slide:', error);
+      res.status(500).json({ error: 'Failed to create slide' });
+    }
+  });
+
+  // Delete slide from deck
+  app.delete(`/api/decks/:deckId/slides/:slideId`, isAuthenticated, async (req, res) => {
+    try {
+      const { deckId, slideId } = req.params;
+      
+      const deck = await storage.getDeck(deckId);
+      if (!deck) {
+        return res.status(404).json({ error: 'Deck not found' });
+      }
+
+      await storage.deleteSlide(slideId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting slide:', error);
+      res.status(500).json({ error: 'Failed to delete slide' });
+    }
+  });
+
+  // Reorder slides in deck
+  app.put(`/api/decks/:deckId/slides/reorder`, isAuthenticated, async (req, res) => {
+    try {
+      const deckId = req.params.deckId;
+      const { slideOrders } = req.body;
+      
+      const deck = await storage.getDeck(deckId);
+      if (!deck) {
+        return res.status(404).json({ error: 'Deck not found' });
+      }
+
+      for (const { slideId, order } of slideOrders) {
+        await storage.updateSlide(slideId, { order });
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error reordering slides:', error);
+      res.status(500).json({ error: 'Failed to reorder slides' });
+    }
+  });
+
+  const httpServer = createServer(app);
+  return httpServer;
+}
+
+// Enhanced project analysis function with comprehensive research
+async function analyzeProjectWithEnhancedResearch(project: any) {
+  try {
+    const websiteCrawler = new WebsiteCrawler();
+    const businessResearcher = new BusinessResearcher();
+    const financialAnalyzer = new FinancialAnalyzer();
+    
+    let websiteData = null;
+    let marketAnalysis = null;
+    let competitorAnalysis = null;
+    let businessResearch = null;
+    let businessInsights = null;
+    let financialAnalysis = null;
+    
+    // Crawl website if URL provided
+    if (project.websiteUrl) {
+      try {
+        console.log(`Crawling website: ${project.websiteUrl}`);
+        websiteData = await websiteCrawler.crawlWebsite(project.websiteUrl);
+      } catch (error) {
+        console.error("Website crawling failed:", error);
+        // Continue without website data
+      }
+    }
+
+    // Conduct comprehensive business research
+    const companyName = project.name;
+    const industry = project.industry || 'Technology';
+    const description = project.description || 'Innovative company';
+
+    try {
+      console.log("Conducting market analysis...");
+      marketAnalysis = await businessResearcher.conductMarketAnalysis(
+        companyName, industry, description, websiteData
+      );
+    } catch (error) {
+      console.error("Market analysis failed:", error);
+    }
+
+    try {
+      console.log("Analyzing competitors...");
+      competitorAnalysis = await businessResearcher.analyzeCompetitors(
+        companyName, industry, description, websiteData
+      );
+    } catch (error) {
+      console.error("Competitor analysis failed:", error);
+    }
+
+    try {
+      console.log("Conducting business research...");
+      businessResearch = await businessResearcher.conductBusinessResearch(
+        companyName, industry, description, websiteData
+      );
+    } catch (error) {
+      console.error("Business research failed:", error);
+    }
+
+    try {
+      console.log("Generating business insights...");
+      businessInsights = await businessResearcher.generateBusinessInsights(
+        companyName, description, websiteData, marketAnalysis || undefined, competitorAnalysis || undefined, businessResearch || undefined
+      );
+    } catch (error) {
+      console.error("Business insights generation failed:", error);
+    }
+
+    // Generate comprehensive financial analysis
+    try {
+      console.log("Generating financial analysis and revenue projections...");
+      const businessModel = businessResearch?.businessModel?.revenueStreams?.[0] || 'SaaS/Subscription';
+      const targetMarket = marketAnalysis?.targetCustomers?.primarySegment || 'Technology companies';
+      const marketSize = marketAnalysis?.marketSize?.totalAddressableMarket || 'Large addressable market';
+      
+      financialAnalysis = await financialAnalyzer.generateRevenueProjections(
+        businessModel,
+        targetMarket,
+        marketSize,
+        industry,
+        websiteData
+      );
+    } catch (error) {
+      console.error("Financial analysis failed:", error);
+    }
+
+    // Create comprehensive business profile
+    const businessProfile = {
+      companyName: project.name,
+      industry: project.industry || industry,
+      description: project.description || description,
+      website: project.websiteUrl,
+      
+      // Enhanced research data
+      websiteData,
+      marketAnalysis,
+      competitorAnalysis,
+      businessResearch,
+      businessInsights,
+      financialAnalysis,
+      
+      // Core business information (derived from research)
+      businessDescription: businessInsights?.businessDescription || websiteData?.keyData?.companyInfo || description || 'Innovative technology company',
+      problemStatement: businessInsights?.problemStatement || 'Solving key market challenges through innovative technology',
+      businessModel: businessInsights?.businessModel?.revenueStreams?.[0] || businessResearch?.businessModel?.revenueStreams?.[0] || 'SaaS/Subscription',
+      targetMarket: businessInsights?.goToMarketStrategy?.customerSegments?.[0] || marketAnalysis?.targetCustomers?.primarySegment || 'Technology companies',
+      valueProposition: businessInsights?.valueProposition || 'Innovative solution for market needs',
+      keyFeatures: websiteData?.keyData?.products?.slice(0, 5) || ['Innovative features', 'User-friendly interface'],
+      teamSize: 'Startup (5-20 employees)',
+      stage: 'Growth Stage',
+      fundingGoal: '$1M - $5M Series A',
+      
+      // Additional insights
+      marketOpportunity: marketAnalysis?.marketSize?.totalAddressableMarket || 'Large addressable market',
+      competitiveAdvantage: businessInsights?.competitiveAdvantages || competitorAnalysis?.competitiveAdvantages || ['Unique technology', 'Strong team'],
+      revenueModel: businessResearch?.businessModel?.revenueStreams || ['Subscription', 'Usage-based'],
+      customerSegments: marketAnalysis?.targetCustomers?.secondarySegments || ['SMBs', 'Enterprise'],
+      keyMetrics: ['Revenue growth', 'Customer acquisition', 'User engagement'],
+      riskFactors: businessResearch?.riskAnalysis?.marketRisks || ['Market competition', 'Technology risks'],
+      growthStrategy: businessInsights?.goToMarketStrategy || ['Product development', 'Market expansion'],
+      
+      // Financial projections and analysis
+      revenueProjections: financialAnalysis?.revenueProjections || null,
+      fundingRequirements: financialAnalysis?.fundingRequirements || null,
+      keyFinancialMetrics: financialAnalysis?.keyMetrics || null,
+      businessValuation: {
+        stage: financialAnalysis?.fundingRequirements?.fundingStage || 'Pre-seed to Seed',
+        projectedRevenue: {
+          year1: financialAnalysis?.revenueProjections?.year1?.revenue || 'Not available',
+          year2: financialAnalysis?.revenueProjections?.year2?.revenue || 'Not available',
+          year3: financialAnalysis?.revenueProjections?.year3?.revenue || 'Not available'
+        },
+        fundingNeeds: financialAnalysis?.fundingRequirements?.initialCapital || 'To be determined'
+      },
+      
+      // Research metadata
+      researchDate: new Date().toISOString(),
+      researchSources: [
+        websiteData ? 'Website crawling' : null,
+        marketAnalysis ? 'Market analysis' : null,
+        competitorAnalysis ? 'Competitor research' : null,
+        businessResearch ? 'Business research' : null,
+        businessInsights ? 'AI insights' : null,
+        financialAnalysis ? 'Financial analysis' : null
+      ].filter(Boolean)
+    };
+    
+    return businessProfile;
+  } catch (error) {
+    console.error("Enhanced analysis error:", error);
+    throw new Error("Failed to conduct enhanced business analysis");
+  }
+}
