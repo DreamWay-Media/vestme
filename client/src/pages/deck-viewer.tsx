@@ -37,6 +37,13 @@ interface Slide {
     backgroundColor?: string;
     backgroundImage?: string;
   };
+  // Drag and drop positioning
+  positionedElements?: {
+    title?: { x: number; y: number; width?: number; height?: number };
+    description?: { x: number; y: number; width?: number; height?: number };
+    bullets?: { x: number; y: number; width?: number; height?: number };
+    logo?: { x: number; y: number; width?: number; height?: number };
+  };
 }
 
 interface Deck {
@@ -56,6 +63,9 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
   const [editingSlide, setEditingSlide] = useState<Slide | null>(null);
+  const [draggedElement, setDraggedElement] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -78,6 +88,21 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     enabled: !!deckId && isAuthenticated,
   }) as { data: Deck | undefined, isLoading: boolean, error: any };
 
+  // Debug: Log deck data to see if positionedElements are present
+  useEffect(() => {
+    if (deck) {
+      console.log('=== DECK DATA RECEIVED FROM SERVER ===');
+      console.log('Deck data received from server:', deck);
+      console.log('Slides with positioning data:', deck.slides?.map(slide => ({
+        id: slide.id,
+        title: slide.title,
+        hasPositioning: !!slide.positionedElements,
+        positionedElements: slide.positionedElements,
+        positionedElementsKeys: slide.positionedElements ? Object.keys(slide.positionedElements) : []
+      })));
+    }
+  }, [deck]);
+
   // Fetch brand kit information for styling
   const { data: brandKits } = useQuery({
     queryKey: ["/api/projects", deck?.projectId, "brand-kits"],
@@ -93,8 +118,13 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     mutationFn: async (updates: { slideId: string; updates: Partial<Slide> }) => {
       return await apiRequest("PUT", `/api/decks/${deckId}/slides/${updates.slideId}`, updates.updates);
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       // Aggressively invalidate and refetch all related queries
+      console.log('=== MUTATION SUCCESS DEBUG ===');
+      console.log('Data returned from server:', data);
+      console.log('Current editing slide data:', editingSlide);
+      console.log('Positioned elements that were saved:', editingSlide?.positionedElements);
+      
       console.log('Invalidating queries for slide update...');
       queryClient.invalidateQueries({ queryKey: [`/api/decks/${deckId}`] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects", deck?.projectId, "decks"] });
@@ -161,7 +191,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
       
       toast({
         title: "Slide Updated",
-        description: "Slide has been updated successfully. If changes don't appear in generate deck, try refreshing that page.",
+        description: "Slide content, styling, and positioning have been saved successfully. Changes will appear in both deck view and PDF export.",
       });
     },
     onError: (error) => {
@@ -314,35 +344,51 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
   };
 
   const startEditing = (slide: Slide) => {
+    // Get the most current slide data from the deck to ensure we have the latest changes
+    const currentSlideData = deck?.slides?.find(s => s.id === slide.id) || slide;
+    
     // Ensure content structure exists and is properly initialized
     const slideWithContent = {
-      ...slide,
+      ...currentSlideData,
       content: {
-        description: slide.content?.description || slide.content?.content?.description || '',
-        bullets: Array.isArray(slide.content?.bullets) 
-          ? [...slide.content.bullets] 
-          : Array.isArray(slide.content?.content?.bullets)
-            ? [...slide.content.content.bullets]
+        // Handle both old single title and new multiple titles format
+        titles: currentSlideData.content?.titles || (currentSlideData.title ? [currentSlideData.title] : []),
+        // Handle both old single description and new multiple descriptions format
+        descriptions: currentSlideData.content?.descriptions || (currentSlideData.content?.description ? [currentSlideData.content.description] : []),
+        // Handle both old single logo and new multiple logos format
+        logos: currentSlideData.content?.logos || (currentSlideData.styling?.logoUrl ? [currentSlideData.styling.logoUrl] : (brandKits?.[0]?.logoUrl ? [brandKits[0].logoUrl] : [])),
+        bullets: Array.isArray(currentSlideData.content?.bullets) 
+          ? [...currentSlideData.content.bullets] 
+          : Array.isArray(currentSlideData.content?.content?.bullets)
+            ? [...currentSlideData.content.content.bullets]
             : []
       },
       styling: {
         // Initialize styling object with AI-generated font sizes or sensible defaults
-        fontFamily: slide.styling?.fontFamily || brandKits?.[0]?.fontFamily || 'Inter',
-        fontSize: slide.styling?.fontSize || 'medium',
-        titleFontSize: slide.styling?.titleFontSize || '3xl', // AI default: large impact
-        descriptionFontSize: slide.styling?.descriptionFontSize || 'lg', // AI default: clear readability
-        bulletFontSize: slide.styling?.bulletFontSize || 'base', // AI default: comfortable reading
+        fontFamily: currentSlideData.styling?.fontFamily || brandKits?.[0]?.fontFamily || 'Inter',
+        fontSize: currentSlideData.styling?.fontSize || 'medium',
+        titleFontSize: currentSlideData.styling?.titleFontSize || '3xl', // AI default: large impact
+        descriptionFontSize: currentSlideData.styling?.descriptionFontSize || 'lg', // AI default: clear readability
+        bulletFontSize: currentSlideData.styling?.bulletFontSize || 'base', // AI default: comfortable reading
         // Preserve existing styling properties
-        ...slide.styling
-      }
+        ...currentSlideData.styling
+      },
+      // Initialize positionedElements as empty object if it doesn't exist
+      positionedElements: currentSlideData.positionedElements || {}
     };
     
     console.log('Starting to edit slide:', {
       original: slide,
+      currentSlideData: currentSlideData,
       prepared: slideWithContent,
-      contentKeys: Object.keys(slide.content || {}),
-      nestedContentKeys: slide.content?.content ? Object.keys(slide.content.content) : 'none',
-      stylingObject: slideWithContent.styling
+      contentKeys: Object.keys(currentSlideData.content || {}),
+      nestedContentKeys: currentSlideData.content?.content ? Object.keys(currentSlideData.content.content) : 'none',
+      stylingObject: slideWithContent.styling,
+      positionedElements: slideWithContent.positionedElements,
+      titles: slideWithContent.content.titles,
+      descriptions: slideWithContent.content.descriptions,
+      logos: slideWithContent.content.logos,
+      brandKitLogo: brandKits?.[0]?.logoUrl
     });
     
     setIsEditing(true);
@@ -356,7 +402,9 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
 
   const saveSlide = () => {
     if (editingSlide) {
-      console.log('Saving slide with data:', editingSlide);
+      console.log('=== SAVE SLIDE DEBUG ===');
+      console.log('Editing slide before save:', editingSlide);
+      console.log('Positioned elements before save:', editingSlide.positionedElements);
       console.log('Styling being saved:', editingSlide.styling);
       console.log('Font family in styling:', editingSlide.styling?.fontFamily);
       console.log('Title font size in styling:', editingSlide.styling?.titleFontSize);
@@ -371,14 +419,17 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
         updates: editingSlide
       };
       
+      console.log('=== DATA BEING SENT TO SERVER ===');
       console.log('Sending to server:', updatesToSend);
       console.log('Updates object contains:', {
         title: editingSlide.title,
         content: editingSlide.content,
         styling: editingSlide.styling,
         backgroundColor: editingSlide.backgroundColor,
-        textColor: editingSlide.textColor
+        textColor: editingSlide.textColor,
+        positionedElements: editingSlide.positionedElements
       });
+      console.log('Full updatesToSend object:', updatesToSend);
       
       updateSlideMutation.mutate(updatesToSend);
     }
@@ -399,6 +450,22 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
         };
         console.log('Styling update - Font family:', value.fontFamily, 'Font size:', value.fontSize);
         console.log('Full styling object after merge:', updated.styling);
+      } else if (field === 'positionedElements') {
+        // Special handling for positioned elements to merge properly
+        updated = {
+          ...editingSlide,
+          positionedElements: {
+            ...editingSlide.positionedElements, // Preserve existing positioning
+            ...value // Merge new positioning values
+          }
+        };
+        console.log('=== POSITIONING UPDATE DEBUG ===');
+        console.log('Field being updated:', field);
+        console.log('New positioning value:', value);
+        console.log('Existing positionedElements:', editingSlide.positionedElements);
+        console.log('Merged positionedElements:', updated.positionedElements);
+        console.log('Positioning update - Element positions:', value);
+        console.log('Full positioned elements after merge:', updated.positionedElements);
       } else {
         // Handle other fields normally
         updated = {
@@ -424,6 +491,15 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
       });
       
       setEditingSlide(updated);
+      
+      // Debug: Log the state update
+      if (field === 'positionedElements') {
+        console.log('=== STATE UPDATE DEBUG ===');
+        console.log('Field updated:', field);
+        console.log('New value:', value);
+        console.log('Updated slide positionedElements:', updated.positionedElements);
+        console.log('State will be updated to:', updated);
+      }
     }
   };
 
@@ -442,37 +518,349 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     }
   };
 
+  // Drag and drop handlers
+  const handleMouseDown = (e: React.MouseEvent, elementType: string) => {
+    if (!editingSlide) return;
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    const offsetY = e.clientY - rect.top;
+    
+    setDraggedElement(elementType);
+    setIsDragging(true);
+    setDragOffset({ x: offsetX, y: offsetY });
+    
+    e.preventDefault();
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !draggedElement || !editingSlide) return;
+    
+    const container = e.currentTarget;
+    const rect = container.getBoundingClientRect();
+    const x = e.clientX - rect.left - dragOffset.x;
+    const y = e.clientY - rect.top - dragOffset.y;
+    
+    // Constrain to container bounds
+    const constrainedX = Math.max(0, Math.min(x, rect.width - 100));
+    const constrainedY = Math.max(0, Math.min(y, rect.height - 50));
+    
+    const newPosition = { x: constrainedX, y: constrainedY };
+    
+    console.log('=== DRAG UPDATE DEBUG ===');
+    console.log('Dragging element:', draggedElement, 'to position:', newPosition);
+    console.log('Current editingSlide positionedElements:', editingSlide.positionedElements);
+    
+    updateEditingSlide('positionedElements', {
+      ...editingSlide.positionedElements,
+      [draggedElement]: newPosition
+    });
+    
+    console.log('After updateEditingSlide call - editingSlide positionedElements:', editingSlide.positionedElements);
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    setDraggedElement(null);
+  };
+
+  const handleDeleteElement = (elementType: string) => {
+    if (!editingSlide) return;
+    
+    console.log('Deleting element:', elementType, 'from positioned elements');
+    
+    const newPositionedElements = { ...editingSlide.positionedElements };
+    delete newPositionedElements[elementType as keyof typeof newPositionedElements];
+    
+    console.log('New positioned elements after deletion:', newPositionedElements);
+    
+    updateEditingSlide('positionedElements', newPositionedElements);
+    
+    toast({
+      title: "Element Removed",
+      description: `${elementType.charAt(0).toUpperCase() + elementType.slice(1)} has been removed from the slide.`,
+    });
+  };
+
   const currentSlideData = sortedSlides[currentSlide];
+
+  // Debug: Log current slide data specifically
+  if (currentSlideData) {
+    console.log('=== CURRENT SLIDE DATA ===');
+    console.log('Current slide:', currentSlideData);
+    console.log('Current slide positionedElements:', currentSlideData.positionedElements);
+    console.log('Current slide positionedElements keys:', currentSlideData.positionedElements ? Object.keys(currentSlideData.positionedElements) : []);
+  }
 
     // Render editable slide content when in editing mode
   const renderEditableSlideContent = (slide: Slide) => {
     return (
       <div className="w-full bg-white rounded-lg border shadow-sm">
         <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+          {/* Logo Management */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Logos ({editingSlide?.content?.logos?.length || 0})
+            </label>
+            <div className="space-y-2">
+              {/* Handle both old single logo and new multiple logos */}
+              {(() => {
+                const logos = editingSlide?.content?.logos || [];
+                const hasOldLogo = editingSlide?.styling?.logoUrl && logos.length === 0;
+                
+                // If we have an old logo, convert it to new format automatically
+                if (hasOldLogo) {
+                  // Convert old single logo to new format
+                  updateEditingSlide('content', {
+                    ...editingSlide?.content,
+                    logos: [editingSlide.styling?.logoUrl || '']
+                  });
+                  // Also clear the old logo field
+                  updateEditingSlide('styling', {
+                    ...editingSlide?.styling,
+                    logoUrl: undefined
+                  });
+                  return null; // Don't render anything while converting
+                }
+                
+                // Show multiple logos
+                return logos.map((logoUrl: string, index: number) => (
+                  <div key={index} className="flex items-center space-x-2">
+                    <div className="flex-1 flex items-center space-x-2">
+                      <img 
+                        src={logoUrl} 
+                        alt={`Logo ${index + 1}`} 
+                        className="h-8 w-8 object-contain border rounded"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                      <input
+                        type="text"
+                        value={logoUrl}
+                        onChange={(e) => {
+                          const newLogos = [...logos];
+                          newLogos[index] = e.target.value;
+                          updateEditingSlide('content', {
+                            ...editingSlide?.content,
+                            logos: newLogos
+                          });
+                        }}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        placeholder={`Logo URL ${index + 1}`}
+                      />
+                    </div>
+                    <button
+                      onClick={() => {
+                        const newLogos = logos.filter((_: string, i: number) => i !== index);
+                        updateEditingSlide('content', {
+                          ...editingSlide?.content,
+                          logos: newLogos
+                        });
+                      }}
+                      className="p-2 text-red-500 hover:text-red-700"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ));
+              })()}
+              
+              {/* Show message when no logos exist */}
+              {(!editingSlide?.content?.logos || editingSlide.content.logos.length === 0) && (
+                <div className="text-sm text-gray-500 text-center py-2">
+                  No logos yet. Click the button below to add your first one.
+                </div>
+              )}
+              
+              <button
+                onClick={() => {
+                  const currentLogos = editingSlide?.content?.logos || [];
+                  const newLogos = [...currentLogos, 'https://example.com/logo.png'];
+                  updateEditingSlide('content', {
+                    ...editingSlide?.content,
+                    logos: newLogos
+                  });
+                  
+                  console.log('Added logo:', {
+                    before: currentLogos,
+                    after: newLogos
+                  });
+                }}
+                className="w-full px-3 py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors"
+              >
+                + Add Logo
+              </button>
+            </div>
+          </div>
+
           {/* Title Input */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Slide Title</label>
-            <input
-              type="text"
-              value={editingSlide?.title || ''}
-              onChange={(e) => updateEditingSlide('title', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg font-semibold"
-              placeholder="Enter slide title..."
-            />
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Titles ({editingSlide?.content?.titles?.length || (editingSlide?.title ? 1 : 0)})
+            </label>
+            <div className="space-y-2">
+              {/* Handle both old single title and new multiple titles */}
+              {(() => {
+                const titles = editingSlide?.content?.titles || [];
+                const hasOldTitle = editingSlide?.title && titles.length === 0;
+                
+                // If we have an old title, convert it to new format automatically
+                if (hasOldTitle) {
+                  // Convert old single title to new format
+                  updateEditingSlide('content', {
+                    ...editingSlide?.content,
+                    titles: [editingSlide.title]
+                  });
+                  // Also clear the old title field
+                  updateEditingSlide('title', '');
+                  return null; // Don't render anything while converting
+                }
+                
+                // Show multiple titles
+                return titles.map((title: string, index: number) => (
+                  <div key={index} className="flex items-center space-x-2">
+                    <input
+                      type="text"
+                      value={title}
+                      onChange={(e) => {
+                        const newTitles = [...titles];
+                        newTitles[index] = e.target.value;
+                        updateEditingSlide('content', {
+                          ...editingSlide?.content,
+                          titles: newTitles
+                        });
+                      }}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg font-semibold"
+                      placeholder={`Title ${index + 1}`}
+                    />
+                    <button
+                      onClick={() => {
+                        const newTitles = titles.filter((_: string, i: number) => i !== index);
+                        updateEditingSlide('content', {
+                          ...editingSlide?.content,
+                          titles: newTitles
+                        });
+                      }}
+                      className="p-2 text-red-500 hover:text-red-700"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ));
+              })()}
+              
+              {/* Show message when no titles exist */}
+              {(!editingSlide?.content?.titles || editingSlide.content.titles.length === 0) && 
+               !editingSlide?.title && (
+                <div className="text-sm text-gray-500 text-center py-2">
+                  No titles yet. Click the button below to add your first one.
+                </div>
+              )}
+              
+              <button
+                onClick={() => {
+                  const currentTitles = editingSlide?.content?.titles || [];
+                  const newTitles = [...currentTitles, 'New title'];
+                  updateEditingSlide('content', {
+                    ...editingSlide?.content,
+                    titles: newTitles
+                  });
+                  
+                  console.log('Added title:', {
+                    before: currentTitles,
+                    after: newTitles
+                  });
+                }}
+                className="w-full px-3 py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors"
+              >
+                + Add Title
+              </button>
+            </div>
           </div>
+
+
 
           {/* Content Description Input */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
-            <textarea
-              value={editingSlide?.content?.description || ''}
-              onChange={(e) => updateEditingSlide('content', {
-                ...editingSlide?.content,
-                description: e.target.value
-              })}
-              className="w-full h-24 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-              placeholder="Enter slide description..."
-            />
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Descriptions ({editingSlide?.content?.descriptions?.length || (editingSlide?.content?.description ? 1 : 0)})
+            </label>
+            <div className="space-y-2">
+              {/* Handle both old single description and new multiple descriptions */}
+              {(() => {
+                const descriptions = editingSlide?.content?.descriptions || [];
+                const hasOldDescription = editingSlide?.content?.description && descriptions.length === 0;
+                
+                // If we have an old description, convert it to new format automatically
+                if (hasOldDescription) {
+                  // Convert old single description to new format
+                  updateEditingSlide('content', {
+                    ...editingSlide?.content,
+                    descriptions: [editingSlide.content.description],
+                    description: undefined // Remove old field
+                  });
+                  return null; // Don't render anything while converting
+                }
+                
+                // Show multiple descriptions
+                return descriptions.map((description: string, index: number) => (
+                  <div key={index} className="flex items-center space-x-2">
+                    <textarea
+                      value={description}
+                      onChange={(e) => {
+                        const newDescriptions = [...descriptions];
+                        newDescriptions[index] = e.target.value;
+                        updateEditingSlide('content', {
+                          ...editingSlide?.content,
+                          descriptions: newDescriptions
+                        });
+                      }}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                      placeholder={`Description ${index + 1}`}
+                      rows={2}
+                    />
+                    <button
+                      onClick={() => {
+                        const newDescriptions = descriptions.filter((_: string, i: number) => i !== index);
+                        updateEditingSlide('content', {
+                          ...editingSlide?.content,
+                          descriptions: newDescriptions
+                        });
+                      }}
+                      className="p-2 text-red-500 hover:text-red-700"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ));
+              })()}
+              
+              {/* Show message when no descriptions exist */}
+              {(!editingSlide?.content?.descriptions || editingSlide.content.descriptions.length === 0) && 
+               !editingSlide?.content?.description && (
+                <div className="text-sm text-gray-500 text-center py-2">
+                  No descriptions yet. Click the button below to add your first one.
+                </div>
+              )}
+              
+              <button
+                onClick={() => {
+                  const currentDescriptions = editingSlide?.content?.descriptions || [];
+                  const newDescriptions = [...currentDescriptions, 'New description'];
+                  updateEditingSlide('content', {
+                    ...editingSlide?.content,
+                    descriptions: newDescriptions
+                  });
+                  
+                  console.log('Added description:', {
+                    before: currentDescriptions,
+                    after: newDescriptions
+                  });
+                }}
+                className="w-full px-3 py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors"
+              >
+                + Add Description
+              </button>
+            </div>
           </div>
 
 
@@ -581,6 +969,8 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                         ...editingSlide?.styling,
                         primaryColor: e.target.value
                       });
+                      // Also update the textColor to match the primary color
+                      updateEditingSlide('textColor', e.target.value);
                     }}
                     className="w-full h-10 border border-gray-300 rounded-md cursor-pointer"
                   />
@@ -596,6 +986,8 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                         ...editingSlide?.styling,
                         secondaryColor: e.target.value
                       });
+                      // Also update the backgroundColor to match the secondary color
+                      updateEditingSlide('backgroundColor', e.target.value);
                     }}
                     className="w-full h-10 border border-gray-300 rounded-md cursor-pointer"
                   />
@@ -633,6 +1025,9 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                       secondaryColor: brandKits[0].secondaryColor,
                       accentColor: brandKits[0].accentColor
                     });
+                    // Also reset the backgroundColor and textColor fields
+                    updateEditingSlide('backgroundColor', brandKits[0].secondaryColor);
+                    updateEditingSlide('textColor', brandKits[0].primaryColor);
                     toast({
                       title: "Colors Reset",
                       description: "Restored original brand kit colors",
@@ -715,6 +1110,261 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     );
   };
 
+  // Draggable slide renderer for live preview
+  const renderDraggableSlide = (slide: Slide) => {
+    const slideWithStyling = {
+      ...slide,
+      styling: {
+        backgroundColor: slide.styling?.backgroundColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#ffffff',
+        textColor: slide.styling?.textColor || slide.textColor || brandKits?.[0]?.primaryColor || '#333333',
+        primaryColor: slide.styling?.primaryColor || slide.textColor || brandKits?.[0]?.primaryColor || '#3b82f6',
+        secondaryColor: slide.styling?.secondaryColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#64748b',
+        accentColor: slide.styling?.accentColor || brandKits?.[0]?.accentColor || '#10b981',
+        fontFamily: slide.styling?.fontFamily || brandKits?.[0]?.fontFamily || 'Inter',
+        fontSize: slide.styling?.fontSize || 'medium',
+        titleFontSize: slide.styling?.titleFontSize || '3xl',
+        descriptionFontSize: slide.styling?.descriptionFontSize || 'lg',
+        bulletFontSize: slide.styling?.bulletFontSize || 'base',
+        logoUrl: brandKits?.[0]?.logoUrl || slide.styling?.logoUrl,
+        brandColors: {
+          primary: slide.styling?.primaryColor || slide.textColor || brandKits?.[0]?.primaryColor || '#3b82f6',
+          secondary: slide.styling?.secondaryColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#64748b',
+          accent: slide.styling?.accentColor || brandKits?.[0]?.accentColor || '#10b981'
+        }
+      }
+    };
+
+    const positionedElements = slide.positionedElements || {};
+    
+    // Use the EXACT same color logic as SlideRenderer
+    const primaryColor = slideWithStyling.styling.primaryColor;
+    const secondaryColor = slideWithStyling.styling.secondaryColor;
+    const textColor = slideWithStyling.styling.textColor;
+    const accentColor = slideWithStyling.styling.accentColor;
+    const backgroundColor = slideWithStyling.styling.backgroundColor;
+    const fontFamily = slideWithStyling.styling.fontFamily;
+    const logoUrl = slideWithStyling.styling.logoUrl;
+    const brandColors = slideWithStyling.styling.brandColors;
+    
+    // Background style logic - use solid colors instead of gradients for editing
+    const backgroundStyle = {
+      backgroundColor: backgroundColor
+    };
+    
+    return (
+      <div 
+        className="relative w-full h-full rounded-lg overflow-hidden"
+        style={backgroundStyle}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      >
+        {/* Logo - positioned absolutely (top right for non-title slides) */}
+        {slide.content?.logos && slide.content.logos.length > 0 && slide.type !== 'title' && (
+          <div 
+            className="absolute cursor-move group"
+            style={{
+              left: positionedElements.logo?.x || 16,
+              top: positionedElements.logo?.y || 16,
+              zIndex: 20
+            }}
+            onMouseDown={(e) => handleMouseDown(e, 'logo')}
+          >
+            <div className="space-y-2">
+              {/* Show multiple logos from content.logos array */}
+              {slide.content.logos.map((logoUrl: string, index: number) => (
+                <img 
+                  key={index}
+                  src={logoUrl} 
+                  alt={`Company Logo ${index + 1}`} 
+                  className="h-10 w-auto object-contain opacity-95" 
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Main content container - same structure as deck view */}
+        <div className="p-6">
+          {/* Centered logo for title slides */}
+          {slide.content?.logos && slide.content.logos.length > 0 && slide.type === 'title' && (
+            <div 
+              className="text-center mb-6 cursor-move group relative"
+              style={{
+                left: positionedElements.logo?.x || 'auto',
+                top: positionedElements.logo?.y || 'auto',
+                position: positionedElements.logo ? 'absolute' : 'static'
+              }}
+              onMouseDown={(e) => handleMouseDown(e, 'logo')}
+            >
+              <div className="space-y-2">
+                {/* Show multiple logos from content.logos array */}
+                {slide.content.logos.map((logoUrl: string, index: number) => (
+                  <img 
+                    key={index}
+                    src={logoUrl} 
+                    alt={`Company Logo ${index + 1}`} 
+                    className="h-16 w-auto object-contain opacity-95 mx-auto" 
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Title - draggable but positioned like deck view initially */}
+          {((slide.content?.titles && slide.content.titles.length > 0) || slide.title) && (
+            <div 
+              className="cursor-move group relative"
+              style={{
+                left: positionedElements.title?.x || 'auto',
+                top: positionedElements.title?.y || 'auto',
+                position: positionedElements.title ? 'absolute' : 'static',
+                right: positionedElements.title ? 'auto' : (slide.type === 'title' ? 'auto' : '64px')
+              }}
+              onMouseDown={(e) => handleMouseDown(e, 'title')}
+            >
+              <div className="space-y-2">
+                {/* Handle both old and new title formats */}
+                {slide.content?.titles && slide.content.titles.length > 0 ? (
+                  // New multiple titles format
+                  slide.content.titles.map((title: string, index: number) => (
+                    <h1 
+                      key={index}
+                      className="font-bold leading-tight mb-6"
+                      style={{
+                        fontSize: slideWithStyling.styling.titleFontSize === '5xl' ? '48px' :
+                                 slideWithStyling.styling.titleFontSize === '4xl' ? '36px' :
+                                 slideWithStyling.styling.titleFontSize === '3xl' ? '30px' :
+                                 slideWithStyling.styling.titleFontSize === '2xl' ? '24px' :
+                                 slideWithStyling.styling.titleFontSize === 'xl' ? '20px' : '18px',
+                        color: brandColors?.primary || textColor,
+                        fontFamily: fontFamily || 'Inter'
+                      }}
+                    >
+                      {title}
+                    </h1>
+                  ))
+                ) : (
+                  // Old single title format
+                  <h1 
+                    className="font-bold leading-tight mb-6"
+                    style={{
+                      fontSize: slideWithStyling.styling.titleFontSize === '5xl' ? '48px' :
+                               slideWithStyling.styling.titleFontSize === '4xl' ? '36px' :
+                               slideWithStyling.styling.titleFontSize === '3xl' ? '30px' :
+                               slideWithStyling.styling.titleFontSize === '2xl' ? '24px' :
+                               slideWithStyling.styling.titleFontSize === 'xl' ? '20px' : '18px',
+                      color: brandColors?.primary || textColor,
+                      fontFamily: fontFamily || 'Inter'
+                    }}
+                  >
+                    {slide.title}
+                  </h1>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Descriptions - draggable but positioned like deck view initially */}
+          {((slide.content?.descriptions && slide.content.descriptions.length > 0) || slide.content?.description) && (
+            <div 
+              className="leading-relaxed mb-4 cursor-move group relative"
+              style={{
+                left: positionedElements.description?.x || 'auto',
+                top: positionedElements.description?.y || 'auto',
+                position: positionedElements.description ? 'absolute' : 'static',
+                right: positionedElements.description ? 'auto' : '64px',
+                borderLeft: brandColors ? `4px solid ${brandColors.accent}` : 'none',
+                paddingLeft: brandColors ? '12px' : '0'
+              }}
+              onMouseDown={(e) => handleMouseDown(e, 'description')}
+            >
+              <div className="space-y-2">
+                {/* Handle both old and new description formats */}
+                {slide.content?.descriptions && slide.content.descriptions.length > 0 ? (
+                  // New multiple descriptions format
+                  slide.content.descriptions.map((description: string, index: number) => (
+                    <div 
+                      key={index}
+                      style={{
+                        fontSize: slideWithStyling.styling.descriptionFontSize === '2xl' ? '24px' :
+                                 slideWithStyling.styling.descriptionFontSize === 'xl' ? '20px' :
+                                 slideWithStyling.styling.descriptionFontSize === 'lg' ? '18px' :
+                                 slideWithStyling.styling.descriptionFontSize === 'base' ? '16px' : '14px',
+                        color: brandColors?.primary || textColor,
+                        fontFamily: fontFamily || 'Inter'
+                      }}
+                    >
+                      {description}
+                    </div>
+                  ))
+                ) : (
+                  // Old single description format
+                  <div 
+                    style={{
+                      fontSize: slideWithStyling.styling.descriptionFontSize === '2xl' ? '24px' :
+                               slideWithStyling.styling.descriptionFontSize === 'xl' ? '20px' :
+                               slideWithStyling.styling.descriptionFontSize === 'lg' ? '18px' :
+                               slideWithStyling.styling.descriptionFontSize === 'base' ? '16px' : '14px',
+                      color: brandColors?.primary || textColor,
+                      fontFamily: fontFamily || 'Inter'
+                    }}
+                  >
+                    {slide.content.description}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Bullet Points - draggable but positioned like deck view initially */}
+          {slide.content?.bullets && slide.content.bullets.length > 0 && (
+            <div 
+              className="cursor-move group relative"
+              style={{
+                left: positionedElements.bullets?.x || 'auto',
+                top: positionedElements.bullets?.y || 'auto',
+                position: positionedElements.bullets ? 'absolute' : 'static',
+                right: positionedElements.bullets ? 'auto' : '64px'
+              }}
+              onMouseDown={(e) => handleMouseDown(e, 'bullets')}
+            >
+              <ul className="space-y-2">
+                {slide.content.bullets.map((bullet: string, index: number) => (
+                  <li 
+                    key={index}
+                    className="flex items-start"
+                    style={{
+                      fontSize: slideWithStyling.styling.bulletFontSize === 'xl' ? '20px' :
+                               slideWithStyling.styling.bulletFontSize === 'lg' ? '18px' :
+                               slideWithStyling.styling.bulletFontSize === 'base' ? '16px' : '14px',
+                      color: brandColors?.primary || textColor,
+                      fontFamily: fontFamily || 'Inter',
+                      listStyleType: 'none'
+                    }}
+                  >
+                    <span 
+                      className="mr-2 mt-1"
+                      style={{ 
+                        color: brandColors?.accent || accentColor,
+                        fontSize: '1.2em'
+                      }}
+                    >
+                      •
+                    </span>
+                    <span>{bullet}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // Use shared slide renderer for exact consistency with generate deck preview
   const renderSlideContent = (slide: Slide, isEditingMode: boolean = false) => {
     // Apply the same styling enhancement as SlidePreview in generate deck
@@ -748,18 +1398,12 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     };
 
     // Debug: Log the styling being applied
-    console.log('DeckViewer - Slide styling:', {
-      originalSlide: slide,
-      brandKits: brandKits,
-      enhancedStyling: slideWithStyling.styling,
-      slideStyling: slide.styling,
-      isEditingMode: isEditingMode,
-      aiFontSizes: {
-        titleFontSize: slide.styling?.titleFontSize,
-        descriptionFontSize: slide.styling?.descriptionFontSize,
-        bulletFontSize: slide.styling?.bulletFontSize
-      }
-    });
+    console.log('=== RENDER SLIDE CONTENT DEBUG ===');
+    console.log('Original slide data:', slide);
+    console.log('Slide positionedElements:', slide.positionedElements);
+    console.log('Slide styling:', slide.styling);
+    console.log('Brand kits:', brandKits);
+    console.log('Enhanced styling:', slideWithStyling.styling);
     
     // Additional debugging for styling properties
     if (isEditingMode) {
@@ -774,12 +1418,17 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     }
 
     // Use the exact same container structure as generate deck preview
+    const slideToRender = {
+      ...slideWithStyling,
+      positionedElements: slide.positionedElements || {} // Initialize as empty object if undefined
+    };
+    
+    console.log('=== FINAL SLIDE DATA FOR SLIDERENDERER ===');
+    console.log('Slide data being passed to SlideRenderer:', slideToRender);
+    console.log('Positioned elements in final data:', slideToRender.positionedElements);
+    
     return (
-      <div className="relative overflow-hidden rounded border w-full h-full min-h-[500px] flex items-center justify-center">
-        <div className="w-full h-full flex items-center justify-center">
-          <SlideRenderer slide={slideWithStyling} isCompact={false} />
-        </div>
-      </div>
+      <SlideRenderer slide={slideToRender} isCompact={false} />
     );
   };
 
@@ -910,32 +1559,34 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                     {currentSlideData ? (
                     isEditing ? (
                       <div className="w-full">
-                                                {/* Side-by-side editing layout */}
-                        <div className="grid grid-cols-1 xl:grid-cols-8 gap-8">
-                          {/* Live Preview - Takes up 4/8 of the space */}
-                          <div className="xl:col-span-4">
-                            <div className="p-6 bg-gray-50 rounded-lg border h-full">
+                        {/* Vertical editing layout - Live preview above, edit form below */}
+                        <div className="space-y-6">
+                          {/* Live Preview - Takes full width for maximum sizing */}
+                          <div className="w-full">
+                            <div className="p-4 bg-gray-50 rounded-lg border">
                               <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
                                 <Eye className="h-5 w-5 text-blue-600" />
                                 Live Preview
                               </h4>
-                              <div className="w-full h-[500px]">
-                                {editingSlide && renderSlideContent(editingSlide, true)}
+                              <div className="w-full aspect-video">
+                                {editingSlide && renderDraggableSlide(editingSlide)}
                               </div>
                               <p className="text-xs text-gray-500 text-center mt-3">
-                                This is how your slide will look with the current changes
+                                Click and drag any elements to reposition it on the slide
                               </p>
                             </div>
                           </div>
                           
-                          {/* Editing Form - Takes up 4/8 of the space */}
-                          <div className="xl:col-span-4">
+                          {/* Editing Form - Takes full width below preview */}
+                          <div className="w-full">
                             {renderEditableSlideContent(currentSlideData)}
                           </div>
                         </div>
                           </div>
                     ) : (
-                      renderSlideContent(currentSlideData)
+                      <div className="w-full aspect-video">
+                        {renderSlideContent(currentSlideData)}
+                      </div>
                     )
                   ) : (
                     <div className="text-center py-16 px-6">

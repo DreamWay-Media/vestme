@@ -7,15 +7,29 @@ interface SlideContent {
   title: string;
   content: any;
   order?: number;
+  // AI-generated colors (from the generate deck process)
+  backgroundColor?: string;
+  textColor?: string;
   styling?: {
     primaryColor?: string;
     secondaryColor?: string;
     accentColor?: string;
     fontFamily?: string;
+    fontSize?: string;
+    titleFontSize?: string;
+    descriptionFontSize?: string;
+    bulletFontSize?: string;
     logoUrl?: string;
     textColor?: string;
     backgroundColor?: string;
     backgroundImage?: string;
+  };
+  // Drag and drop positioning
+  positionedElements?: {
+    title?: { x: number; y: number; width?: number; height?: number };
+    description?: { x: number; y: number; width?: number; height?: number };
+    bullets?: { x: number; y: number; width?: number; height?: number };
+    logo?: { x: number; y: number; width?: number; height?: number };
   };
 }
 
@@ -37,124 +51,362 @@ export interface GeneratePDFOptions {
 }
 
 /**
- * Generates HTML content for a slide
+ * Applies the same enhanced styling logic as SlideRenderer component
+ * This ensures PDF output matches deck preview exactly
  */
-function generateSlideHTML(slide: SlideContent, branding: BrandingConfig, slideNumber: number): string {
-  const content = slide.content || {};
-  const styling: any = { ...(branding || {}), ...(slide.styling || {}) };
-  
-  const primaryColor = styling.primaryColor || '#3b82f6';
-  const secondaryColor = styling.secondaryColor || '#64748b';
-  const accentColor = styling.accentColor || '#10b981';
-  const textColor = styling.textColor || slide.textColor || '#333333';
-  const backgroundColor = styling.backgroundColor || slide.backgroundColor || '#ffffff';
-  const fontFamily = styling.fontFamily || 'Inter, Arial, sans-serif';
-  const logoUrl = styling.logoUrl;
-
-  let slideContent = '';
-  
-  // Tailwind-like font size mapping to px
-  const toPx = (size: string | undefined, fallback: string): string => {
-    switch (size) {
-      case '5xl': return '48px';
-      case '4xl': return '36px';
-      case '3xl': return '32px';
-      case '2xl': return '28px';
-      case 'xl': return '20px';
-      case 'lg': return '18px';
-      case 'base': return '16px';
-      case 'sm': return '14px';
-      default: return fallback;
+function applyEnhancedStyling(slide: SlideContent, branding: BrandingConfig): any {
+  // Use the EXACT same styling logic as SlideRenderer in the frontend
+  const enhancedStyling = {
+    // Use saved styling colors first, then AI-generated colors, then fall back to brand kit colors
+    backgroundColor: slide.styling?.backgroundColor || slide.backgroundColor || '#ffffff',
+    textColor: slide.styling?.textColor || slide.textColor || branding.primaryColor || '#333333',
+    
+    // Brand kit colors (available for creative use) - prioritize saved styling over AI colors
+    primaryColor: slide.styling?.primaryColor || slide.textColor || branding.primaryColor || '#3b82f6',
+    secondaryColor: slide.styling?.secondaryColor || slide.backgroundColor || branding.secondaryColor || '#64748b',
+    accentColor: slide.styling?.accentColor || branding.accentColor || '#10b981',
+    
+    // Additional styling - prioritize slide styling over brand kit defaults
+    fontFamily: slide.styling?.fontFamily || branding.fontFamily || 'Inter',
+    fontSize: slide.styling?.fontSize || 'medium',
+    titleFontSize: slide.styling?.titleFontSize || '3xl', // AI default: large impact
+    descriptionFontSize: slide.styling?.descriptionFontSize || 'lg', // AI default: clear readability
+    bulletFontSize: slide.styling?.bulletFontSize || 'base', // AI default: comfortable reading
+    logoUrl: branding.logoUrl || slide.styling?.logoUrl,
+    
+    // Make all brand colors available for creative use
+    brandColors: {
+      primary: slide.styling?.primaryColor || slide.textColor || branding.primaryColor || '#3b82f6',
+      secondary: slide.styling?.secondaryColor || slide.backgroundColor || branding.secondaryColor || '#64748b',
+      accent: slide.styling?.accentColor || branding.accentColor || '#10b981'
     }
   };
 
-  const titleSizePx = toPx(styling.titleFontSize, '32px');
-  const descSizePx = toPx(styling.descriptionFontSize, '16px');
-  const bulletSizePx = toPx(styling.bulletFontSize, '16px');
+  console.log('PDF Generation - Enhanced styling applied:', {
+    slideTitle: slide.title,
+    originalStyling: slide.styling,
+    enhancedStyling: enhancedStyling,
+    branding: branding
+  });
 
-  // Handle different slide types and content formats
-  if (content.sections && Array.isArray(content.sections)) {
-    // Dynamic sections format
-    slideContent = content.sections
-      .sort((a: any, b: any) => (a.order || 0) - (b.order || 0))
-      .map((section: any) => {
-        if (section.type === 'image' && section.content) {
-          return `<div style="text-align: center; margin: 20px 0;">
-            <img src="${section.content}" alt="Slide image" style="max-width: 100%; height: auto; border-radius: 8px;" />
-          </div>`;
-        } else if (section.content) {
-          const fontSize = section.type === 'title' ? '28px' : '16px';
-          const fontWeight = section.type === 'title' ? 'bold' : 'normal';
-          const color = section.type === 'title' ? primaryColor : textColor;
-          const marginLeft = section.type === 'bullet' ? '20px' : '0';
-          
-          return `<div style="font-size: ${fontSize}; font-weight: ${fontWeight}; color: ${color}; margin: 15px 0; margin-left: ${marginLeft}; line-height: 1.5;">
-            ${section.content}
-          </div>`;
-        }
-        return '';
-      }).join('');
-  } else {
-    // New slide format with content.description and content.bullets
-    if (slide.title) {
-      slideContent += `<h1 style="color: ${textColor}; font-size: ${titleSizePx}; font-weight: 800; margin-bottom: 20px; font-family: ${fontFamily}; letter-spacing: 0.2px; text-shadow: 0 1px 2px rgba(0,0,0,0.12);">${slide.title}</h1>`;
+  // Additional detailed color logging
+  console.log('PDF Generation - Color breakdown:', {
+    slideBackgroundColor: slide.backgroundColor,
+    slideTextColor: slide.textColor,
+    slideStylingBackgroundColor: slide.styling?.backgroundColor,
+    slideStylingTextColor: slide.styling?.textColor,
+    slideStylingPrimaryColor: slide.styling?.primaryColor,
+    slideStylingSecondaryColor: slide.styling?.secondaryColor,
+    brandingPrimaryColor: branding.primaryColor,
+    brandingSecondaryColor: branding.secondaryColor,
+    finalBackgroundColor: enhancedStyling.backgroundColor,
+    finalTextColor: enhancedStyling.textColor,
+    finalPrimaryColor: enhancedStyling.primaryColor,
+    finalSecondaryColor: enhancedStyling.secondaryColor
+  });
+
+  return enhancedStyling;
+}
+
+/**
+ * Generates HTML content for a slide using enhanced styling
+ */
+function generateSlideHTML(slide: SlideContent, branding: BrandingConfig, slideNumber: number): string {
+  const content = slide.content || {};
+  
+  // Apply the same enhanced styling logic as SlideRenderer
+  const styling = applyEnhancedStyling(slide, branding);
+  
+  const primaryColor = styling.primaryColor;
+  const secondaryColor = styling.secondaryColor;
+  const accentColor = styling.accentColor;
+  const textColor = styling.textColor;
+  const backgroundColor = styling.backgroundColor;
+  const fontFamily = styling.fontFamily;
+  const logoUrl = styling.logoUrl;
+  
+  // Convert font sizes to pixels for PDF
+  const toPx = (size: string) => {
+    switch (size) {
+      case 'small': return '14px';
+      case 'base': return '16px';
+      case 'medium': return '16px';
+      case 'large': return '18px';
+      case 'lg': return '18px';
+      case 'xl': return '20px';
+      case '2xl': return '24px';
+      case '3xl': return '30px';
+      case '4xl': return '36px';
+      case '5xl': return '48px';
+      default: return '16px';
+    }
+  };
+  
+  const titleSizePx = toPx(styling.titleFontSize);
+  const descSizePx = toPx(styling.descriptionFontSize);
+  const bulletSizePx = toPx(styling.bulletFontSize);
+  
+  // Check if we should use positioned layout
+  const positionedElements = slide.positionedElements || {};
+  const usePositionedLayout = Object.keys(positionedElements).length > 0;
+  
+  // Slide background: use solid color to match deck preview exactly
+  const backgroundStyle = `background: ${backgroundColor};`;
+
+  console.log('PDF Generation - Background styling:', {
+    slideTitle: slide.title,
+    backgroundColor: backgroundColor,
+    brandColors: styling.brandColors,
+    primaryColor: styling.brandColors?.primary,
+    secondaryColor: styling.brandColors?.secondary,
+    backgroundStyle: backgroundStyle,
+    usePositionedLayout: usePositionedLayout,
+    positionedElements: positionedElements
+  });
+
+  // If using positioned layout, render with absolute positioning
+  if (usePositionedLayout) {
+    let positionedContent = '';
+    
+    // Logo - positioned absolutely
+    if (logoUrl && slide.type !== 'title') {
+      const logoPos = positionedElements.logo || { x: 16, y: 16 };
+      positionedContent += `
+        <div style="position: absolute; left: ${logoPos.x}px; top: ${logoPos.y}px; z-index: 20;">
+          <img src="${logoUrl}" alt="Logo" style="height: 40px; width: auto; opacity: 0.95;" />
+        </div>
+      `;
     }
     
-    if (content.description) {
-      slideContent += `<div style="border-left: 4px solid ${primaryColor}; padding-left: 14px;">
-        <p style="color: ${textColor}; font-size: ${descSizePx}; margin: 0 0 18px 0; line-height: 1.6; font-family: ${fontFamily};">${content.description}</p>
-      </div>`;
+    // Title - positioned absolutely
+    if ((content.titles && Array.isArray(content.titles) && content.titles.length > 0) || slide.title) {
+      const titlePos = positionedElements.title || { x: 48, y: 48 };
+      positionedContent += `
+        <div style="position: absolute; left: ${titlePos.x}px; top: ${titlePos.y}px; right: ${slide.type === 'title' ? 48 : 'auto'}px;">
+      `;
+      
+      if (content.titles && Array.isArray(content.titles) && content.titles.length > 0) {
+        // New multiple titles format
+        content.titles.forEach((title: string, index: number) => {
+          positionedContent += `
+            <h1 style="color: ${styling.brandColors?.primary || textColor}; font-size: ${titleSizePx}; font-weight: bold; margin: 0; line-height: 1.2; font-family: ${fontFamily}; margin-bottom: ${index < content.titles.length - 1 ? '16px' : '0'};">${title}</h1>
+          `;
+        });
+      } else {
+        // Old single title format
+        positionedContent += `
+          <h1 style="color: ${styling.brandColors?.primary || textColor}; font-size: ${titleSizePx}; font-weight: bold; margin: 0; line-height: 1.2; font-family: ${fontFamily};">${slide.title}</h1>
+        `;
+      }
+      
+      positionedContent += '</div>';
     }
     
+    // Descriptions - positioned absolutely
+    if ((content.descriptions && Array.isArray(content.descriptions) && content.descriptions.length > 0) || content.description) {
+      const descPos = positionedElements.description || { x: 48, y: 120 };
+      positionedContent += `
+        <div style="position: absolute; left: ${descPos.x}px; top: ${descPos.y}px; right: 48px;">
+      `;
+      
+      if (content.descriptions && Array.isArray(content.descriptions) && content.descriptions.length > 0) {
+        // New multiple descriptions format
+        content.descriptions.forEach((description: string, index: number) => {
+          positionedContent += `
+            <div style="margin-bottom: ${index < content.descriptions.length - 1 ? '16px' : '0'};">
+              <p style="color: ${styling.brandColors?.primary || textColor}; font-size: ${descSizePx}; margin: 0; line-height: 1.6; font-family: ${fontFamily};">${description}</p>
+            </div>
+          `;
+        });
+      } else {
+        // Old single description format
+        positionedContent += `
+          <div>
+            <p style="color: ${styling.brandColors?.primary || textColor}; font-size: ${descSizePx}; margin: 0; line-height: 1.6; font-family: ${fontFamily};">${content.description}</p>
+          </div>
+        `;
+      }
+      
+      positionedContent += '</div>';
+    }
+    
+    // Bullet Points - positioned absolutely
     if (content.bullets && Array.isArray(content.bullets)) {
-      slideContent += '<div style="margin: 18px 0;">';
+      const bulletsPos = positionedElements.bullets || { x: 48, y: 200 };
+      positionedContent += `
+        <div style="position: absolute; left: ${bulletsPos.x}px; top: ${bulletsPos.y}px; right: 48px;">
+      `;
       content.bullets.forEach((bullet: string) => {
-        slideContent += `<div style="display: flex; align-items: flex-start; margin-bottom: 10px;">
-          <span style="display:inline-block; width:10px; height:10px; background:${accentColor}; border-radius:50%; margin-right:10px; margin-top:6px;"></span>
-          <span style="color: ${textColor}; font-size: ${bulletSizePx}; line-height: 1.5; font-family: ${fontFamily};">${bullet}</span>
-        </div>`;
+        positionedContent += `
+          <div style="display: flex; align-items: flex-start; margin-bottom: 16px;">
+            <span style="display:inline-block; width:12px; height:12px; background:${styling.brandColors?.accent || accentColor}; border-radius:50%; margin-right:12px; margin-top:8px;"></span>
+            <span style="color: ${styling.brandColors?.primary || textColor}; font-size: ${bulletSizePx}; line-height: 1.5; font-family: ${fontFamily};">${bullet}</span>
+          </div>
+        `;
       });
-      slideContent += '</div>';
+      positionedContent += '</div>';
     }
     
-    // Fallback for other content formats
-    if (content.title && content.title !== slide.title) {
-      slideContent += `<h2 style="color: ${primaryColor}; font-size: 24px; font-weight: bold; margin-bottom: 15px; font-family: ${fontFamily};">${content.title}</h2>`;
+    // Centered logo for title slides
+    if (((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || logoUrl) && slide.type === 'title') {
+      const logoPos = positionedElements.logo || { x: '50%', y: 48 };
+      const transform = positionedElements.logo ? 'none' : 'translateX(-50%)';
+      positionedContent += `
+        <div style="position: absolute; left: ${logoPos.x}px; top: ${logoPos.y}px; transform: ${transform};">
+      `;
+      
+      if (content.logos && Array.isArray(content.logos) && content.logos.length > 0) {
+        // New multiple logos format - use all logos from content.logos
+        content.logos.forEach((logoUrl: string, index: number) => {
+          positionedContent += `
+            <img src="${logoUrl}" alt="Logo ${index + 1}" style="height: 64px; width: auto; opacity: 0.95; margin-bottom: ${index < content.logos.length - 1 ? '16px' : '0'};" />
+          `;
+        });
+      } else {
+        // Fallback to old single logo format
+        positionedContent += `
+          <img src="${logoUrl}" alt="Logo" style="height: 64px; width: auto; opacity: 0.95;" />
+        `;
+      }
+      
+      positionedContent += '</div>';
     }
     
-    if (content.subtitle) {
-      slideContent += `<p style="color: ${textColor}; font-size: 18px; margin-bottom: 15px; line-height: 1.5; font-family: ${fontFamily};">${content.subtitle}</p>`;
-    }
-    
-    if (content.bullet_points && Array.isArray(content.bullet_points)) {
-      content.bullet_points.forEach((point: string) => {
-        slideContent += `<div style="display: flex; align-items: flex-start; margin-bottom: 12px;">
-          <span style="color: ${primaryColor}; font-size: 20px; margin-right: 10px; margin-top: 2px;">•</span>
-          <span style="color: ${textColor}; font-size: 16px; line-height: 1.5; font-family: ${fontFamily};">${point}</span>
-        </div>`;
-      });
-    }
-    
-    if (content.main_text) {
-      slideContent += `<p style="color: ${textColor}; font-size: 18px; margin-bottom: 20px; line-height: 1.6; font-family: ${fontFamily};">${content.main_text}</p>`;
-    }
+    return `
+      <div style="
+        width: 100%; 
+        height: 100vh; 
+        padding: 24px; 
+        ${backgroundStyle}
+        font-family: ${fontFamily};
+        box-sizing: border-box;
+        page-break-after: always;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        border-radius: 0;
+        overflow: hidden;
+      ">
+        ${positionedContent}
+        <div style="position: absolute; bottom: 16px; right: 24px; font-size: 12px; color: rgba(255,255,255,0.85); background: rgba(0,0,0,0.18); padding: 4px 8px; border-radius: 8px;">
+          ${slideNumber}
+        </div>
+      </div>
+    `;
   }
 
-  // Slide background: gradient using brand colors similar to preview
-  const backgroundStyle = `background: linear-gradient(135deg, ${secondaryColor} 0%, ${backgroundColor} 60%);`;
+  // Original layout when no positioning is specified
+  let slideContent = '';
+  
+  // Logo for title slides (centered, larger) - only on title slides
+  if (((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || logoUrl) && slide.type === 'title') {
+    if (content.logos && Array.isArray(content.logos) && content.logos.length > 0) {
+      // New multiple logos format - use all logos from content.logos
+      slideContent += '<div style="text-align: center; margin-bottom: 24px;">';
+      content.logos.forEach((logoUrl: string, index: number) => {
+        slideContent += `<img src="${logoUrl}" alt="Logo ${index + 1}" style="height: 64px; width: auto; opacity: 0.95; margin-bottom: ${index < content.logos.length - 1 ? '16px' : '0'};" />`;
+      });
+      slideContent += '</div>';
+    } else {
+      // Fallback to old single logo format
+      slideContent += `
+        <div style="text-align: center; margin-bottom: 24px;">
+          <img src="${logoUrl}" alt="Logo" style="height: 64px; width: auto; opacity: 0.95;" />
+        </div>
+      `;
+    }
+  }
+  
+  // Main title
+  if ((content.titles && Array.isArray(content.titles) && content.titles.length > 0) || slide.title) {
+    const rightPadding = slide.type === 'title' ? '0' : '64px';
+    
+    if (content.titles && Array.isArray(content.titles) && content.titles.length > 0) {
+      // New multiple titles format
+      content.titles.forEach((title: string, index: number) => {
+        slideContent += `<h1 style="color: ${styling.brandColors?.primary || textColor}; font-size: ${titleSizePx}; font-weight: bold; margin-bottom: ${index < content.titles.length - 1 ? '16px' : '32px'}; line-height: 1.2; font-family: ${fontFamily}; padding-right: ${rightPadding};">${title}</h1>`;
+      });
+    } else {
+      // Old single title format
+      slideContent += `<h1 style="color: ${styling.brandColors?.primary || textColor}; font-size: ${titleSizePx}; font-weight: bold; margin-bottom: 32px; line-height: 1.2; font-family: ${fontFamily}; padding-right: ${rightPadding};">${slide.title}</h1>`;
+    }
+  }
+  
+  // AI-generated slide content support
+  if ((content.descriptions && Array.isArray(content.descriptions) && content.descriptions.length > 0) || content.description) {
+    slideContent += `<div style="border-left: 4px solid ${styling.brandColors?.accent || accentColor}; padding-left: 16px; padding-right: 64px; margin-bottom: 24px;">`;
+    
+    if (content.descriptions && Array.isArray(content.descriptions) && content.descriptions.length > 0) {
+      // New multiple descriptions format
+      content.descriptions.forEach((description: string, index: number) => {
+        slideContent += `<p style="color: ${styling.brandColors?.primary || textColor}; font-size: ${descSizePx}; margin: 0; line-height: 1.6; font-family: ${fontFamily}; margin-bottom: ${index < content.descriptions.length - 1 ? '16px' : '0'};">${description}</p>`;
+      });
+    } else {
+      // Old single description format
+      slideContent += `<p style="color: ${styling.brandColors?.primary || textColor}; font-size: ${descSizePx}; margin: 0; line-height: 1.6; font-family: ${fontFamily};">${content.description}</p>`;
+    }
+    
+    slideContent += '</div>';
+  }
+  
+  if (content.bullets && Array.isArray(content.bullets)) {
+    const rightPadding = slide.type === 'title' ? '0' : '64px';
+    slideContent += `<div style="margin: 24px 0; padding-right: ${rightPadding};">`;
+    content.bullets.forEach((bullet: string) => {
+      slideContent += `<div style="display: flex; align-items: flex-start; margin-bottom: 16px;">
+        <span style="display:inline-block; width:12px; height:12px; background:${styling.brandColors?.accent || accentColor}; border-radius:50%; margin-right:12px; margin-top:8px;"></span>
+        <span style="color: ${styling.brandColors?.primary || textColor}; font-size: ${bulletSizePx}; line-height: 1.5; font-family: ${fontFamily};">${bullet}</span>
+      </div>`;
+    });
+    slideContent += '</div>';
+  }
+  
+  // Fallback for other content formats
+  if (content.title && content.title !== slide.title) {
+    slideContent += `<h2 style="color: ${primaryColor}; font-size: 32px; font-weight: bold; margin-bottom: 24px; font-family: ${fontFamily}; padding-right: 64px;">${content.title}</h2>`;
+  }
+  
+  if (content.subtitle) {
+    slideContent += `<p style="color: ${textColor}; font-size: 24px; margin-bottom: 24px; line-height: 1.5; font-family: ${fontFamily}; padding-right: 64px;">${content.subtitle}</p>`;
+  }
+  
+  if (content.bullet_points && Array.isArray(content.bullet_points)) {
+    content.bullet_points.forEach((point: string) => {
+      slideContent += `<div style="display: flex; align-items: flex-start; margin-bottom: 20px; padding-right: 64px;">
+        <span style="color: ${primaryColor}; font-size: 24px; margin-right: 16px; margin-top: 4px;">•</span>
+        <span style="color: ${textColor}; font-size: 22px; line-height: 1.5; font-family: ${fontFamily};">${point}</span>
+      </div>`;
+    });
+  }
+  
+  if (content.main_text) {
+    slideContent += `<p style="color: ${textColor}; font-size: 24px; margin-bottom: 32px; line-height: 1.6; font-family: ${fontFamily}; padding-right: 64px;">${content.main_text}</p>`;
+  }
 
-  // Logo block
-  const logoBlock = logoUrl ? `
-    <div style="position:absolute; top: 24px; right: 24px;">
-      <img src="${logoUrl}" alt="Logo" style="height: 42px; width: auto; opacity: 0.95;" />
-    </div>
-  ` : '';
+    // Logo block - top right for non-title slides
+    if (((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || logoUrl) && slide.type !== 'title') {
+      if (content.logos && Array.isArray(content.logos) && content.logos.length > 0) {
+        // New multiple logos format - use all logos from content.logos
+        slideContent += '<div style="position: absolute; top: 16px; right: 16px; z-index: 20;">';
+        content.logos.forEach((logoUrl: string, index: number) => {
+          slideContent += `<img src="${logoUrl}" alt="Logo ${index + 1}" style="height: 40px; width: auto; opacity: 0.95; margin-bottom: ${index < content.logos.length - 1 ? '8px' : '0'};" />`;
+        });
+        slideContent += '</div>';
+      } else {
+        // Fallback to old single logo format
+        slideContent += `
+          <div style="position: absolute; top: 16px; right: 16px; z-index: 20;">
+            <img src="${logoUrl}" alt="Logo" style="height: 40px; width: auto; opacity: 0.95;" />
+          </div>
+        `;
+      }
+    }
 
   return `
     <div style="
-      width: 800px; 
-      height: 600px; 
-      padding: 56px; 
+      width: 100%; 
+      height: 100vh; 
+      padding: 24px; 
       ${backgroundStyle}
       font-family: ${fontFamily};
       box-sizing: border-box;
@@ -162,14 +414,13 @@ function generateSlideHTML(slide: SlideContent, branding: BrandingConfig, slideN
       display: flex;
       flex-direction: column;
       position: relative;
-      border-radius: 12px;
+      border-radius: 0;
       overflow: hidden;
     ">
-      ${logoBlock}
       <div style="flex: 1;">
         ${slideContent}
       </div>
-      <div style="position: absolute; bottom: 20px; right: 30px; font-size: 12px; color: rgba(255,255,255,0.85); background: rgba(0,0,0,0.18); padding: 4px 8px; border-radius: 8px;">
+      <div style="position: absolute; bottom: 16px; right: 24px; font-size: 12px; color: rgba(255,255,255,0.85); background: rgba(0,0,0,0.18); padding: 4px 8px; border-radius: 8px;">
         ${slideNumber}
       </div>
     </div>
@@ -180,6 +431,14 @@ function generateSlideHTML(slide: SlideContent, branding: BrandingConfig, slideN
  * Generates a PDF from pitch deck slides using Puppeteer
  */
 export async function generatePitchDeckPDF(options: GeneratePDFOptions): Promise<string> {
+  console.log('=== PDF GENERATION START ===');
+  console.log('Options received:', JSON.stringify(options, null, 2));
+  console.log('Branding config:', options.branding);
+  console.log('First slide data:', options.slides[0]);
+  console.log('First slide styling:', options.slides[0]?.styling);
+  console.log('First slide backgroundColor:', options.slides[0]?.backgroundColor);
+  console.log('First slide textColor:', options.slides[0]?.textColor);
+  
   try {
     console.log(`Generating PDF for ${options.projectName} with ${options.slides.length} slides`);
     
@@ -193,6 +452,16 @@ export async function generatePitchDeckPDF(options: GeneratePDFOptions): Promise
       fontFamily: options.branding?.fontFamily || 'Arial, sans-serif',
       logoUrl: options.branding?.logoUrl
     };
+
+    // Log branding and slide styling information for debugging
+    console.log('PDF Generation - Branding config:', branding);
+    console.log('PDF Generation - Sample slide styling (first slide):', {
+      slideTitle: sortedSlides[0]?.title,
+      slideStyling: sortedSlides[0]?.styling,
+      slideBackgroundColor: sortedSlides[0]?.backgroundColor,
+      slideTextColor: sortedSlides[0]?.textColor,
+      contentKeys: Object.keys(sortedSlides[0]?.content || {})
+    });
 
     // Generate HTML content for all slides
     const slidesHTML = sortedSlides.map((slide, index) => 
@@ -211,10 +480,20 @@ export async function generatePitchDeckPDF(options: GeneratePDFOptions): Promise
             margin: 0; 
             padding: 0; 
             font-family: ${branding.fontFamily};
+            width: 100%;
+            height: 100%;
           }
           @page {
             size: A4 landscape;
             margin: 0;
+            padding: 0;
+          }
+          .slide {
+            width: 100%;
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
           }
         </style>
       </head>
@@ -223,6 +502,9 @@ export async function generatePitchDeckPDF(options: GeneratePDFOptions): Promise
       </body>
       </html>
     `;
+
+    // Log HTML content for debugging (first 500 chars)
+    console.log('PDF Generation - Generated HTML preview (first 500 chars):', fullHTML.substring(0, 500));
 
     // Find system Chromium executable with multiple fallback options
     let chromiumPath: string | undefined;
@@ -259,7 +541,7 @@ export async function generatePitchDeckPDF(options: GeneratePDFOptions): Promise
         chromiumPath = puppeteer.executablePath();
         console.log('Using Puppeteer-installed browser:', chromiumPath);
       } catch (error) {
-        console.log('Could not find Puppeteer browser path');
+        console.error('Could not find Puppeteer browser path');
       }
     }
     
@@ -291,7 +573,7 @@ export async function generatePitchDeckPDF(options: GeneratePDFOptions): Promise
     let browser;
     try {
       browser = await puppeteer.launch(launchOptions);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to launch browser with executablePath, trying without:', error.message);
       // Try launching without executablePath as fallback
       delete launchOptions.executablePath;
@@ -345,6 +627,7 @@ export async function generatePitchDeckPDF(options: GeneratePDFOptions): Promise
     console.log(`  - Clean name: ${cleanProjectName}`);
     console.log(`  - File name: ${fileName}`);
     console.log(`  - PDF URL: ${pdfUrl}`);
+    console.log(`  - Styling consistency: Enhanced styling system applied to ${sortedSlides.length} slides`);
     
     return pdfUrl;
   } catch (error) {
@@ -352,41 +635,41 @@ export async function generatePitchDeckPDF(options: GeneratePDFOptions): Promise
     throw new Error("Failed to generate pitch deck PDF");
   }
 }
-
-/**
- * Creates a downloadable link for a deck
- */
-export function createDeckDownloadLink(deckId: string, fileName: string): string {
-  return `/api/decks/${deckId}/download/${fileName}`;
-}
-
-/**
- * Validates slide content for PDF generation
- */
-export function validateSlideContent(slides: SlideContent[]): { isValid: boolean; errors: string[] } {
-  const errors: string[] = [];
   
-  if (!slides || slides.length === 0) {
-    errors.push("At least one slide is required");
-    return { isValid: false, errors };
+  /**
+   * Creates a downloadable link for a deck
+   */
+  export function createDeckDownloadLink(deckId: string, fileName: string): string {
+    return `/api/decks/${deckId}/download/${fileName}`;
   }
   
-  slides.forEach((slide, index) => {
-    if (!slide.title || slide.title.trim().length === 0) {
-      errors.push(`Slide ${index + 1}: Title is required`);
+  /**
+   * Validates slide content for PDF generation
+   */
+  export function validateSlideContent(slides: SlideContent[]): { isValid: boolean; errors: string[] } {
+    const errors: string[] = [];
+    
+    if (!slides || slides.length === 0) {
+      errors.push("At least one slide is required");
+      return { isValid: false, errors };
     }
     
-    if (!slide.content || slide.content.trim().length === 0) {
-      errors.push(`Slide ${index + 1}: Content is required`);
-    }
+    slides.forEach((slide, index) => {
+      if (!slide.title || slide.title.trim().length === 0) {
+        errors.push(`Slide ${index + 1}: Title is required`);
+      }
+      
+      if (!slide.content || slide.content.trim().length === 0) {
+        errors.push(`Slide ${index + 1}: Content is required`);
+      }
+      
+      if (!slide.type || slide.type.trim().length === 0) {
+        errors.push(`Slide ${index + 1}: Type is required`);
+      }
+    });
     
-    if (!slide.type || slide.type.trim().length === 0) {
-      errors.push(`Slide ${index + 1}: Type is required`);
-    }
-  });
-  
-  return {
-    isValid: errors.length === 0,
-    errors
-  };
-}
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }

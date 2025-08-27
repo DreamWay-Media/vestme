@@ -298,7 +298,28 @@ FINAL REMINDER: EVERY SINGLE SLIDE MUST INCLUDE THE STYLING OBJECT WITH FONT SIZ
       slides = generateDefaultSlides(businessProfile, brandingInfo);
     }
 
+    // Enhance slides with logo information from brand kit
     const enhancedSlides = slides.map((slide: any, index: number) => {
+      // Extract logo information from AI response if available
+      const visualElements = slide.visualElements || [];
+      const logoUsage = slide.logoUsage || '';
+      
+      // Determine which logos to use for this slide based on AI guidance
+      let logosToUse = [];
+      
+      if (brandingInfo?.logoUrl) {
+        logosToUse.push(brandingInfo.logoUrl);
+      }
+      
+      if (brandingInfo?.brandAssets && Array.isArray(brandingInfo.brandAssets)) {
+        // Add all brand assets logos
+        brandingInfo.brandAssets.forEach((asset: any) => {
+          if (asset.url && !logosToUse.includes(asset.url)) {
+            logosToUse.push(asset.url);
+          }
+        });
+      }
+      
       // Ensure proper color contrast and visual appeal
       const { backgroundColor, textColor } = ensureColorContrast(
         slide.backgroundColor || brandingInfo?.primaryColor || '#FFFFFF',
@@ -315,31 +336,48 @@ FINAL REMINDER: EVERY SINGLE SLIDE MUST INCLUDE THE STYLING OBJECT WITH FONT SIZ
         titleFontSize: aiStyling.titleFontSize,
         descriptionFontSize: aiStyling.descriptionFontSize,
         bulletFontSize: aiStyling.bulletFontSize,
-        fullStyling: aiStyling
+        fullStyling: aiStyling,
+        logosToUse: logosToUse
       });
       
+      // Create enhanced slide with logo information
       return {
+        ...slide,
         id: slide.id || `slide-${index + 1}`,
         type: slide.type || 'content',
         title: slide.title || `Slide ${index + 1}`,
-        content: slide.content || { description: 'Content for this slide', bullets: [] },
+        content: {
+          ...slide.content,
+          // Store all available logos for this slide
+          logos: logosToUse,
+          // Keep existing content structure
+          description: slide.content?.description || slide.description || '',
+          bullets: slide.content?.bullets || slide.bullets || []
+        },
         visualElements: Array.isArray(slide.visualElements) ? slide.visualElements : ['icon'],
         layout: slide.layout || 'standard',
         backgroundColor,
         textColor,
         order: index + 1,
+        // Store logo information in styling for easy access
         styling: {
           // AI-generated font sizes for optimal visual hierarchy
           titleFontSize: aiStyling.titleFontSize || '3xl',
           descriptionFontSize: aiStyling.descriptionFontSize || 'lg',
           bulletFontSize: aiStyling.bulletFontSize || 'base',
           // Preserve other AI-generated styling
-          ...aiStyling
-        }
+          ...aiStyling,
+          logoUrl: brandingInfo?.logoUrl,
+          brandAssets: brandingInfo?.brandAssets,
+          // Store all logos for this slide
+          allLogos: logosToUse
+        },
+        // Keep AI-generated visual guidance
+        logoUsage
       };
     });
 
-    console.log(`Generated ${enhancedSlides.length} slides for pitch deck`);
+    console.log(`Generated ${enhancedSlides.length} slides for pitch deck with logos`);
     
     // Final validation - ensure all slides have styling
     const slidesWithStyling = enhancedSlides.filter((slide: any) => slide.styling);

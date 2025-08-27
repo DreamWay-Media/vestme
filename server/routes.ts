@@ -693,16 +693,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Update the slide with the new data - only allow specific properties for security
-      const { title, content, layout, styling, backgroundColor, textColor } = updates;
+      const { title, content, layout, styling, backgroundColor, textColor, positionedElements } = updates;
       
       // Log what we're updating for debugging
+      console.log('=== SERVER SLIDE UPDATE DEBUG ===');
+      console.log('Full updates object received:', JSON.stringify(updates, null, 2));
+      console.log('Extracted positionedElements:', positionedElements);
+      console.log('Extracted positionedElements type:', typeof positionedElements);
+      console.log('Extracted positionedElements keys:', positionedElements ? Object.keys(positionedElements) : 'undefined');
+      
       console.log('Updating slide with properties:', {
         title: title !== undefined,
         content: content !== undefined,
         layout: layout !== undefined,
         styling: styling !== undefined,
         backgroundColor: backgroundColor !== undefined,
-        textColor: textColor !== undefined
+        textColor: textColor !== undefined,
+        positionedElements: positionedElements !== undefined
       });
       
       if (backgroundColor !== undefined) {
@@ -710,6 +717,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (textColor !== undefined) {
         console.log('Text color update:', textColor);
+      }
+      if (positionedElements !== undefined) {
+        console.log('Positioned elements update:', positionedElements);
       }
       
       slides[slideIndex] = { 
@@ -719,11 +729,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...(layout !== undefined && { layout }),
         ...(styling !== undefined && { styling }),
         ...(backgroundColor !== undefined && { backgroundColor }),
-        ...(textColor !== undefined && { textColor })
+        ...(textColor !== undefined && { textColor }),
+        ...(positionedElements !== undefined && { positionedElements })
       };
+      
+      // Log the final slide object for debugging
+      console.log('=== FINAL SLIDE OBJECT DEBUG ===');
+      console.log('Final slide object to be saved:', JSON.stringify(slides[slideIndex], null, 2));
+      console.log('Final slide positionedElements:', slides[slideIndex].positionedElements);
+      console.log('Final slide positionedElements type:', typeof slides[slideIndex].positionedElements);
+      console.log('Final slide positionedElements keys:', slides[slideIndex].positionedElements ? Object.keys(slides[slideIndex].positionedElements) : 'undefined');
       
       // Update the deck with the modified slides
       const updatedDeck = await storage.updateDeck(deckId, { slides });
+      
+      // Log the updated deck for debugging
+      console.log('=== UPDATED DECK DEBUG ===');
+      console.log('Updated deck slides count:', Array.isArray(updatedDeck.slides) ? updatedDeck.slides.length : 'not an array');
+      if (Array.isArray(updatedDeck.slides) && updatedDeck.slides[slideIndex]) {
+        console.log('Updated slide positionedElements:', updatedDeck.slides[slideIndex].positionedElements);
+        console.log('Updated slide positionedElements type:', typeof updatedDeck.slides[slideIndex].positionedElements);
+        console.log('Updated slide positionedElements keys:', updatedDeck.slides[slideIndex].positionedElements ? Object.keys(updatedDeck.slides[slideIndex].positionedElements) : 'undefined');
+      } else {
+        console.log('Updated slide not found or slides is not an array');
+      }
       
       // Log activity with rich text formatting info
       const activityDescription = `Updated slide "${updates.title || slides[slideIndex].title}" in deck "${deck.title}"`;
@@ -774,14 +803,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const brandKit = deck.brandKitId ? await storage.getBrandKit(deck.brandKitId) : null;
       const brandingInfo = brandKit ? {
         primaryColor: brandKit.primaryColor || undefined,
-        secondaryColor: brandKit.secondaryColor || undefined,
+        secondaryColor: brandKit.secondaryColor || undefined, // Fixed: was using accentColor
         accentColor: brandKit.accentColor || undefined,
         fontFamily: brandKit.fontFamily || undefined,
         logoUrl: brandKit.logoUrl || undefined,
         brandAssets: brandKit.brandAssets || undefined
       } : undefined;
 
-      // Generate PDF
+      // Generate PDF with enhanced styling data
       const pdfUrl = await generatePitchDeckPDF({
         slides: deck.slides as any,
         title: deck.title,
@@ -821,12 +850,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const brandKit = deck.brandKitId ? await storage.getBrandKit(deck.brandKitId) : null;
       const brandingInfo = brandKit ? {
         primaryColor: brandKit.primaryColor || undefined,
-        secondaryColor: brandKit.accentColor || undefined,
+        secondaryColor: brandKit.secondaryColor || undefined, // Fixed: was incorrectly using accentColor
+        accentColor: brandKit.accentColor || undefined,
         fontFamily: brandKit.fontFamily || undefined,
         logoUrl: brandKit.logoUrl || undefined
       } : undefined;
 
-      // Generate new PDF
+      // Generate new PDF with enhanced styling data
       const pdfUrl = await generatePitchDeckPDF({
         slides: deck.slides as any,
         title: deck.title,

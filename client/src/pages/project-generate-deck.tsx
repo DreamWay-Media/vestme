@@ -209,6 +209,11 @@ export default function ProjectGenerateDeck() {
         descriptionFontSize: slide.styling?.descriptionFontSize || 'lg', // AI default: clear readability
         bulletFontSize: slide.styling?.bulletFontSize || 'base', // AI default: comfortable reading
         logoUrl: brandKits?.[0]?.logoUrl || slide.styling?.logoUrl,
+        // Store all logos from brand kit for comprehensive logo usage
+        allLogos: [
+          ...(brandKits?.[0]?.logoUrl ? [brandKits[0].logoUrl] : []),
+          ...(brandKits?.[0]?.brandAssets ? brandKits[0].brandAssets.map((asset: any) => asset.url) : [])
+        ].filter(Boolean),
         
         // Make all brand colors available for creative use
         brandColors: {
@@ -555,38 +560,64 @@ export default function ProjectGenerateDeck() {
                       variant="outline" 
                       className="flex-1"
                       onClick={async () => {
-                        if (latestDeck.pdfUrl && latestDeck.pdfUrl.endsWith('.pdf')) {
-                          // PDF already exists, download it
-                          try {
-                            const response = await fetch(latestDeck.pdfUrl);
-                            if (response.ok) {
-                              const blob = await response.blob();
-                              const link = document.createElement('a');
-                              link.href = URL.createObjectURL(blob);
-                              link.download = `${latestDeck.title.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-deck.pdf`;
-                              document.body.appendChild(link);
-                              link.click();
-                              document.body.removeChild(link);
-                              URL.revokeObjectURL(link.href);
-                            } else {
-                              throw new Error('PDF not found');
+                        try {
+                          // Always regenerate PDF first to get the latest version
+                          toast({
+                            title: "Generating PDF",
+                            description: "Creating your latest PDF, it will download automatically when ready.",
+                          });
+                          
+                          // Generate PDF and then download it
+                          const result = await generatePdfMutation.mutateAsync(latestDeck.id);
+                          
+                          // Wait a moment for the PDF to be ready, then download
+                          setTimeout(async () => {
+                            try {
+                              // Refetch deck to get updated PDF URL
+                              await queryClient.refetchQueries({ queryKey: ["/api/projects", projectId, "decks"] });
+                              
+                              // Get the updated deck data
+                              const updatedDeck = await queryClient.getQueryData(["/api/projects", projectId, "decks"]);
+                              const deckWithPdf = Array.isArray(updatedDeck) ? updatedDeck[0] : null;
+                              
+                              if (deckWithPdf?.pdfUrl) {
+                                const response = await fetch(deckWithPdf.pdfUrl);
+                                if (response.ok) {
+                                  const blob = await response.blob();
+                                  const link = document.createElement('a');
+                                  link.href = URL.createObjectURL(blob);
+                                  link.download = `${latestDeck.title.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-deck.pdf`;
+                                  document.body.appendChild(link);
+                                  link.click();
+                                  document.body.removeChild(link);
+                                  URL.revokeObjectURL(link.href);
+                                  
+                                  toast({
+                                    title: "PDF Ready & Downloaded",
+                                    description: "Your latest pitch deck PDF has been generated and downloaded successfully.",
+                                  });
+                                }
+                              }
+                            } catch (downloadError) {
+                              toast({
+                                title: "PDF Generated",
+                                description: "PDF created successfully! Click the button again to download.",
+                              });
                             }
-                          } catch (error) {
-                            toast({
-                              title: "PDF Download Failed",
-                              description: "The PDF could not be downloaded. Please generate it first.",
-                              variant: "destructive"
-                            });
-                          }
-                        } else {
-                          // No PDF exists, generate one first
-                          generatePdfMutation.mutate(latestDeck.id);
+                          }, 2000); // Wait 2 seconds for PDF to be ready
+                        } catch (error) {
+                          console.error('PDF operation failed:', error);
+                          toast({
+                            title: "PDF Operation Failed",
+                            description: "There was an issue with the PDF. Please try again.",
+                            variant: "destructive"
+                          });
                         }
                       }}
                       disabled={generatePdfMutation.isPending}
                     >
                       <Download className="h-4 w-4 mr-2" />
-                      {generatePdfMutation.isPending ? 'Generating PDF...' : latestDeck.pdfUrl ? 'Export PDF' : 'Generate PDF'}
+                      {generatePdfMutation.isPending ? 'Generating PDF...' : 'Download Latest PDF'}
                     </Button>
                   </div>
                   

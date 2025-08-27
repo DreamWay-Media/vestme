@@ -25,6 +25,14 @@ interface SlideRendererProps {
         secondary: string;
         accent: string;
       };
+      allLogos?: string[]; // Added for all logos from brand kit
+    };
+    // Drag and drop positioning
+    positionedElements?: {
+      title?: { x: number; y: number; width?: number; height?: number };
+      description?: { x: number; y: number; width?: number; height?: number };
+      bullets?: { x: number; y: number; width?: number; height?: number };
+      logo?: { x: number; y: number; width?: number; height?: number };
     };
   };
   isCompact?: boolean;
@@ -33,6 +41,7 @@ interface SlideRendererProps {
 export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) {
   const content = slide.content || {};
   const styling = slide.styling || {};
+  const positionedElements = slide.positionedElements || {};
   
   // Extract styling variables
   const primaryColor = styling.primaryColor || '#3b82f6';
@@ -95,120 +104,344 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
   console.log('SlideRenderer - Styling received:', styling);
   console.log('SlideRenderer - Background style:', backgroundStyle);
   console.log('SlideRenderer - Final slide style:', slideStyle);
+  console.log('SlideRenderer - Positioned elements:', positionedElements);
 
-  // Render sections (new format)
-  const renderSections = () => {
-    if (!content.sections || !Array.isArray(content.sections)) {
-      return null;
-    }
+  // Check if we should use positioned layout
+  const usePositionedLayout = Object.keys(positionedElements).length > 0;
 
-    return content.sections
-      .sort((a: any, b: any) => (a.order || 0) - (b.order || 0))
-      .map((section: any, index: number) => {
-        const sectionKey = `${slide.id}-${section.id || index}`;
-        
-        if (section.type === 'image' && section.content) {
-          return (
-            <div key={sectionKey} className={isCompact ? "mb-2" : "mb-4"}>
-              <img 
-                src={section.content} 
-                alt="Slide content" 
-                className={`w-full object-contain rounded ${isCompact ? 'h-16 max-w-full' : 'max-h-64'}`}
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-            </div>
-          );
-        }
-
-        if (section.content) {
-          const getTextStyles = () => {
-            switch (section.type) {
-              case 'title':
-                return `${isCompact ? 'text-sm' : 'text-2xl'} font-bold mb-2`;
-              case 'subtitle':
-                return `${isCompact ? 'text-xs' : 'text-lg'} font-semibold mb-2`;
-              case 'bullet':
-                return `${isCompact ? 'text-xs' : 'text-base'} ml-4 mb-1`;
-              default:
-                return `${isCompact ? 'text-xs' : 'text-base'} mb-2`;
-            }
-          };
-
-          return (
-            <div
-              key={sectionKey}
-              className={`${getTextStyles()} leading-relaxed`}
-              style={{ color: section.type === 'title' ? primaryColor : textColor }}
-              dangerouslySetInnerHTML={{ 
-                __html: section.content
-              }}
-            />
-          );
-        }
-
-        return null;
-      });
-  };
-
-  return (
-    <div 
-      className={`relative overflow-hidden w-full ${isCompact ? 'h-full p-2' : 'h-full p-6'}`}
-      style={{
-        ...slideStyle,
-        // Ensure background color is applied
-        backgroundColor: backgroundColor
-      }}
-    >
-      <div className={`w-full h-full ${isCompact ? 'text-xs' : ''} overflow-hidden`}>
-        {/* Logo for title slides */}
-        {slide.type === 'title' && logoUrl && (
-          <div className={`flex justify-center ${isCompact ? 'mb-2' : 'mb-6'}`}>
+  // If using positioned layout, render with absolute positioning
+  if (usePositionedLayout) {
+    return (
+      <div 
+        className={`relative overflow-hidden rounded border ${isCompact ? 'h-24' : 'aspect-video'}`}
+        style={slideStyle}
+      >
+        {/* Logo - positioned absolutely */}
+        {logoUrl && slide.type !== 'title' && (
+          <div 
+            className={`absolute ${isCompact ? 'z-10' : 'z-20'}`}
+            style={{
+              left: positionedElements.logo?.x || 16,
+              top: positionedElements.logo?.y || 16
+            }}
+          >
             <img 
               src={logoUrl} 
               alt="Company Logo" 
-              className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain`} 
+              className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
+              onError={(e) => { e.currentTarget.style.display = 'none'; }} 
             />
           </div>
         )}
-        
-        {/* Always show slide title if it exists and no title section */}
-        {slide.title && !content.sections?.some((s: any) => s.type === 'title') && (
+
+        {/* Title - positioned absolutely */}
+        {((content.titles && Array.isArray(content.titles) && content.titles.length > 0) || slide.title) && (
           <div 
-            className={`${isCompact ? 'text-sm' : ''} font-bold leading-tight ${isCompact ? 'mb-1' : 'mb-6'}`}
-            style={{ 
-              color: textColor, 
-              fontFamily,
-              fontSize: isCompact ? '0.875rem' : getFontSize(titleFontSize),
-              // Add subtle text shadow using brand colors for depth
-              textShadow: brandColors ? `2px 2px 4px ${brandColors.primary}40` : 'none'
+            className="absolute"
+            style={{
+              left: positionedElements.title?.x || 48,
+              top: positionedElements.title?.y || 48,
+              right: slide.type === 'title' ? 48 : 'auto'
             }}
-            dangerouslySetInnerHTML={{ __html: slide.title }}
-          />
+          >
+            <div className="space-y-2">
+              {content.titles && Array.isArray(content.titles) && content.titles.length > 0 ? (
+                // New multiple titles format
+                content.titles.map((title: string, index: number) => (
+                  <h1 
+                    key={index}
+                    className="font-bold leading-tight"
+                    style={{
+                      fontSize: getFontSize(titleFontSize),
+                      color: brandColors?.primary || textColor,
+                      fontFamily,
+                      marginBottom: index < content.titles.length - 1 ? '16px' : '0'
+                    }}
+                  >
+                    {title}
+                  </h1>
+                ))
+              ) : (
+                // Old single title format
+                <h1 
+                  className="font-bold leading-tight"
+                  style={{
+                    fontSize: getFontSize(titleFontSize),
+                    color: brandColors?.primary || textColor,
+                    fontFamily
+                  }}
+                >
+                  {slide.title}
+                </h1>
+              )}
+            </div>
+          </div>
         )}
-        
-        {/* Render dynamic sections first */}
-        {renderSections()}
+
+        {/* Descriptions - positioned absolutely */}
+        {((content.descriptions && Array.isArray(content.descriptions) && content.descriptions.length > 0) || content.description) && (
+          <div 
+            className="absolute"
+            style={{
+              left: positionedElements.description?.x || 48,
+              top: positionedElements.description?.y || 120,
+              right: 48
+            }}
+          >
+            <div className="space-y-2">
+              {content.descriptions && Array.isArray(content.descriptions) && content.descriptions.length > 0 ? (
+                // New multiple descriptions format
+                content.descriptions.map((description: string, index: number) => (
+                  <div 
+                    key={index}
+                    className="leading-relaxed"
+                    style={{
+                      fontSize: getFontSize(descriptionFontSize),
+                      color: brandColors?.primary || textColor,
+                      fontFamily
+                    }}
+                  >
+                    {description}
+                  </div>
+                ))
+              ) : (
+                // Old single description format
+                <div 
+                  className="leading-relaxed"
+                  style={{
+                    fontSize: getFontSize(descriptionFontSize),
+                    color: brandColors?.primary || textColor,
+                    fontFamily
+                  }}
+                >
+                  {content.description}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Bullet Points - positioned absolutely */}
+        {content.bullets && Array.isArray(content.bullets) && content.bullets.length > 0 && (
+          <div 
+            className="absolute"
+            style={{
+              left: positionedElements.bullets?.x || 48,
+              top: positionedElements.bullets?.y || 200,
+              right: 48
+            }}
+          >
+            <ul className="space-y-2">
+              {content.bullets.map((bullet: string, index: number) => (
+                <li 
+                  key={index}
+                  className="flex items-start gap-2"
+                  style={{
+                    fontSize: getFontSize(bulletFontSize),
+                    color: brandColors?.primary || textColor,
+                    fontFamily
+                  }}
+                >
+                  <span 
+                    className="flex-shrink-0 mt-1"
+                    style={{ color: brandColors?.accent || accentColor }}
+                  >
+                    •
+                  </span>
+                  <span>{bullet}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Centered logo for title slides */}
+        {logoUrl && slide.type === 'title' && (
+          <div 
+            className="absolute"
+            style={{
+              left: positionedElements.logo?.x || '50%',
+              top: positionedElements.logo?.y || 48,
+              transform: positionedElements.logo ? 'none' : 'translateX(-50%)'
+            }}
+          >
+            <img 
+              src={logoUrl} 
+              alt="Company Logo" 
+              className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95`} 
+              onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Original layout when no positioning is specified
+  return (
+    <div 
+      className={`relative overflow-hidden rounded border ${isCompact ? 'h-24' : 'aspect-video'}`}
+      style={slideStyle}
+    >
+      {/* Logo block - top right for non-title slides */}
+      {((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || slide.styling?.allLogos || logoUrl) && slide.type !== 'title' && (
+        <div className={`absolute top-2 right-2 ${isCompact ? 'z-10' : 'z-20'}`}>
+          {content.logos && Array.isArray(content.logos) && content.logos.length > 0 ? (
+            // New multiple logos format - use all logos from content.logos
+            <div className="space-y-1">
+              {content.logos.map((logoUrl: string, index: number) => (
+                <img 
+                  key={index}
+                  src={logoUrl} 
+                  alt={`Logo ${index + 1}`} 
+                  className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                />
+              ))}
+            </div>
+          ) : slide.styling?.allLogos && Array.isArray(slide.styling.allLogos) && slide.styling.allLogos.length > 0 ? (
+            // Use all logos from brand kit styling
+            <div className="space-y-1">
+              {slide.styling.allLogos.map((logoUrl: string, index: number) => (
+                <img 
+                  key={index}
+                  src={logoUrl} 
+                  alt={`Logo ${index + 1}`} 
+                  className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                />
+              ))}
+            </div>
+          ) : (
+            // Fallback to old single logo format
+            <img 
+              src={logoUrl} 
+              alt="Company Logo" 
+              className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
+              onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+            />
+          )}
+        </div>
+      )}
+
+      {/* Main content container */}
+      <div className={`p-6 ${isCompact ? 'p-2' : ''}`}>
+        {/* Logo for title slides (centered, larger) - only on title slides */}
+        {((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || slide.styling?.allLogos || logoUrl) && slide.type === 'title' && (
+          <div className="text-center mb-6">
+            {content.logos && Array.isArray(content.logos) && content.logos.length > 0 ? (
+              // New multiple logos format - use all logos from content.logos
+              <div className="space-y-2">
+                {content.logos.map((logoUrl: string, index: number) => (
+                  <img 
+                    key={index}
+                    src={logoUrl} 
+                    alt={`Logo ${index + 1}`} 
+                    className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95`} 
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                  />
+                ))}
+              </div>
+            ) : slide.styling?.allLogos && Array.isArray(slide.styling.allLogos) && slide.styling.allLogos.length > 0 ? (
+              // Use all logos from brand kit styling
+              <div className="space-y-2">
+                {slide.styling.allLogos.map((logoUrl: string, index: number) => (
+                  <img 
+                    key={index}
+                    src={logoUrl} 
+                    alt={`Logo ${index + 1}`} 
+                    className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95`} 
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                  />
+                ))}
+              </div>
+            ) : (
+              // Fallback to old single logo format
+              <img 
+                src={logoUrl} 
+                alt="Company Logo" 
+                className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95`} 
+                onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+              />
+            )}
+          </div>
+        )}
+
+        {/* Main title */}
+        {((content.titles && Array.isArray(content.titles) && content.titles.length > 0) || slide.title) && (
+          <div className="space-y-2">
+            {content.titles && Array.isArray(content.titles) && content.titles.length > 0 ? (
+              // New multiple titles format
+              content.titles.map((title: string, index: number) => (
+                <h1 
+                  key={index}
+                  className="font-bold leading-tight"
+                  style={{
+                    fontSize: getFontSize(titleFontSize),
+                    color: brandColors?.primary || textColor,
+                    fontFamily,
+                    marginBottom: index < content.titles.length - 1 ? '16px' : '0'
+                  }}
+                >
+                  {title}
+                </h1>
+              ))
+            ) : (
+              // Old single title format
+              <h1 
+                className="font-bold leading-tight"
+                style={{
+                  fontSize: getFontSize(titleFontSize),
+                  color: brandColors?.primary || textColor,
+                  fontFamily
+                }}
+              >
+                {slide.title}
+              </h1>
+            )}
+          </div>
+        )}
 
         {/* AI-generated slide content support */}
-        {content.description && (
-          <div 
-            className={`${isCompact ? 'text-xs' : ''} leading-relaxed ${isCompact ? 'mb-1' : 'mb-4'}`}
-            style={{ 
-              color: textColor, 
-              fontFamily,
-              fontSize: isCompact ? '0.75rem' : getFontSize(descriptionFontSize),
-              // Add subtle border using brand colors
-              borderLeft: brandColors ? `4px solid ${brandColors.accent}` : 'none',
-              paddingLeft: brandColors ? '12px' : '0'
-            }}
-            dangerouslySetInnerHTML={{ __html: content.description }}
-          />
+        {((content.descriptions && Array.isArray(content.descriptions) && content.descriptions.length > 0) || content.description) && (
+          <div className="space-y-2">
+            {content.descriptions && Array.isArray(content.descriptions) && content.descriptions.length > 0 ? (
+              // New multiple descriptions format
+              content.descriptions.map((description: string, index: number) => (
+                <div 
+                  key={index}
+                  className={`${isCompact ? 'text-xs' : ''} leading-relaxed ${isCompact ? 'mb-1' : 'mb-4'} pr-16`}
+                  style={{ 
+                    color: textColor, 
+                    fontFamily,
+                    fontSize: isCompact ? '0.75rem' : getFontSize(descriptionFontSize),
+                    borderLeft: brandColors ? `4px solid ${brandColors.accent}` : 'none',
+                    paddingLeft: brandColors ? '12px' : '0'
+                  }}
+                >
+                  {description}
+                </div>
+              ))
+            ) : (
+              // Old single description format
+              <div 
+                className={`${isCompact ? 'text-xs' : ''} leading-relaxed ${isCompact ? 'mb-1' : 'mb-4'} pr-16`}
+                style={{ 
+                  color: textColor, 
+                  fontFamily,
+                  fontSize: isCompact ? '0.75rem' : getFontSize(descriptionFontSize),
+                  borderLeft: brandColors ? `4px solid ${brandColors.accent}` : 'none',
+                  paddingLeft: brandColors ? '12px' : '0'
+                }}
+              >
+                {content.description}
+              </div>
+            )}
+          </div>
         )}
         
         {content.bullets && Array.isArray(content.bullets) && content.bullets.length > 0 && (
-          <ul className={`${isCompact ? 'space-y-0' : 'space-y-2'}`}>
+          <ul className={`${isCompact ? 'space-y-0' : 'space-y-2'} pr-16`}>
             {content.bullets.slice(0, isCompact ? 3 : content.bullets.length).map((bullet: string, idx: number) => (
               <li 
                 key={idx}
@@ -216,7 +449,6 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                   color: textColor, 
                   fontFamily,
                   fontSize: isCompact ? '0.75rem' : getFontSize(bulletFontSize),
-                  // Use brand colors for bullet points
                   listStyleType: 'none'
                 }}
                 className={`${isCompact ? 'text-xs' : ''} flex items-start`}
@@ -230,7 +462,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                 >
                   •
                 </span>
-                <span dangerouslySetInnerHTML={{ __html: bullet }} />
+                <span>{bullet}</span>
               </li>
             ))}
             {isCompact && content.bullets.length > 3 && (
@@ -239,55 +471,34 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
           </ul>
         )}
 
-        {/* Legacy content support - only render if no AI-generated content exists */}
+        {/* Legacy content support */}
         {(!content.description && !content.bullets) && (
           <>
             {content.title && content.title !== slide.title && (
               <div 
                 className={`${isCompact ? 'text-sm' : 'text-2xl'} font-bold leading-tight ${isCompact ? 'mb-1' : 'mb-3'}`}
                 style={{ color: primaryColor, fontFamily }}
-                dangerouslySetInnerHTML={{ __html: content.title }}
-              />
+              >
+                {content.title}
+              </div>
             )}
             
             {content.subtitle && (
               <div 
                 className={`${isCompact ? 'text-xs' : 'text-lg'} leading-relaxed ${isCompact ? 'mb-1' : 'mb-3'}`}
                 style={{ color: textColor, fontFamily }}
-                dangerouslySetInnerHTML={{ __html: content.subtitle }}
-              />
+              >
+                {content.subtitle}
+              </div>
             )}
             
-            {content.description && (
-              <div 
-                className={`leading-relaxed ${isCompact ? 'mb-1' : 'mb-3'}`}
-                style={{ color: textColor, fontFamily }}
-                dangerouslySetInnerHTML={{ __html: content.description }}
-              />
-            )}
-            
-            {content.bullets && Array.isArray(content.bullets) && content.bullets.length > 0 && (
-              <ul className={`list-disc list-inside ${isCompact ? 'space-y-0' : 'space-y-2'}`}>
-                {content.bullets.slice(0, isCompact ? 2 : content.bullets.length).map((bullet: string, idx: number) => (
-                  <li 
-                    key={idx}
-                    style={{ color: textColor, fontFamily }}
-                    dangerouslySetInnerHTML={{ __html: bullet }}
-                  />
-                ))}
-                {isCompact && content.bullets.length > 2 && (
-                  <li className="text-xs text-gray-500">...and {content.bullets.length - 2} more</li>
-                )}
-              </ul>
-            )}
-            
-            {/* Handle other content formats that might exist */}
             {content.main_text && (
               <div 
                 className={`${isCompact ? 'text-xs' : 'text-xl'} leading-relaxed ${isCompact ? 'mb-1' : 'mb-6'}`}
                 style={{ color: textColor, fontFamily }}
-                dangerouslySetInnerHTML={{ __html: content.main_text }}
-              />
+              >
+                {content.main_text}
+              </div>
             )}
             
             {content.bullet_points && Array.isArray(content.bullet_points) && content.bullet_points.length > 0 && (

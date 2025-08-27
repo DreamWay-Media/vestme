@@ -20,7 +20,7 @@ interface BrandKit {
   secondaryColor: string;
   accentColor: string;
   fontFamily: string;
-  logoUrl?: string;
+  logoUrl?: string | null;
   brandAssets?: Array<{
     type: string;
     url: string;
@@ -89,8 +89,15 @@ export default function ProjectBrandKit() {
       const brandKitId = activeBrandKit?.id;
       return await apiRequest("PUT", `/api/projects/${projectId}/brand-kits/${brandKitId}`, data);
     },
-    onSuccess: () => {
+    onSuccess: (response: any) => {
+      console.log('Brand kit update response:', response);
+      console.log('Response logoUrl:', response.logoUrl);
+      console.log('Response brandAssets:', response.brandAssets);
+      
+      // Force refetch to ensure we get the latest data
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "brand-kits"] });
+      queryClient.refetchQueries({ queryKey: ["/api/projects", projectId, "brand-kits"] });
+      
       setCustomizing(false);
       setEditingBrandKit(null);
       toast({
@@ -185,9 +192,17 @@ export default function ProjectBrandKit() {
 
   const handleSaveBrandKit = () => {
     if (editingBrandKit) {
-      console.log('Saving brand kit with data:', editingBrandKit);
-      console.log('brandAssets being sent:', editingBrandKit.brandAssets);
-      updateBrandKitMutation.mutate(editingBrandKit);
+      // Ensure logoUrl is properly handled - if it's undefined, it should be explicitly set to null for the server
+      const brandKitData = {
+        ...editingBrandKit,
+        logoUrl: editingBrandKit.logoUrl === undefined ? null : editingBrandKit.logoUrl
+      };
+      
+      console.log('Saving brand kit with data:', brandKitData);
+      console.log('logoUrl being sent:', brandKitData.logoUrl);
+      console.log('brandAssets being sent:', brandKitData.brandAssets);
+      
+      updateBrandKitMutation.mutate(brandKitData);
     }
   };
 
@@ -216,6 +231,9 @@ export default function ProjectBrandKit() {
   // Debug logging
   console.log('Active brand kit:', activeBrandKit);
   console.log('brandAssets in active brand kit:', activeBrandKit?.brandAssets);
+  console.log('logoUrl in active brand kit:', activeBrandKit?.logoUrl);
+  console.log('logoUrl type:', typeof activeBrandKit?.logoUrl);
+  console.log('logoUrl truthy check:', !!activeBrandKit?.logoUrl);
 
   return (
     <ProjectLayoutWithHeader>
@@ -447,7 +465,7 @@ export default function ProjectBrandKit() {
                     <Label>Logos</Label>
                     <div className="space-y-3">
                       {/* Show main logo if exists */}
-                      {activeBrandKit.logoUrl && (
+                      {activeBrandKit.logoUrl && activeBrandKit.logoUrl !== null && activeBrandKit.logoUrl !== undefined && (
                         <div className="p-4 border-2 border-gray-200 rounded flex items-center justify-center" style={{
                           backgroundImage: `
                             linear-gradient(45deg, #f3f4f6 25%, transparent 25%),
@@ -681,17 +699,19 @@ export default function ProjectBrandKit() {
                                   try {
                                     for (const file of result.successful) {
                                       // Use the upload URL directly without processing
-                                      const logoUrl = file.uploadURL.split('?')[0]; // Remove query params
-                                      
-                                      // Add the new logo to brand assets (not replacing existing ones)
-                                      setEditingBrandKit(prev => prev ? {
-                                        ...prev, 
-                                        brandAssets: [...(prev.brandAssets || []), {
-                                          type: 'logo',
-                                          url: logoUrl,
-                                          name: `Uploaded Logo ${(prev.brandAssets?.length || 0) + 1}`
-                                        }]
-                                      } : null);
+                                      if (file.uploadURL) {
+                                        const logoUrl = file.uploadURL.split('?')[0]; // Remove query params
+                                        
+                                        // Add the new logo to brand assets (not replacing existing ones)
+                                        setEditingBrandKit(prev => prev ? {
+                                          ...prev, 
+                                          brandAssets: [...(prev.brandAssets || []), {
+                                            type: 'logo',
+                                            url: logoUrl,
+                                            name: `Uploaded Logo ${(prev.brandAssets?.length || 0) + 1}`
+                                          }]
+                                        } : null);
+                                      }
                                     }
                                     
                                     toast({
@@ -802,7 +822,7 @@ export default function ProjectBrandKit() {
                           
                           {/* Display main logo if exists */}
                           {editingBrandKit?.logoUrl && (
-                            <div className="p-3 border-2 border-gray-200 rounded shadow-sm flex items-center justify-center" style={{
+                            <div className="relative p-3 border-2 border-gray-200 rounded shadow-sm flex items-center justify-center" style={{
                               backgroundImage: `
                                 linear-gradient(45deg, #f3f4f6 25%, transparent 25%),
                                 linear-gradient(-45deg, #f3f4f6 25%, transparent 25%),
@@ -821,6 +841,19 @@ export default function ProjectBrandKit() {
                                   target.style.display = 'none';
                                 }}
                               />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingBrandKit(prev => prev ? {
+                                    ...prev,
+                                    logoUrl: undefined
+                                  } : null);
+                                }}
+                                className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600 transition-colors"
+                                title="Delete main logo"
+                              >
+                                ×
+                              </button>
                             </div>
                           )}
                         </div>

@@ -1,6 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
+import { Trash2 } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface Project {
   id: string;
@@ -72,6 +75,38 @@ export default function RecentProjects() {
   const { data: projects, isLoading } = useQuery({
     queryKey: ["/api/dashboard/recent-projects"],
   });
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  // Delete project mutation
+  const deleteProjectMutation = useMutation({
+    mutationFn: async (projectId: string) => {
+      return await apiRequest("DELETE", `/api/projects/${projectId}`);
+    },
+    onSuccess: () => {
+      // Invalidate and refetch queries to update the UI
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/recent-projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      toast({
+        title: "Project Deleted",
+        description: "Project has been deleted successfully.",
+      });
+    },
+    onError: (error: any) => {
+      console.error('Failed to delete project:', error);
+      toast({
+        title: "Delete Failed",
+        description: "Failed to delete project. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDeleteProject = (projectId: string, projectName: string) => {
+    if (window.confirm(`Are you sure you want to delete "${projectName}"? This action cannot be undone.`)) {
+      deleteProjectMutation.mutate(projectId);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -156,8 +191,17 @@ export default function RecentProjects() {
                 )}>
                   {statusConfig.label}
                 </span>
-                <button className="text-gray-400 hover:text-gray-600">
-                  <i className="fas fa-ellipsis-h"></i>
+                <button 
+                  onClick={() => handleDeleteProject(project.id, project.name)}
+                  disabled={deleteProjectMutation.isPending}
+                  className="text-gray-400 hover:text-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Delete project"
+                >
+                  {deleteProjectMutation.isPending ? (
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-red-500" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
                 </button>
               </div>
             </div>

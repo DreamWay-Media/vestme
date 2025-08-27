@@ -7,7 +7,6 @@ import Layout from "@/components/Layout";
 import StatsCard from "@/components/Dashboard/StatsCard";
 import RecentProjects from "@/components/Dashboard/RecentProjects";
 import QuickActions from "@/components/Dashboard/QuickActions";
-import RecentActivity from "@/components/Dashboard/RecentActivity";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import NewProjectModal from "@/components/Projects/NewProjectModal";
@@ -126,7 +125,6 @@ export default function Dashboard() {
         {/* Right Sidebar */}
         <div className="space-y-6">
           <QuickActions />
-          <RecentActivity />
         </div>
       </div>
 
