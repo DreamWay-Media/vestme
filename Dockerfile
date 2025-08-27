@@ -14,8 +14,8 @@ RUN npm ci --only=production && npm cache clean --force
 # Copy source code
 COPY . .
 
-# Build the application
-RUN npm run build
+# Build the application with production environment variables
+RUN npm run build:prod
 
 # Production stage
 FROM node:20-alpine AS production
