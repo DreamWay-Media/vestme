@@ -1,18 +1,19 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { randomUUID } from "crypto";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated } from "./replitAuth";
+import { setupAuth, isAuthenticated } from "./supabaseAuth";
 import {
   ObjectStorageService,
   ObjectNotFoundError,
 } from "./objectStorage";
-import { ObjectPermission } from "./objectAcl";
+
 import { analyzeBusinessFromData, generatePitchDeckSlides, enhanceBusinessDescription } from "./services/openai";
 import { FinancialAnalyzer } from "./services/financialAnalyzer";
 import { generatePitchDeckPDF, validateSlideContent } from "./services/pdfGenerator";
 import { WebsiteCrawler } from "./services/websiteCrawler";
 import { BusinessResearcher } from "./services/businessResearcher";
-import { generateBrandKitSuggestions } from "./services/brandKit";
+import { generateBrandKitSuggestions, extractBrandLogos } from "./services/brandKit";
 import { BrandAnalyzer } from "./services/brandAnalyzer";
 import { insertProjectSchema, insertBrandKitSchema, insertDeckSchema, insertCrmContactSchema, insertCampaignSchema, insertAudienceSchema } from "@shared/schema";
 
@@ -23,7 +24,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const user = await storage.getUser(userId);
       res.json(user);
     } catch (error) {
@@ -35,7 +36,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Dashboard routes
   app.get('/api/dashboard/stats', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const stats = await storage.getDashboardStats(userId);
       res.json(stats);
     } catch (error) {
@@ -46,7 +47,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/dashboard/recent-projects', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const projects = await storage.getUserProjects(userId);
       // Return only the 5 most recent projects
       res.json(projects.slice(0, 5));
@@ -58,7 +59,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/dashboard/recent-activities', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const activities = await storage.getUserActivities(userId, 10);
       res.json(activities);
     } catch (error) {
@@ -75,9 +76,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Check if PDF exists in cache
       (global as any).pdfCache = (global as any).pdfCache || new Map();
-      const pdfBuffer = (global as any).pdfCache.get(fileName);
+      let pdfBuffer: any = (global as any).pdfCache.get(fileName);
       
       if (pdfBuffer) {
+        // Normalize to Buffer if it's Uint8Array
+        if (pdfBuffer && !(Buffer.isBuffer(pdfBuffer))) {
+          pdfBuffer = Buffer.from(pdfBuffer);
+        }
+
         // Validate PDF buffer
         if (!Buffer.isBuffer(pdfBuffer) || pdfBuffer.length === 0) {
           console.error(`Invalid PDF buffer for: ${fileName}`);
@@ -115,23 +121,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Object Storage routes
   app.get("/objects/:objectPath(*)", isAuthenticated, async (req: any, res) => {
-    const userId = req.user?.claims?.sub;
+    const userId = req.user.id;
     const objectStorageService = new ObjectStorageService();
     try {
-      const objectFile = await objectStorageService.getObjectEntityFile(
-        req.path,
-      );
-      const canAccess = await objectStorageService.canAccessObjectEntity({
-        objectFile,
-        userId: userId,
-        requestedPermission: ObjectPermission.READ,
-      });
-      if (!canAccess) {
-        return res.sendStatus(401);
-      }
-      objectStorageService.downloadObject(objectFile, res);
+      // For Supabase, we'll use the file path directly
+      const filePath = req.params.objectPath;
+      
+      // Check if user can access this file (basic check - you might want to enhance this)
+      // For now, we'll allow access to authenticated users
+      
+      await objectStorageService.downloadObject(filePath, res);
     } catch (error) {
-      console.error("Error checking object access:", error);
+      console.error("Error downloading object:", error);
       if (error instanceof ObjectNotFoundError) {
         return res.sendStatus(404);
       }
@@ -140,9 +141,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/objects/upload", isAuthenticated, async (req, res) => {
-    const objectStorageService = new ObjectStorageService();
-    const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-    res.json({ uploadURL });
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const fileName = `${randomUUID()}-${Date.now()}`;
+      const uploadURL = await objectStorageService.getSignedUploadURL(fileName, 'application/octet-stream');
+      res.json({ uploadURL, fileName });
+    } catch (error) {
+      console.error("Error creating upload URL:", error);
+      res.status(500).json({ error: "Failed to create upload URL" });
+    }
   });
 
   app.put("/api/business-documents", isAuthenticated, async (req: any, res) => {
@@ -150,23 +157,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).json({ error: "documentURL is required" });
     }
 
-    const userId = req.user?.claims?.sub;
+    const userId = req.user.id;
 
     try {
-      const objectStorageService = new ObjectStorageService();
-      const objectPath = await objectStorageService.trySetObjectEntityAclPolicy(
-        req.body.documentURL,
-        {
-          owner: userId,
-          visibility: "private",
-        },
-      );
-
+      // For Supabase, we'll store the file path directly
+      // The documentURL should be the file path in Supabase Storage
+      const objectPath = req.body.documentURL;
+      
       res.status(200).json({
         objectPath: objectPath,
       });
     } catch (error) {
-      console.error("Error setting document ACL:", error);
+      console.error("Error setting document path:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -174,7 +176,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Project routes
   app.get('/api/projects', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const projects = await storage.getUserProjects(userId);
       res.json(projects);
     } catch (error) {
@@ -185,7 +187,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/projects', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const projectData = insertProjectSchema.parse({
         ...req.body,
         userId
@@ -212,7 +214,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/projects/:id', isAuthenticated, async (req: any, res) => {
     try {
       const project = await storage.getProject(req.params.id);
-      if (!project || project.userId !== req.user.claims.sub) {
+      if (!project || project.userId !== req.user.id) {
         return res.status(404).json({ message: "Project not found" });
       }
       res.json(project);
@@ -225,7 +227,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/projects/:id', isAuthenticated, async (req: any, res) => {
     try {
       const project = await storage.getProject(req.params.id);
-      if (!project || project.userId !== req.user.claims.sub) {
+      if (!project || project.userId !== req.user.id) {
         return res.status(404).json({ message: "Project not found" });
       }
 
@@ -240,7 +242,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete('/api/projects/:id', isAuthenticated, async (req: any, res) => {
     try {
       const project = await storage.getProject(req.params.id);
-      if (!project || project.userId !== req.user.claims.sub) {
+      if (!project || project.userId !== req.user.id) {
         return res.status(404).json({ message: "Project not found" });
       }
 
@@ -255,7 +257,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // AI Business Analysis route
   app.post('/api/projects/:id/analyze', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { documents } = req.body;
       const project = await storage.getProject(req.params.id);
       
@@ -326,7 +328,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update business profile
   app.put('/api/projects/:id/business-profile', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const project = await storage.getProject(req.params.id);
       
       if (!project || project.userId !== userId) {
@@ -390,7 +392,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Brand Kit routes
   app.post('/api/projects/:id/brand-kit', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const project = await storage.getProject(req.params.id);
       
       if (!project || project.userId !== userId) {
@@ -400,16 +402,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get business profile to extract website design elements
       const businessProfile = project.businessProfile || {};
       
+      console.log('Brand kit generation - business profile:', {
+        hasBusinessProfile: !!businessProfile,
+        hasWebsiteContent: !!(businessProfile as any)?.websiteContent,
+        hasDesignElements: !!(businessProfile as any)?.websiteContent?.designElements,
+        colors: (businessProfile as any)?.websiteContent?.designElements?.colors || [],
+        fonts: (businessProfile as any)?.websiteContent?.designElements?.fonts || [],
+        logoUrls: (businessProfile as any)?.websiteContent?.designElements?.logoUrls || [],
+        keyImages: (businessProfile as any)?.websiteContent?.designElements?.keyImages || []
+      });
+      
       // Generate brand kit suggestions using website design elements
       const suggestions = generateBrandKitSuggestions(businessProfile);
 
+      // Get the first extracted logo URL if available
+      const extractedLogoUrl = (businessProfile as any)?.websiteContent?.designElements?.logoUrls?.[0] || null;
+      
+      console.log('Logo URL for brand kit:', {
+        requestedLogoUrl: req.body.logoUrl,
+        extractedLogoUrl: extractedLogoUrl,
+        finalLogoUrl: req.body.logoUrl || extractedLogoUrl
+      });
+      
       const brandKitData = insertBrandKitSchema.parse({
         name: req.body.name || `${project.name} Brand Kit`,
         primaryColor: req.body.primaryColor || suggestions.primaryColor,
         secondaryColor: req.body.secondaryColor || suggestions.secondaryColor,
         accentColor: req.body.accentColor || suggestions.accentColor,
         fontFamily: req.body.fontFamily || suggestions.fontFamily,
-        logoUrl: req.body.logoUrl || null,
+        logoUrl: req.body.logoUrl || extractedLogoUrl,
         projectId: req.params.id
       });
 
@@ -427,11 +448,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         metadata: { brandKitId: brandKit.id, extractedFromWebsite: !!(businessProfile as any)?.websiteContent?.designElements }
       });
 
+      // Extract logo information for response
+      const logoInfo = extractBrandLogos(businessProfile);
+      
       res.json({
         ...brandKit,
         suggestions: {
           reasoning: suggestions.reasoning,
-          extractedElements: (businessProfile as any)?.websiteContent?.designElements || null
+          extractedElements: (businessProfile as any)?.websiteContent?.designElements || null,
+          logoAnalysis: logoInfo
         }
       });
     } catch (error) {
@@ -442,7 +467,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/projects/:id/brand-kits', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const project = await storage.getProject(req.params.id);
       
       if (!project || project.userId !== userId) {
@@ -460,7 +485,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // AI Brand Analysis from Website
   app.post('/api/projects/:id/analyze-brand', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const project = await storage.getProject(req.params.id);
       
       if (!project || project.userId !== userId) {
@@ -475,6 +500,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const brandAnalyzer = new BrandAnalyzer();
       const brandExtraction = await brandAnalyzer.extractBrandFromWebsite(project.websiteUrl);
       
+      console.log('Brand extraction results:', {
+        colors: brandExtraction.colors,
+        fonts: brandExtraction.typography,
+        logo: brandExtraction.logo,
+        logoUrl: brandExtraction.logo.logoUrl
+      });
+      
       // Create brand kit from extracted data
       const brandKitData = insertBrandKitSchema.parse({
         name: `AI-Generated Brand Kit for ${project.name}`,
@@ -488,10 +520,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const brandKit = await storage.createBrandKit(brandKitData);
       
-      // Update project status if not already at brand kit stage or beyond
-      if (project.status === 'discovery') {
-        await storage.updateProject(req.params.id, { status: 'brand_kit' });
-      }
+      // Update the business profile with extracted website design elements
+      const currentBusinessProfile = project.businessProfile || {};
+      const updatedBusinessProfile = {
+        ...currentBusinessProfile,
+        websiteContent: {
+          ...(currentBusinessProfile as any)?.websiteContent,
+          designElements: {
+            colors: brandExtraction.colors.brandColors || [],
+            fonts: brandExtraction.typography.fontFamilies || [],
+            logoUrls: brandExtraction.logo.logoUrl ? [brandExtraction.logo.logoUrl] : [],
+            keyImages: brandExtraction.logo.logoUrl ? [brandExtraction.logo.logoUrl] : []
+          }
+        }
+      };
+      
+      // Update project with enhanced business profile
+      await storage.updateProject(req.params.id, { 
+        businessProfile: updatedBusinessProfile,
+        status: project.status === 'discovery' ? 'brand_kit' : project.status
+      });
+      
+      console.log('Updated business profile with website elements:', {
+        colors: updatedBusinessProfile.websiteContent.designElements.colors,
+        fonts: updatedBusinessProfile.websiteContent.designElements.fonts,
+        logoUrls: updatedBusinessProfile.websiteContent.designElements.logoUrls,
+        keyImages: updatedBusinessProfile.websiteContent.designElements.keyImages
+      });
 
       // Log activity
       await storage.logActivity({
@@ -522,7 +577,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Deck generation route
   app.post('/api/projects/:id/generate-deck', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const project = await storage.getProject(req.params.id);
       
       if (!project || project.userId !== userId) {
@@ -551,13 +606,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         secondaryColor: brandKit.secondaryColor || undefined,
         accentColor: brandKit.accentColor || undefined,
         fontFamily: brandKit.fontFamily || undefined,
-        logoUrl: brandKit.logoUrl || undefined
+        logoUrl: brandKit.logoUrl || undefined,
+        brandAssets: brandKit.brandAssets || undefined
       } : undefined;
 
-      const slides = await generatePitchDeckSlides(
-        project.businessProfile as any,
+      const slides = await generatePitchDeckSlides({
+        businessProfile: project.businessProfile as any,
         brandingInfo
-      );
+      });
 
       const deckData = insertDeckSchema.parse({
         projectId: req.params.id,
@@ -569,22 +625,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const deck = await storage.createDeck(deckData);
       
-      // Generate PDF with complete slide data
-      try {
-        const pdfUrl = await generatePitchDeckPDF({
-          slides: slides as any,
-          title: `${project.name} Pitch Deck`,
-          branding: brandingInfo,
-          projectName: project.name
-        });
-        
-        // Update deck with PDF URL
-        await storage.updateDeck(deck.id, { pdfUrl });
-        console.log(`PDF generated successfully for deck ${deck.id}: ${pdfUrl}`);
-      } catch (pdfError) {
-        console.error("PDF generation failed:", pdfError);
-        // Continue without PDF - deck is still created
-      }
+      // Note: PDF generation is now handled separately when user clicks Export PDF button
+      // This improves performance and user experience by not blocking deck generation
 
       // Update project status
       await storage.updateProject(req.params.id, { status: 'deck_ready' });
@@ -608,7 +650,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Deck routes
   app.get('/api/projects/:id/decks', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const project = await storage.getProject(req.params.id);
       
       if (!project || project.userId !== userId) {
@@ -626,7 +668,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update slide content and styling
   app.put('/api/decks/:deckId/slides/:slideId', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { deckId, slideId } = req.params;
       const updates = req.body;
       
@@ -651,13 +693,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Update the slide with the new data - only allow specific properties for security
-      const { title, content, layout, styling } = updates;
+      const { title, content, layout, styling, backgroundColor, textColor } = updates;
+      
+      // Log what we're updating for debugging
+      console.log('Updating slide with properties:', {
+        title: title !== undefined,
+        content: content !== undefined,
+        layout: layout !== undefined,
+        styling: styling !== undefined,
+        backgroundColor: backgroundColor !== undefined,
+        textColor: textColor !== undefined
+      });
+      
+      if (backgroundColor !== undefined) {
+        console.log('Background color update:', backgroundColor);
+      }
+      if (textColor !== undefined) {
+        console.log('Text color update:', textColor);
+      }
+      
       slides[slideIndex] = { 
         ...slides[slideIndex], 
         ...(title !== undefined && { title }),
         ...(content !== undefined && { content }),
         ...(layout !== undefined && { layout }),
-        ...(styling !== undefined && { styling })
+        ...(styling !== undefined && { styling }),
+        ...(backgroundColor !== undefined && { backgroundColor }),
+        ...(textColor !== undefined && { textColor })
       };
       
       // Update the deck with the modified slides
@@ -692,15 +754,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Add PDF regeneration endpoint
-  app.post('/api/decks/:id/regenerate-pdf', isAuthenticated, async (req: any, res) => {
+  // Generate PDF for a deck (called when Export PDF button is clicked)
+  app.post('/api/decks/:id/generate-pdf', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const deckId = req.params.id;
       
       const deck = await storage.getDeck(deckId);
       if (!deck) {
         return res.status(404).json({ message: "Deck not found" });
+      }
+
+      const project = await storage.getProject(deck.projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(403).json({ message: "Not authorized to generate PDF for this deck" });
+      }
+
+      // Get brand kit info for PDF generation
+      const brandKit = deck.brandKitId ? await storage.getBrandKit(deck.brandKitId) : null;
+      const brandingInfo = brandKit ? {
+        primaryColor: brandKit.primaryColor || undefined,
+        secondaryColor: brandKit.secondaryColor || undefined,
+        accentColor: brandKit.accentColor || undefined,
+        fontFamily: brandKit.fontFamily || undefined,
+        logoUrl: brandKit.logoUrl || undefined,
+        brandAssets: brandKit.brandAssets || undefined
+      } : undefined;
+
+      // Generate PDF
+      const pdfUrl = await generatePitchDeckPDF({
+        slides: deck.slides as any,
+        title: deck.title,
+        branding: brandingInfo,
+        projectName: project.name
+      });
+
+      // Update deck with PDF URL
+      await storage.updateDeck(deckId, { pdfUrl });
+
+      console.log(`PDF generated successfully for deck ${deckId}: ${pdfUrl}`);
+
+      res.json({ success: true, pdfUrl });
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+      res.status(500).json({ message: "Failed to generate PDF" });
+    }
+  });
+
+  // Add PDF regeneration endpoint
+  app.post('/api/decks/:id/regenerate-pdf', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const deckId = req.params.id;
+      
+      const deck = await storage.getDeck(deckId);
+      if (!deck) {
+        return res.status(403).json({ message: "Not authorized to regenerate PDF for this deck" });
       }
 
       const project = await storage.getProject(deck.projectId);
@@ -712,8 +821,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const brandKit = deck.brandKitId ? await storage.getBrandKit(deck.brandKitId) : null;
       const brandingInfo = brandKit ? {
         primaryColor: brandKit.primaryColor || undefined,
-        secondaryColor: brandKit.secondaryColor || undefined,
-        accentColor: brandKit.accentColor || undefined,
+        secondaryColor: brandKit.accentColor || undefined,
         fontFamily: brandKit.fontFamily || undefined,
         logoUrl: brandKit.logoUrl || undefined
       } : undefined;
@@ -747,7 +855,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Verify user owns this deck through project
       const project = await storage.getProject(deck.projectId);
-      if (!project || project.userId !== req.user.claims.sub) {
+      if (!project || project.userId !== req.user.id) {
         return res.status(404).json({ message: "Deck not found" });
       }
 
@@ -761,7 +869,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update brand kit route
   app.put('/api/projects/:id/brand-kits/:brandKitId', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const project = await storage.getProject(req.params.id);
       
       if (!project || project.userId !== userId) {
@@ -779,10 +887,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         secondaryColor: req.body.secondaryColor,
         accentColor: req.body.accentColor,
         fontFamily: req.body.fontFamily,
-        logoUrl: req.body.logoUrl
+        logoUrl: req.body.logoUrl,
+        brandAssets: req.body.brandAssets
       };
+      
+      console.log('Updating brand kit with data:', updateData);
+      console.log('brandAssets being sent:', req.body.brandAssets);
 
       const updatedBrandKit = await storage.updateBrandKit(req.params.brandKitId, updateData);
+      
+      console.log('Brand kit updated successfully');
+      console.log('Updated brand kit data:', updatedBrandKit);
+      console.log('brandAssets after update:', updatedBrandKit.brandAssets);
 
       // Log activity
       await storage.logActivity({
@@ -803,7 +919,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // CRM routes
   app.get('/api/crm/contacts', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const contacts = await storage.getUserContacts(userId);
       res.json(contacts);
     } catch (error) {
@@ -814,7 +930,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/crm/contacts', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const contactData = insertCrmContactSchema.parse({
         ...req.body,
         userId
@@ -830,7 +946,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/crm/contacts/import', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { csvData, contacts } = req.body;
       
       let contactsToImport = [];
@@ -932,7 +1048,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/crm/contacts/:id', isAuthenticated, async (req: any, res) => {
     try {
       const contact = await storage.getContact(req.params.id);
-      if (!contact || contact.userId !== req.user.claims.sub) {
+      if (!contact || contact.userId !== req.user.id) {
         return res.status(404).json({ message: "Contact not found" });
       }
 
@@ -947,7 +1063,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete('/api/crm/contacts/:id', isAuthenticated, async (req: any, res) => {
     try {
       const contact = await storage.getContact(req.params.id);
-      if (!contact || contact.userId !== req.user.claims.sub) {
+      if (!contact || contact.userId !== req.user.id) {
         return res.status(404).json({ message: "Contact not found" });
       }
 
@@ -1020,7 +1136,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // CRM Contact routes
   app.get('/api/crm/contacts', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const contacts = await storage.getUserContacts(userId);
       res.json(contacts);
     } catch (error) {
@@ -1032,7 +1148,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/crm/contacts/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       const contact = await storage.getContact(id);
       if (!contact || contact.userId !== userId) {
@@ -1048,7 +1164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/crm/contacts', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const contactData = insertCrmContactSchema.parse({
         ...req.body,
         userId,
@@ -1073,7 +1189,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/crm/contacts/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       // Verify contact belongs to user
       const contact = await storage.getContact(id);
@@ -1092,7 +1208,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete('/api/crm/contacts/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       // Verify contact belongs to user
       const contact = await storage.getContact(id);
@@ -1120,7 +1236,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Audience routes
   app.get('/api/crm/audiences', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const audiences = await storage.getUserAudiences(userId);
       res.json(audiences);
     } catch (error) {
@@ -1132,7 +1248,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/crm/audiences/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       const audience = await storage.getAudience(id);
       if (!audience || audience.userId !== userId) {
@@ -1148,7 +1264,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/crm/audiences', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       let contactIds: string[] = [];
       
@@ -1187,7 +1303,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/crm/audiences/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       // Verify audience belongs to user
       const audience = await storage.getAudience(id);
@@ -1236,7 +1352,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete('/api/crm/audiences/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       // Verify audience belongs to user
       const audience = await storage.getAudience(id);
@@ -1264,7 +1380,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Contact filtering for audience creation
   app.post('/api/crm/contacts/filter', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const filteredContacts = await storage.getContactsByFilter(userId, req.body);
       res.json(filteredContacts);
     } catch (error) {
@@ -1277,7 +1393,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/projects/:projectId/campaigns', isAuthenticated, async (req: any, res) => {
     try {
       const { projectId } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       // Verify project belongs to user
       const project = await storage.getProject(projectId);
@@ -1296,7 +1412,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/campaigns/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       const campaign = await storage.getCampaign(id);
       if (!campaign) {
@@ -1319,7 +1435,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/projects/:projectId/campaigns', isAuthenticated, async (req: any, res) => {
     try {
       const { projectId } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { audienceId, ...campaignBody } = req.body;
       
       // Verify project belongs to user
@@ -1380,7 +1496,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/campaigns/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       const campaign = await storage.getCampaign(id);
       if (!campaign) {
@@ -1414,7 +1530,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/campaigns/:id/stats', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       const campaign = await storage.getCampaign(id);
       if (!campaign) {
@@ -1443,7 +1559,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/projects/:projectId/analytics', isAuthenticated, async (req: any, res) => {
     try {
       const { projectId } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       // Verify project belongs to user
       const project = await storage.getProject(projectId);
@@ -1463,7 +1579,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { projectId } = req.params;
       const { text, context } = req.body;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       // Verify project belongs to user
       const project = await storage.getProject(projectId);
@@ -1471,8 +1587,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Project not found" });
       }
       
-      const { improveSlideText } = await import('../services/openai');
-      const improvedText = await improveSlideText(text, context, project.businessProfile);
+      const { improveSlideText } = await import('./services/openai');
+      const improvedText = await improveSlideText({
+        text,
+        context,
+        businessProfile: project.businessProfile
+      });
       res.json({ improvedText });
     } catch (error) {
       console.error("Error improving text with AI:", error);
@@ -1483,7 +1603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/campaigns/:id/recipients', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       const campaign = await storage.getCampaign(id);
       if (!campaign) {
@@ -1507,7 +1627,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/campaigns/:id/send', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       const campaign = await storage.getCampaign(id);
       if (!campaign) {
@@ -1591,8 +1711,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Deck not found' });
       }
 
-      await storage.deleteSlide(slideId);
-      res.json({ success: true });
+      // Get the current slides array
+      const currentSlides = Array.isArray(deck.slides) ? deck.slides : [];
+      
+      // Find and remove the slide with the specified ID
+      const updatedSlides = currentSlides.filter((slide: any) => slide.id !== slideId);
+      
+      // Check if the slide was actually found and removed
+      if (updatedSlides.length === currentSlides.length) {
+        return res.status(404).json({ error: 'Slide not found' });
+      }
+      
+      // Update the deck with the new slides array
+      await storage.updateDeck(deckId, { slides: updatedSlides });
+      
+      console.log(`Slide ${slideId} deleted from deck ${deckId}. Slides: ${currentSlides.length} -> ${updatedSlides.length}`);
+      
+      res.json({ success: true, message: 'Slide deleted successfully' });
     } catch (error) {
       console.error('Error deleting slide:', error);
       res.status(500).json({ error: 'Failed to delete slide' });

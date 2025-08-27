@@ -1,10 +1,7 @@
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { GoogleLogin } from "@/components/GoogleLogin";
 
 export default function Landing() {
-  const handleLogin = () => {
-    window.location.href = "/api/login";
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-50 to-accent-50">
@@ -24,14 +21,9 @@ export default function Landing() {
             Create professional startup pitch decks with AI-powered business analysis, 
             brand customization, and investor outreach tools.
           </p>
-          <Button
-            onClick={handleLogin}
-            size="lg"
-            className="bg-primary-500 hover:bg-primary-600 text-white px-8 py-3 text-lg"
-          >
-            Get Started
-            <i className="fas fa-arrow-right ml-2"></i>
-          </Button>
+          <GoogleLogin className="px-8 py-3 text-lg">
+            Get Started with Google
+          </GoogleLogin>
         </div>
 
         {/* Features Grid */}
@@ -110,14 +102,9 @@ export default function Landing() {
               <p className="text-gray-600 mb-8">
                 Join thousands of entrepreneurs who have created winning pitch decks with PitchPerfect.
               </p>
-              <Button
-                onClick={handleLogin}
-                size="lg"
-                className="bg-primary-500 hover:bg-primary-600 text-white px-8 py-3"
-              >
+              <GoogleLogin className="bg-primary-500 hover:bg-primary-600 text-white px-8 py-3">
                 Start Building Your Deck
-                <i className="fas fa-arrow-right ml-2"></i>
-              </Button>
+              </GoogleLogin>
             </CardContent>
           </Card>
         </div>

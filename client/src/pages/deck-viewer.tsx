@@ -4,38 +4,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { cn } from "@/lib/utils";
-import type { UploadResult } from "@uppy/core";
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  Edit3, 
-  Save, 
-  X, 
-  Palette, 
-  Type, 
-  Image,
-  Download,
-  Settings,
-  Plus,
-  Trash2,
-  MoveUp,
-  MoveDown,
-  FileImage,
-  Layout,
-  Sparkles
-} from "lucide-react";
-import { WysiwygEditor } from "@/components/WysiwygEditor";
-import { ObjectUploader } from "@/components/ObjectUploader";
+import { ChevronLeft, ChevronRight, Trash2, Edit3, Save, X, Eye } from "lucide-react";
 import { SlideRenderer } from "@/components/SlideRenderer";
 
 interface DeckViewerProps {
@@ -48,11 +20,18 @@ interface Slide {
   title: string;
   content: any;
   order: number;
+  // AI-generated colors (from the generate deck process)
+  backgroundColor?: string;
+  textColor?: string;
   styling?: {
     primaryColor?: string;
     secondaryColor?: string;
     accentColor?: string;
     fontFamily?: string;
+    fontSize?: string;
+    titleFontSize?: string;
+    descriptionFontSize?: string;
+    bulletFontSize?: string;
     logoUrl?: string;
     textColor?: string;
     backgroundColor?: string;
@@ -77,8 +56,6 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
   const [editingSlide, setEditingSlide] = useState<Slide | null>(null);
-  const [showStylePanel, setShowStylePanel] = useState(false);
-  const [showSlideManager, setShowSlideManager] = useState(false);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -89,7 +66,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
         variant: "destructive",
       });
       setTimeout(() => {
-        window.location.href = "/api/login";
+        window.location.href = "/";
       }, 500);
       return;
     }
@@ -99,22 +76,92 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     queryKey: [`/api/decks/${deckId}`],
     retry: false,
     enabled: !!deckId && isAuthenticated,
-  });
+  }) as { data: Deck | undefined, isLoading: boolean, error: any };
 
-  // Mutation for updating slide content and styling
+  // Fetch brand kit information for styling
+  const { data: brandKits } = useQuery({
+    queryKey: ["/api/projects", deck?.projectId, "brand-kits"],
+    enabled: !!deck && !!deck.projectId && isAuthenticated,
+  }) as { data: any[] };
+
+  // Debug: Log brand kits and deck data
+  console.log('DeckViewer - Brand kits fetched:', brandKits);
+  console.log('DeckViewer - Deck data:', deck);
+
+  // Mutation for updating slides
   const updateSlideMutation = useMutation({
-    mutationFn: async ({ slideId, updates }: { slideId: string, updates: Partial<Slide> }) => {
-      return await apiRequest("PUT", `/api/decks/${deckId}/slides/${slideId}`, updates);
+    mutationFn: async (updates: { slideId: string; updates: Partial<Slide> }) => {
+      return await apiRequest("PUT", `/api/decks/${deckId}/slides/${updates.slideId}`, updates.updates);
     },
     onSuccess: () => {
-      // Aggressively invalidate all related queries to ensure immediate update reflection
+      // Aggressively invalidate and refetch all related queries
+      console.log('Invalidating queries for slide update...');
       queryClient.invalidateQueries({ queryKey: [`/api/decks/${deckId}`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/decks`] });
-      // Force refetch to ensure we get the latest data immediately
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", deck?.projectId, "decks"] });
+      
+      // Also invalidate any project-specific queries that might contain deck data
+      if (deck?.projectId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/projects", deck.projectId] });
+        queryClient.invalidateQueries({ queryKey: ["/api/projects", deck.projectId, "decks"] });
+        console.log('Invalidated project queries for:', deck.projectId);
+      }
+      
+            // Force refetch to ensure immediate updates
+      setTimeout(() => {
+        console.log('Refetching queries for immediate updates...');
+        
+        // Force refetch the specific deck
       queryClient.refetchQueries({ queryKey: [`/api/decks/${deckId}`] });
+        
+        // Force refetch project decks with exact matching
+        if (deck?.projectId) {
+          console.log('Refetching project decks for project:', deck.projectId);
+          queryClient.refetchQueries({ 
+            queryKey: ["/api/projects", deck.projectId, "decks"],
+            exact: true 
+          });
+          
+          // Also refetch project data
+          queryClient.refetchQueries({ 
+            queryKey: ["/api/projects", deck.projectId],
+            exact: true 
+          });
+        }
+        
+        // Additional force refresh for any cached data
+        queryClient.resetQueries({ queryKey: ["/api/projects", deck?.projectId, "decks"] });
+        
+        // Force a complete cache clear for this project's data
+        if (deck?.projectId) {
+          console.log('Clearing cache for project:', deck.projectId);
+          queryClient.removeQueries({ queryKey: ["/api/projects", deck.projectId, "decks"] });
+          queryClient.removeQueries({ queryKey: ["/api/projects", deck.projectId] });
+        }
+        
+        // Force a complete refresh of all related data
+        queryClient.invalidateQueries({ 
+          queryKey: ["/api/projects"], 
+          predicate: (query) => {
+            const queryKey = query.queryKey;
+            return Array.isArray(queryKey) && 
+                   queryKey.length >= 2 && 
+                   queryKey[0] === "/api/projects" && 
+                   queryKey[1] === deck?.projectId;
+          }
+        });
+        
+        // Log the current state for debugging
+        console.log('Current deck data after update:', deck);
+        console.log('Current editing slide data:', editingSlide);
+      }, 100);
+      
+      // Exit editing mode
+      setIsEditing(false);
+      setEditingSlide(null);
+      
       toast({
         title: "Slide Updated",
-        description: "Your changes have been saved successfully.",
+        description: "Slide has been updated successfully. If changes don't appear in generate deck, try refreshing that page.",
       });
     },
     onError: (error) => {
@@ -125,7 +172,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
           variant: "destructive",
         });
         setTimeout(() => {
-          window.location.href = "/api/login";
+          window.location.href = "/";
         }, 500);
         return;
       }
@@ -137,45 +184,50 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     },
   });
 
-  // AI text improvement mutation
-  const improveTextMutation = useMutation({
-    mutationFn: async ({ text, context }: { text: string; context: string }) => {
-      if (!deckId) throw new Error('Deck ID is required');
-      return await apiRequest('POST', `/api/projects/${deckId}/ai-improve-text`, {
-        text,
-        context
-      });
+  // Mutation for deleting slides
+  const deleteSlideMutation = useMutation({
+    mutationFn: async (slideId: string) => {
+      return await apiRequest("DELETE", `/api/decks/${deckId}/slides/${slideId}`);
     },
-    onSuccess: (data: any, variables: any) => {
-      if (data.improvedText && editingSlide) {
-        // Update the appropriate field based on context
-        const { context } = variables;
-        if (context === 'slide title') {
-          updateEditingSlide('title', data.improvedText);
-          updateEditingSlide('content.titleHtml', `<h1 style="color: ${editingSlide.styling?.primaryColor || '#3b82f6'}; margin: 0;">${data.improvedText}</h1>`);
-        } else if (context === 'slide description') {
-          updateEditingSlide('content.description', data.improvedText);
-          updateEditingSlide('content.descriptionHtml', `<p>${data.improvedText}</p>`);
-        } else if (context === 'bullet points') {
-          const points = data.improvedText.split(',').map((p: string) => p.trim()).filter((p: string) => p);
-          updateEditingSlide('content.bulletPoints', points);
-          updateEditingSlide('content.bulletPointsHtml', `<ul>${points.map((point: string) => `<li>${point}</li>`).join('')}</ul>`);
-        } else if (context === 'call to action') {
-          updateEditingSlide('content.call_to_action', data.improvedText);
-          updateEditingSlide('content.callToActionHtml', `<p style="font-weight: bold;">${data.improvedText}</p>`);
+    onSuccess: () => {
+      // Aggressively invalidate and refetch all related queries
+      queryClient.invalidateQueries({ queryKey: [`/api/decks/${deckId}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", deck?.projectId, "decks"] });
+      
+      // Small delay to ensure server has processed the deletion
+      setTimeout(() => {
+        // Force refetch the deck data immediately
+        queryClient.refetchQueries({ queryKey: [`/api/decks/${deckId}`] });
+        
+        // Also refetch the project decks to ensure generate deck preview updates
+        if (deck?.projectId) {
+          queryClient.refetchQueries({ queryKey: ["/api/projects", deck.projectId, "decks"] });
         }
+      }, 100);
+      
+      // Reset to first slide after deletion to avoid index issues
+      setCurrentSlide(0);
         
         toast({
-          title: "Content Improved",
-          description: "AI has enhanced your content based on your project information.",
+        title: "Slide Deleted",
+        description: "Slide has been removed successfully.",
         });
-      }
     },
     onError: (error) => {
-      console.error('Failed to improve text:', error);
+      if (isUnauthorizedError(error as Error)) {
       toast({
-        title: "Improvement Failed",
-        description: "Could not improve the content. Please try again.",
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Delete Failed",
+        description: "Failed to delete slide. Please try again.",
         variant: "destructive",
       });
     },
@@ -189,65 +241,10 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
         variant: "destructive",
       });
       setTimeout(() => {
-        window.location.href = "/api/login";
+        window.location.href = "/";
       }, 500);
     }
   }, [error, toast]);
-
-  // Mutation for adding custom slides
-  const addSlideMutation = useMutation({
-    mutationFn: async () => {
-      const nextOrder = sortedSlides.length;
-      return await apiRequest("POST", `/api/decks/${deckId}/slides`, {
-        type: 'custom',
-        title: `Custom Slide ${nextOrder + 1}`,
-        content: {
-          sections: []
-        },
-        order: nextOrder,
-        styling: {
-          backgroundColor: '#ffffff',
-          textColor: '#333333'
-        }
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/decks/${deckId}`] });
-      toast({
-        title: "Slide Added",
-        description: "New custom slide has been added successfully.",
-      });
-    },
-  });
-
-  // Mutation for deleting slides
-  const deleteSlideMutation = useMutation({
-    mutationFn: async (slideId: string) => {
-      return await apiRequest("DELETE", `/api/decks/${deckId}/slides/${slideId}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/decks/${deckId}`] });
-      setCurrentSlide(Math.max(0, currentSlide - 1));
-      toast({
-        title: "Slide Deleted",
-        description: "Slide has been removed successfully.",
-      });
-    },
-  });
-
-  // Mutation for reordering slides
-  const reorderSlidesMutation = useMutation({
-    mutationFn: async (slideOrders: Array<{ slideId: string; order: number }>) => {
-      return await apiRequest("PUT", `/api/decks/${deckId}/slides/reorder`, { slideOrders });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/decks/${deckId}`] });
-      toast({
-        title: "Slides Reordered",
-        description: "Slide order has been updated successfully.",
-      });
-    },
-  });
 
   if (isLoading || !isAuthenticated) {
     return (
@@ -291,6 +288,14 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
   const deckData = deck as Deck;
   const slides = Array.isArray(deckData.slides) ? deckData.slides : [];
   const sortedSlides = slides.sort((a, b) => (a.order || 0) - (b.order || 0));
+  
+  // Debug: Log slides data for troubleshooting
+  console.log('DeckViewer - Current slides:', {
+    totalSlides: slides.length,
+    sortedSlides: sortedSlides.length,
+    currentSlide,
+    slideIds: sortedSlides.map(s => ({ id: s.id, title: s.title, order: s.order }))
+  });
 
   const nextSlide = () => {
     if (currentSlide < sortedSlides.length - 1) {
@@ -308,491 +313,471 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     setCurrentSlide(index);
   };
 
-  const currentSlideData = sortedSlides[currentSlide];
-
-  // Editing handlers
   const startEditing = (slide: Slide) => {
-    setEditingSlide({ ...slide });
-    setIsEditing(true);
-  };
-
-
-
-  // Section management functions
-  const addSection = (type: 'title' | 'text' | 'bullet' | 'image') => {
-    if (!editingSlide) return;
-    
-    const newSection = {
-      id: `section_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      type,
-      content: type === 'image' ? '' : `<p>Enter ${type} content...</p>`,
-      order: (editingSlide.content?.sections?.length || 0) + 1,
+    // Ensure content structure exists and is properly initialized
+    const slideWithContent = {
+      ...slide,
+      content: {
+        description: slide.content?.description || slide.content?.content?.description || '',
+        bullets: Array.isArray(slide.content?.bullets) 
+          ? [...slide.content.bullets] 
+          : Array.isArray(slide.content?.content?.bullets)
+            ? [...slide.content.content.bullets]
+            : []
+      },
+      styling: {
+        // Initialize styling object with AI-generated font sizes or sensible defaults
+        fontFamily: slide.styling?.fontFamily || brandKits?.[0]?.fontFamily || 'Inter',
+        fontSize: slide.styling?.fontSize || 'medium',
+        titleFontSize: slide.styling?.titleFontSize || '3xl', // AI default: large impact
+        descriptionFontSize: slide.styling?.descriptionFontSize || 'lg', // AI default: clear readability
+        bulletFontSize: slide.styling?.bulletFontSize || 'base', // AI default: comfortable reading
+        // Preserve existing styling properties
+        ...slide.styling
+      }
     };
-
-    const updatedSections = [...(editingSlide.content?.sections || []), newSection];
-    updateEditingSlide('content.sections', updatedSections);
-  };
-
-  const removeSection = (sectionId: string) => {
-    if (!editingSlide) return;
     
-    const updatedSections = (editingSlide.content?.sections || []).filter((s: any) => s.id !== sectionId);
-    // Reorder remaining sections
-    const reorderedSections = updatedSections.map((s: any, index: number) => ({ ...s, order: index + 1 }));
-    updateEditingSlide('content.sections', reorderedSections);
-  };
-
-  const moveSectionOrder = (sectionId: string, direction: 'up' | 'down') => {
-    if (!editingSlide) return;
+    console.log('Starting to edit slide:', {
+      original: slide,
+      prepared: slideWithContent,
+      contentKeys: Object.keys(slide.content || {}),
+      nestedContentKeys: slide.content?.content ? Object.keys(slide.content.content) : 'none',
+      stylingObject: slideWithContent.styling
+    });
     
-    const sections = [...(editingSlide.content?.sections || [])].sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
-    const currentIndex = sections.findIndex((s: any) => s.id === sectionId);
-    
-    if (currentIndex === -1) return;
-    
-    const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    if (newIndex < 0 || newIndex >= sections.length) return;
-    
-    // Swap sections
-    [sections[currentIndex], sections[newIndex]] = [sections[newIndex], sections[currentIndex]];
-    
-    // Update order values
-    const reorderedSections = sections.map((s: any, index: number) => ({ ...s, order: index + 1 }));
-    updateEditingSlide('content.sections', reorderedSections);
+    setIsEditing(true);
+    setEditingSlide(slideWithContent);
   };
 
   const cancelEditing = () => {
     setIsEditing(false);
     setEditingSlide(null);
-    setShowStylePanel(false);
   };
 
   const saveSlide = () => {
-    if (editingSlide && currentSlideData) {
-      updateSlideMutation.mutate({
-        slideId: currentSlideData.id,
+    if (editingSlide) {
+      console.log('Saving slide with data:', editingSlide);
+      console.log('Styling being saved:', editingSlide.styling);
+      console.log('Font family in styling:', editingSlide.styling?.fontFamily);
+      console.log('Title font size in styling:', editingSlide.styling?.titleFontSize);
+      console.log('Description font size in styling:', editingSlide.styling?.descriptionFontSize);
+      console.log('Bullet font size in styling:', editingSlide.styling?.bulletFontSize);
+      console.log('Background color:', editingSlide.backgroundColor);
+      console.log('Text color:', editingSlide.textColor);
+      
+      // Log exactly what we're sending to the server
+      const updatesToSend = {
+        slideId: editingSlide.id,
         updates: editingSlide
+      };
+      
+      console.log('Sending to server:', updatesToSend);
+      console.log('Updates object contains:', {
+        title: editingSlide.title,
+        content: editingSlide.content,
+        styling: editingSlide.styling,
+        backgroundColor: editingSlide.backgroundColor,
+        textColor: editingSlide.textColor
       });
-      setIsEditing(false);
-      setEditingSlide(null);
-      setShowStylePanel(false);
+      
+      updateSlideMutation.mutate(updatesToSend);
     }
   };
 
-  const updateEditingSlide = (field: string, value: any) => {
+  const updateEditingSlide = (field: keyof Slide, value: any) => {
     if (editingSlide) {
-      if (field.startsWith('styling.')) {
-        const styleProp = field.replace('styling.', '');
-        setEditingSlide({
+      let updated;
+      
+      // Special handling for styling updates to merge properly
+      if (field === 'styling') {
+        updated = {
           ...editingSlide,
           styling: {
-            ...editingSlide.styling,
-            [styleProp]: value
+            ...editingSlide.styling, // Preserve existing styling
+            ...value // Merge new styling values
           }
-        });
-      } else if (field.startsWith('content.')) {
-        const contentProp = field.replace('content.', '');
-        setEditingSlide({
-          ...editingSlide,
-          content: {
-            ...editingSlide.content,
-            [contentProp]: value
-          }
-        });
+        };
+        console.log('Styling update - Font family:', value.fontFamily, 'Font size:', value.fontSize);
+        console.log('Full styling object after merge:', updated.styling);
       } else {
-        setEditingSlide({
+        // Handle other fields normally
+        updated = {
           ...editingSlide,
           [field]: value
-        });
+        };
+        
+        // Special logging for color updates
+        if (field === 'backgroundColor' || field === 'textColor') {
+          console.log(`${field} updated to:`, value);
+          console.log('Updated slide now has:', {
+            backgroundColor: updated.backgroundColor,
+            textColor: updated.textColor
+          });
+        }
       }
+      
+      console.log('Updating editing slide:', {
+        field,
+        value,
+        before: editingSlide,
+        after: updated
+      });
+      
+      setEditingSlide(updated);
     }
   };
 
-  const handleImproveText = (field: string, text: string, context: string) => {
-    if (!text?.trim()) {
+  const handleDeleteSlide = (slideId: string, slideIndex: number) => {
+    if (sortedSlides.length <= 1) {
       toast({
-        title: "No Content",
-        description: "Please add some text first before improving it.",
+        title: "Cannot Delete",
+        description: "At least one slide must remain in the deck.",
         variant: "destructive",
       });
       return;
     }
-    improveTextMutation.mutate({ text, context });
+
+    if (window.confirm(`Are you sure you want to delete slide ${slideIndex + 1}?`)) {
+      deleteSlideMutation.mutate(slideId);
+    }
   };
 
+  const currentSlideData = sortedSlides[currentSlide];
 
-  // Add a new custom slide function
-  const addCustomSlide = () => {
-    const newSlide = {
-      id: `custom_${Date.now()}`,
-      type: 'custom',
-      title: 'Custom Slide',
-      content: {
-        sections: [
-          { id: 'section_1', type: 'title', content: 'Custom Title', order: 1 },
-          { id: 'section_2', type: 'text', content: 'Your content here...', order: 2 }
-        ]
-      },
-      order: sortedSlides.length,
-      styling: {
-        backgroundColor: '#ffffff',
-        textColor: '#333333',
-        fontFamily: 'Inter'
-      }
-    };
-    
-    addSlideMutation.mutate(newSlide as any);
-  };
-
-
-
-  // Use shared slide renderer for exact consistency
-  const renderSlideContent = (slide: Slide) => {
-    return <SlideRenderer slide={slide} isCompact={false} />;
-  };
-
-  // Render editable slide content with WYSIWYG editors
+    // Render editable slide content when in editing mode
   const renderEditableSlideContent = (slide: Slide) => {
-    if (!editingSlide) return null;
-    
-    const content = editingSlide.content || {};
-    const styling = editingSlide.styling || {};
-    const primaryColor = styling.primaryColor || '#3b82f6';
-    const backgroundImage = styling.backgroundImage;
-    
-    const cardStyle = {
-      backgroundImage: backgroundImage ? `url(${backgroundImage})` : undefined,
-      backgroundSize: 'cover',
-      backgroundPosition: 'center',
-      backgroundColor: styling.backgroundColor || '#ffffff'
-    };
-
     return (
-      <div style={cardStyle} className="min-h-full p-6">
-        <div className="space-y-8">
-          {/* Title WYSIWYG Editor */}
+      <div className="w-full bg-white rounded-lg border shadow-sm">
+        <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+          {/* Title Input */}
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-medium text-gray-600">Slide Title</label>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleImproveText('title', editingSlide.title || '', 'slide title')}
-                className="bg-gradient-to-r from-purple-500 to-pink-500 text-white border-0 hover:from-purple-600 hover:to-pink-600 h-6 px-2"
-                data-testid="button-ai-improve-title"
-              >
-                <Sparkles className="h-3 w-3 mr-1" />
-                AI
-              </Button>
-            </div>
-            <WysiwygEditor
-              content={editingSlide.title ? `<h1 style="color: ${primaryColor}; margin: 0;">${editingSlide.title}</h1>` : `<h1 style="color: ${primaryColor}; margin: 0;">Slide Title</h1>`}
-              onChange={(html) => {
-                // Extract text content from HTML and update title
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(html, 'text/html');
-                updateEditingSlide('title', doc.body.textContent || '');
-                // Also store the HTML for rich formatting
-                updateEditingSlide('content.titleHtml', html);
-              }}
+            <label className="block text-sm font-medium text-gray-700 mb-2">Slide Title</label>
+            <input
+              type="text"
+              value={editingSlide?.title || ''}
+              onChange={(e) => updateEditingSlide('title', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg font-semibold"
               placeholder="Enter slide title..."
-              minHeight="min-h-[80px]"
-              className="border-2 border-dashed border-blue-300"
-              projectId={deckId}
-              context="slide title"
-              showAiImprove={true}
             />
           </div>
 
-          {/* Dynamic Section Editors */}
-          {(editingSlide?.content?.sections || [])
-            .sort((a: any, b: any) => (a.order || 0) - (b.order || 0))
-            .map((section: any) => (
-              <div key={section.id} className="section-editor">
-                <label className="text-xs font-medium text-gray-600 mb-2 block flex items-center justify-between">
-                  <span>{section.type.toUpperCase()} Section</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeSection(section.id)}
-                    className="h-6 w-6 p-0"
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </label>
-                
-                {section.type === 'image' ? (
-                  <div className="space-y-3">
-                    <ObjectUploader
-                      maxNumberOfFiles={1}
-                      maxFileSize={5242880} // 5MB
-                      onGetUploadParameters={async () => {
-                        const response = await fetch('/api/objects/upload', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' }
-                        });
-                        const data = await response.json();
-                        return {
-                          method: 'PUT' as const,
-                          url: data.uploadURL
-                        };
-                      }}
-                      onComplete={(result: UploadResult<Record<string, unknown>, Record<string, unknown>>) => {
-                        if (result.successful && result.successful[0]) {
-                          const uploadedFile = result.successful[0];
-                          const imageUrl = uploadedFile.uploadURL;
-                          
-                          // Update the section content with the uploaded URL
-                          const sections = editingSlide?.content?.sections || [];
-                          const updatedSections = sections.map((s: any) => 
-                            s.id === section.id ? {...s, content: imageUrl} : s
-                          );
-                          updateEditingSlide('content.sections', updatedSections);
-                          
-                          toast({
-                            title: "Image uploaded",
-                            description: "Your image has been uploaded successfully.",
-                          });
-                        }
-                      }}
-                      buttonClassName="w-full"
-                    >
-                      <div className="flex items-center gap-2">
-                        <FileImage className="h-4 w-4" />
-                        <span>Upload Image</span>
-                      </div>
-                    </ObjectUploader>
-                    
-                    <div className="text-xs text-gray-500 text-center">OR</div>
-                    
-                    <Input
-                      placeholder="Image URL"
-                      value={section.content || ''}
-                      onChange={(e) => {
-                        const sections = editingSlide?.content?.sections || [];
-                        const updatedSections = sections.map((s: any) => 
-                          s.id === section.id ? {...s, content: e.target.value} : s
-                        );
-                        updateEditingSlide('content.sections', updatedSections);
-                      }}
-                    />
-                    
-                    {section.content && (
-                      <div className="mt-2">
-                        <img
-                          src={section.content}
-                          alt="Section content"
-                          className="max-w-full h-24 object-cover rounded border"
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                          }}
-                        />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            const sections = editingSlide?.content?.sections || [];
-                            const updatedSections = sections.map((s: any) => 
-                              s.id === section.id ? {...s, content: ''} : s
-                            );
-                            updateEditingSlide('content.sections', updatedSections);
-                          }}
-                          className="mt-2 w-full"
-                        >
-                          Remove Image
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <WysiwygEditor
-                    content={section.content || `<p>Enter ${section.type} content...</p>`}
-                    onChange={(html) => {
-                      const sections = editingSlide?.content?.sections || [];
-                      const updatedSections = sections.map((s: any) => 
-                        s.id === section.id ? {...s, content: html} : s
-                      );
-                      updateEditingSlide('content.sections', updatedSections);
-                    }}
-                    placeholder={`Enter ${section.type} content...`}
-                    minHeight="min-h-[100px]"
-                    className="border-2 border-dashed border-blue-300"
-                  />
-                )}
-              </div>
-            ))}
+          {/* Content Description Input */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+            <textarea
+              value={editingSlide?.content?.description || ''}
+              onChange={(e) => updateEditingSlide('content', {
+                ...editingSlide?.content,
+                description: e.target.value
+              })}
+              className="w-full h-24 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+              placeholder="Enter slide description..."
+            />
+          </div>
 
-          {/* Legacy Content Editors for backward compatibility */}
-          {slide.type === 'title' && !editingSlide?.content?.sections?.length && (
+
+
+          {/* Font Settings */}
+          <div className="space-y-4">
             <div>
-              <label className="text-xs font-medium text-gray-600 mb-2 block">Subtitle</label>
-              <WysiwygEditor
-                content={content.subtitleHtml || (content.subtitle ? `<p>${content.subtitle}</p>` : '<p>Enter subtitle...</p>')}
-                onChange={(html) => {
-                  updateEditingSlide('content.subtitleHtml', html);
-                  // Also extract plain text for backward compatibility
-                  const parser = new DOMParser();
-                  const doc = parser.parseFromString(html, 'text/html');
-                  updateEditingSlide('content.subtitle', doc.body.textContent || '');
-                }}
-                placeholder="Enter subtitle..."
-                minHeight="min-h-[100px]"
-                className="border-2 border-dashed border-gray-300"
-              />
-            </div>
-          )}
+              <label className="text-sm font-medium text-gray-700 mb-2">Font Family</label>
+              <select
+                value={editingSlide?.styling?.fontFamily || brandKits?.[0]?.fontFamily || 'Inter'}
+                onChange={(e) => updateEditingSlide('styling', {
+                  ...editingSlide?.styling,
+                  fontFamily: e.target.value
+                })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="Inter">Inter (Modern)</option>
+                <option value="Roboto">Roboto (Clean)</option>
+                <option value="Open Sans">Open Sans (Readable)</option>
+                <option value="Lato">Lato (Friendly)</option>
+                <option value="Poppins">Poppins (Geometric)</option>
+                <option value="Montserrat">Montserrat (Elegant)</option>
+                <option value="Source Sans Pro">Source Sans Pro (Professional)</option>
+                <option value="Raleway">Raleway (Sleek)</option>
+                <option value="Ubuntu">Ubuntu (Modern)</option>
+                <option value="Nunito">Nunito (Rounded)</option>
+                <option value="Arial">Arial (System)</option>
+                <option value="Helvetica">Helvetica (Classic)</option>
+                <option value="Georgia">Georgia (Serif)</option>
+                <option value="Times New Roman">Times New Roman (Traditional)</option>
+              </select>
+                      </div>
+            
+            {/* Element-specific Font Sizes */}
+            <div className="grid grid-cols-3 gap-3">
+          <div>
+                <label className="text-xs font-medium text-gray-600 mb-1">Title Size</label>
+                <select
+                  value={editingSlide?.styling?.titleFontSize || '3xl'}
+                  onChange={(e) => updateEditingSlide('styling', {
+                    ...editingSlide?.styling,
+                    titleFontSize: e.target.value
+                  })}
+                  className="w-full px-2 py-1 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="lg">Large</option>
+                  <option value="xl">XL</option>
+                  <option value="2xl">2XL</option>
+                  <option value="3xl">3XL</option>
+                  <option value="4xl">4XL</option>
+                  <option value="5xl">5XL</option>
+                </select>
+          </div>
 
-          {(slide.type === 'content' || slide.type === 'default') && (
-            <>
-              {/* Description WYSIWYG Editor */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-medium text-gray-600">Main Description</label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleImproveText('description', content.description || content.main_text || '', 'slide description')}
-                    className="bg-gradient-to-r from-purple-500 to-pink-500 text-white border-0 hover:from-purple-600 hover:to-pink-600 h-6 px-2"
-                    data-testid="button-ai-improve-description"
-                  >
-                    <Sparkles className="h-3 w-3 mr-1" />
-                    AI
-                  </Button>
-                </div>
-                <WysiwygEditor
-                  content={content.descriptionHtml || (content.description || content.main_text ? `<p>${content.description || content.main_text}</p>` : '<p>Enter description...</p>')}
-                  onChange={(html) => {
-                    updateEditingSlide('content.descriptionHtml', html);
-                    // Also extract plain text for backward compatibility
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    updateEditingSlide('content.description', doc.body.textContent || '');
-                  }}
-                  placeholder="Enter main description..."
-                  minHeight="min-h-[150px]"
-                  className="border-2 border-dashed border-gray-300"
-                  projectId={deckId}
-                  context="slide description"
-                  showAiImprove={true}
-                />
+                <label className="text-xs font-medium text-gray-600 mb-1">Desc Size</label>
+                <select
+                  value={editingSlide?.styling?.descriptionFontSize || 'lg'}
+                  onChange={(e) => updateEditingSlide('styling', {
+                    ...editingSlide?.styling,
+                    descriptionFontSize: e.target.value
+                  })}
+                  className="w-full px-2 py-1 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="sm">Small</option>
+                  <option value="base">Base</option>
+                  <option value="lg">Large</option>
+                  <option value="xl">XL</option>
+                  <option value="2xl">2XL</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1">Bullet Size</label>
+                <select
+                  value={editingSlide?.styling?.bulletFontSize || 'base'}
+                  onChange={(e) => updateEditingSlide('styling', {
+                    ...editingSlide?.styling,
+                    bulletFontSize: e.target.value
+                  })}
+                  className="w-full px-2 py-1 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="sm">Small</option>
+                  <option value="base">Base</option>
+                  <option value="lg">Large</option>
+                  <option value="xl">XL</option>
+                </select>
+                      </div>
+                  </div>
               </div>
 
-              {/* Bullet Points WYSIWYG Editor */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-medium text-gray-600">Bullet Points</label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleImproveText('bulletPoints', (content.bullet_points || content.bulletPoints || []).join(', '), 'bullet points')}
-                    className="bg-gradient-to-r from-purple-500 to-pink-500 text-white border-0 hover:from-purple-600 hover:to-pink-600 h-6 px-2"
-                    data-testid="button-ai-improve-bullets"
-                  >
-                    <Sparkles className="h-3 w-3 mr-1" />
-                    AI
-                  </Button>
-                </div>
-                <WysiwygEditor
-                  content={content.bulletPointsHtml || (content.bullet_points || content.bulletPoints ? 
-                    `<ul>${(content.bullet_points || content.bulletPoints).map((point: string) => `<li>${point}</li>`).join('')}</ul>` : 
-                    '<ul><li>First bullet point</li><li>Second bullet point</li></ul>')}
-                  onChange={(html) => {
-                    updateEditingSlide('content.bulletPointsHtml', html);
-                    // Also extract plain text array for backward compatibility
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    const listItems = doc.querySelectorAll('li');
-                    const bulletPoints = Array.from(listItems).map(li => li.textContent || '').filter(Boolean);
-                    updateEditingSlide('content.bulletPoints', bulletPoints);
-                  }}
-                  placeholder="Enter bullet points..."
-                  minHeight="min-h-[120px]"
-                  className="border-2 border-dashed border-gray-300"
-                  projectId={deckId}
-                  context="bullet points"
-                  showAiImprove={true}
-                />
-              </div>
-
-              {/* Call to Action WYSIWYG Editor */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-medium text-gray-600">Call to Action</label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleImproveText('callToAction', content.call_to_action || '', 'call to action')}
-                    className="bg-gradient-to-r from-purple-500 to-pink-500 text-white border-0 hover:from-purple-600 hover:to-pink-600 h-6 px-2"
-                    data-testid="button-ai-improve-cta"
-                  >
-                    <Sparkles className="h-3 w-3 mr-1" />
-                    AI
-                  </Button>
-                </div>
-                <WysiwygEditor
-                  content={content.callToActionHtml || (content.call_to_action ? `<p style="font-weight: bold;">${content.call_to_action}</p>` : '<p style="font-weight: bold;">Enter call to action...</p>')}
-                  onChange={(html) => {
-                    updateEditingSlide('content.callToActionHtml', html);
-                    // Also extract plain text for backward compatibility
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    updateEditingSlide('content.call_to_action', doc.body.textContent || '');
-                  }}
-                  placeholder="Enter call to action..."
-                  minHeight="min-h-[80px]"
-                  className="border-2 border-dashed border-green-300"
-                  projectId={deckId}
-                  context="call to action"
-                  showAiImprove={true}
-                />
-              </div>
-            </>
-          )}
-
-          {/* Additional Content Blocks */}
-          {(slide.type === 'content' || slide.type === 'default') && (
-            <>
-              {content.metrics && (
+                    {/* Color Settings */}
+          <div className="space-y-4">
+            <h4 className="text-sm font-medium text-gray-700">Slide Colors</h4>
+            
+            {/* Brand Kit Colors - These control the slide appearance */}
+                          <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-gray-600 mb-2 block">Metrics & Numbers</label>
-                  <WysiwygEditor
-                    content={content.metricsHtml || '<p>Add key metrics and numbers...</p>'}
-                    onChange={(html) => {
-                      updateEditingSlide('content.metricsHtml', html);
+                  <label className="text-sm font-medium text-gray-700 mb-2">Primary Color</label>
+                  <input
+                    type="color"
+                    value={editingSlide?.styling?.primaryColor || editingSlide?.textColor || brandKits?.[0]?.primaryColor || '#3b82f6'}
+                    onChange={(e) => {
+                      console.log('Primary color changed to:', e.target.value);
+                      updateEditingSlide('styling', {
+                        ...editingSlide?.styling,
+                        primaryColor: e.target.value
+                      });
                     }}
-                    placeholder="Add key metrics, numbers, statistics..."
-                    minHeight="min-h-[100px]"
-                    className="border-2 border-dashed border-purple-300"
+                    className="w-full h-10 border border-gray-300 rounded-md cursor-pointer"
                   />
                 </div>
-              )}
-
-              {/* Additional Notes Section */}
-              <div>
-                <label className="text-xs font-medium text-gray-600 mb-2 block">Additional Notes (Optional)</label>
-                <WysiwygEditor
-                  content={content.additionalNotesHtml || '<p>Add any additional information...</p>'}
-                  onChange={(html) => {
-                    updateEditingSlide('content.additionalNotesHtml', html);
-                  }}
-                  placeholder="Add any additional information..."
-                  minHeight="min-h-[80px]"
-                  className="border-2 border-dashed border-yellow-300"
-                />
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2">Secondary Color</label>
+                  <input
+                    type="color"
+                    value={editingSlide?.styling?.secondaryColor || editingSlide?.backgroundColor || brandKits?.[0]?.secondaryColor || '#64748b'}
+                    onChange={(e) => {
+                      console.log('Secondary color changed to:', e.target.value);
+                      updateEditingSlide('styling', {
+                        ...editingSlide?.styling,
+                        secondaryColor: e.target.value
+                      });
+                    }}
+                    className="w-full h-10 border border-gray-300 rounded-md cursor-pointer"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2">Accent Color</label>
+                  <input
+                    type="color"
+                    value={editingSlide?.styling?.accentColor || brandKits?.[0]?.accentColor || '#10b981'}
+                    onChange={(e) => {
+                      console.log('Accent color changed to:', e.target.value);
+                      updateEditingSlide('styling', {
+                        ...editingSlide?.styling,
+                        accentColor: e.target.value
+                      });
+                    }}
+                    className="w-full h-10 border border-gray-300 rounded-md cursor-pointer"
+                  />
+                </div>
               </div>
-            </>
-          )}
 
-          {/* Editing Instructions */}
-          <div className="mt-8 p-4 bg-blue-50 rounded-lg border border-blue-200">
-            <h4 className="text-sm font-medium text-blue-800 mb-2">WYSIWYG Editing Instructions</h4>
-            <div className="text-xs text-blue-700 space-y-1">
-              <p>• Use the toolbar to format text with different fonts, colors, sizes, and styles</p>
-              <p>• Each text block can have independent formatting</p>
-              <p>• Click Save to apply all changes permanently</p>
-              <p>• Use the Style panel for overall slide background and theme colors</p>
+                        
+
+            {/* Reset to Brand Kit Colors */}
+            <div className="pt-2 border-t border-gray-200">
+                  <Button
+                type="button"
+                    variant="outline"
+                    size="sm"
+                onClick={() => {
+                  if (brandKits?.[0]) {
+                    updateEditingSlide('styling', {
+                      ...editingSlide?.styling,
+                      primaryColor: brandKits[0].primaryColor,
+                      secondaryColor: brandKits[0].secondaryColor,
+                      accentColor: brandKits[0].accentColor
+                    });
+                    toast({
+                      title: "Colors Reset",
+                      description: "Restored original brand kit colors",
+                    });
+                  }
+                }}
+                className="w-full"
+              >
+                Reset to Brand Kit Colors
+                  </Button>
+                </div>
+              </div>
+
+          {/* Bullet Points */}
+                <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Bullet Points ({editingSlide?.content?.bullets?.length || 0})
+            </label>
+            <div className="space-y-2">
+              {Array.isArray(editingSlide?.content?.bullets) && editingSlide.content.bullets.map((bullet: string, index: number) => (
+                <div key={index} className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={bullet}
+                    onChange={(e) => {
+                      const newBullets = [...(editingSlide?.content?.bullets || [])];
+                      newBullets[index] = e.target.value;
+                      updateEditingSlide('content', {
+                        ...editingSlide?.content,
+                        bullets: newBullets
+                      });
+                    }}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder={`Bullet point ${index + 1}`}
+                  />
+                  <button
+                    onClick={() => {
+                      const newBullets = editingSlide?.content?.bullets?.filter((_: string, i: number) => i !== index) || [];
+                      updateEditingSlide('content', {
+                        ...editingSlide?.content,
+                        bullets: newBullets
+                      });
+                    }}
+                    className="p-2 text-red-500 hover:text-red-700"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+              
+              {/* Show message when no bullets exist */}
+              {(!editingSlide?.content?.bullets || editingSlide.content.bullets.length === 0) && (
+                <div className="text-sm text-gray-500 text-center py-2">
+                  No bullet points yet. Click the button below to add your first one.
+              </div>
+              )}
+              
+              <button
+                onClick={() => {
+                  const currentBullets = editingSlide?.content?.bullets || [];
+                  const newBullets = [...currentBullets, 'New bullet point'];
+                  updateEditingSlide('content', {
+                    ...editingSlide?.content,
+                    bullets: newBullets
+                  });
+                  
+                  console.log('Added bullet point:', {
+                    before: currentBullets,
+                    after: newBullets
+                  });
+                }}
+                className="w-full px-3 py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors"
+              >
+                + Add Bullet Point
+              </button>
             </div>
           </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Use shared slide renderer for exact consistency with generate deck preview
+  const renderSlideContent = (slide: Slide, isEditingMode: boolean = false) => {
+    // Apply the same styling enhancement as SlidePreview in generate deck
+    const slideWithStyling = {
+      ...slide,
+      styling: {
+        // Use saved styling colors first, then AI-generated colors, then fall back to brand kit colors
+        backgroundColor: slide.styling?.backgroundColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#ffffff',
+        textColor: slide.styling?.textColor || slide.textColor || brandKits?.[0]?.primaryColor || '#333333',
+        
+        // Brand kit colors (available for creative use) - prioritize saved styling over AI colors
+        primaryColor: slide.styling?.primaryColor || slide.textColor || brandKits?.[0]?.primaryColor || '#3b82f6',
+        secondaryColor: slide.styling?.secondaryColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#64748b',
+        accentColor: slide.styling?.accentColor || brandKits?.[0]?.accentColor || '#10b981',
+        
+        // Additional styling - prioritize slide styling over brand kit defaults
+        fontFamily: slide.styling?.fontFamily || brandKits?.[0]?.fontFamily || 'Inter',
+        fontSize: slide.styling?.fontSize || 'medium',
+        titleFontSize: slide.styling?.titleFontSize || '3xl', // AI default: large impact
+        descriptionFontSize: slide.styling?.descriptionFontSize || 'lg', // AI default: clear readability
+        bulletFontSize: slide.styling?.bulletFontSize || 'base', // AI default: comfortable reading
+        logoUrl: brandKits?.[0]?.logoUrl || slide.styling?.logoUrl,
+        
+        // Make all brand colors available for creative use
+        brandColors: {
+          primary: slide.styling?.primaryColor || slide.textColor || brandKits?.[0]?.primaryColor || '#3b82f6',
+          secondary: slide.styling?.secondaryColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#64748b',
+          accent: slide.styling?.accentColor || brandKits?.[0]?.accentColor || '#10b981'
+        }
+      }
+    };
+
+    // Debug: Log the styling being applied
+    console.log('DeckViewer - Slide styling:', {
+      originalSlide: slide,
+      brandKits: brandKits,
+      enhancedStyling: slideWithStyling.styling,
+      slideStyling: slide.styling,
+      isEditingMode: isEditingMode,
+      aiFontSizes: {
+        titleFontSize: slide.styling?.titleFontSize,
+        descriptionFontSize: slide.styling?.descriptionFontSize,
+        bulletFontSize: slide.styling?.bulletFontSize
+      }
+    });
+    
+    // Additional debugging for styling properties
+    if (isEditingMode) {
+      console.log('Editing mode - Styling details:', {
+        fontFamily: slide.styling?.fontFamily,
+        titleFontSize: slide.styling?.titleFontSize,
+        descriptionFontSize: slide.styling?.descriptionFontSize,
+        bulletFontSize: slide.styling?.bulletFontSize,
+        backgroundColor: slide.backgroundColor,
+        textColor: slide.textColor
+      });
+    }
+
+    // Use the exact same container structure as generate deck preview
+    return (
+      <div className="relative overflow-hidden rounded border w-full h-full min-h-[500px] flex items-center justify-center">
+        <div className="w-full h-full flex items-center justify-center">
+          <SlideRenderer slide={slideWithStyling} isCompact={false} />
         </div>
       </div>
     );
@@ -812,8 +797,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
               </Badge>
             </div>
             <div className="flex items-center space-x-2 sm:space-x-4 overflow-x-auto pb-1">
-              {!isEditing && (
-                <>
+              {!isEditing ? (
                   <Button 
                     variant="outline" 
                     size="sm" 
@@ -823,27 +807,8 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                     <Edit3 className="h-4 w-4 mr-2" />
                     Edit Slide
                   </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => setShowSlideManager(!showSlideManager)}
-                  >
-                    <Layout className="h-4 w-4 mr-2" />
-                    Manage Slides
-                  </Button>
-                  <Button 
-                    variant="default" 
-                    size="sm"
-                    onClick={addCustomSlide}
-                    disabled={addSlideMutation.isPending}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Slide
-                  </Button>
-                </>
-              )}
-              {isEditing && (
-                <>
+              ) : (
+                <div className="flex items-center space-x-2">
                   <Button 
                     size="sm" 
                     onClick={saveSlide}
@@ -860,46 +825,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                     <X className="h-4 w-4 mr-2" />
                     Cancel
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowStylePanel(!showStylePanel)}
-                  >
-                    <Settings className="h-4 w-4 mr-2" />
-                    Style
-                  </Button>
-                </>
-              )}
-              {!isEditing && (
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => {
-                    if (deckData.pdfUrl) {
-                      // Create a proper PDF download
-                      const link = document.createElement('a');
-                      link.href = deckData.pdfUrl;
-                      link.download = `${deckData.title.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-deck.pdf`;
-                      link.target = '_blank';
-                      document.body.appendChild(link);
-                      link.click();
-                      document.body.removeChild(link);
-                      toast({
-                        title: "PDF Downloaded",
-                        description: "Your pitch deck PDF has been downloaded successfully."
-                      });
-                    } else {
-                      toast({
-                        title: "PDF Not Available",
-                        description: "This deck was created with the old system. Please regenerate the deck to create a new PDF.",
-                        variant: "destructive"
-                      });
-                    }
-                  }}
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Export PDF
-                </Button>
+                </div>
               )}
               <Button variant="outline" size="sm" onClick={() => window.history.back()}>
                 <ChevronLeft className="h-4 w-4 mr-2" />
@@ -919,18 +845,57 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
               <h3 className="font-medium text-gray-900 mb-4">Slides</h3>
               <div className="space-y-2">
                 {sortedSlides.map((slide, index) => (
-                  <button
+                  <div
                     key={slide.id}
-                    onClick={() => goToSlide(index)}
                     className={cn(
-                      "w-full text-left px-3 py-2 rounded-md text-sm transition-colors",
+                      "flex items-center justify-between group",
                       currentSlide === index
-                        ? "bg-blue-100 text-blue-700 font-medium"
-                        : "text-gray-600 hover:bg-gray-100"
+                        ? isEditing 
+                          ? "bg-green-100 border-2 border-green-300 rounded-md" // Highlight editing slide
+                          : "bg-blue-100 rounded-md" // Normal current slide
+                        : "hover:bg-gray-100 rounded-md"
+                    )}
+                  >
+                    <button
+                      onClick={() => !isEditing && goToSlide(index)} // Disable navigation when editing
+                      disabled={isEditing} // Disable button when editing
+                      className={cn(
+                        "flex-1 text-left px-3 py-2 text-sm transition-colors",
+                        currentSlide === index
+                          ? isEditing
+                            ? "text-green-800 font-bold cursor-default" // Editing slide styling
+                            : "text-blue-700 font-medium" // Normal current slide
+                          : isEditing
+                            ? "text-gray-400 cursor-not-allowed" // Disabled when editing
+                            : "text-gray-600" // Normal styling
                     )}
                   >
                     {index + 1}. {slide.title}
+                      {isEditing && currentSlide === index && (
+                        <span className="ml-2 text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full">
+                          Editing
+                        </span>
+                      )}
                   </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteSlide(slide.id, index);
+                      }}
+                      className={cn(
+                        "p-2 text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100",
+                        currentSlide === index ? "opacity-100" : ""
+                      )}
+                      title="Delete slide"
+                      disabled={deleteSlideMutation.isPending || isEditing} // Disable delete when editing
+                    >
+                      {deleteSlideMutation.isPending ? (
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-red-500" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -938,311 +903,51 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
 
           {/* Slide Content */}
           <div className="flex-1 min-w-0">
-            <div className="flex flex-col xl:flex-row gap-6">
+            <div className="flex flex-col xl:flex-row gap-6 w-full">
               {/* Main Slide Display */}
               <div className="flex-1 min-w-0">
-                <Card 
-                  className="min-h-[500px] w-full" 
-                  style={{ 
-                    backgroundColor: (isEditing && editingSlide?.styling?.backgroundColor) || currentSlideData?.styling?.backgroundColor || '#ffffff'
-                  }}
-                >
-                  <CardContent className="p-0">
+                <div className="w-full max-w-none">
                     {currentSlideData ? (
-                      isEditing && editingSlide ? renderEditableSlideContent(editingSlide) : renderSlideContent(currentSlideData)
-                    ) : (
-                      <div className="text-center py-16 px-6">
-                        <p className="text-gray-500">No slide content available</p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Style Panel */}
-              {isEditing && showStylePanel && (
-                <div className="w-full xl:w-80 flex-shrink-0">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Palette className="h-5 w-5" />
-                        Style Options
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                      {/* Colors */}
-                      <div>
-                        <h4 className="font-medium mb-3">Colors</h4>
-                        <div className="space-y-3">
-                          <div>
-                            <label className="text-sm font-medium">Primary Color</label>
-                            <Input
-                              type="color"
-                              value={editingSlide?.styling?.primaryColor || '#3b82f6'}
-                              onChange={(e) => updateEditingSlide('styling.primaryColor', e.target.value)}
-                              className="h-10"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-sm font-medium">Secondary Color</label>
-                            <Input
-                              type="color"
-                              value={editingSlide?.styling?.secondaryColor || '#64748b'}
-                              onChange={(e) => updateEditingSlide('styling.secondaryColor', e.target.value)}
-                              className="h-10"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-sm font-medium">Accent Color</label>
-                            <Input
-                              type="color"
-                              value={editingSlide?.styling?.accentColor || '#10b981'}
-                              onChange={(e) => updateEditingSlide('styling.accentColor', e.target.value)}
-                              className="h-10"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-sm font-medium">Text Color</label>
-                            <Input
-                              type="color"
-                              value={editingSlide?.styling?.textColor || '#333333'}
-                              onChange={(e) => updateEditingSlide('styling.textColor', e.target.value)}
-                              className="h-10"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-sm font-medium">Background Color</label>
-                            <Input
-                              type="color"
-                              value={editingSlide?.styling?.backgroundColor || '#ffffff'}
-                              onChange={(e) => updateEditingSlide('styling.backgroundColor', e.target.value)}
-                              className="h-10"
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      <Separator />
-
-                      {/* Typography */}
-                      <div>
-                        <h4 className="font-medium mb-3">Typography</h4>
-                        <div>
-                          <label className="text-sm font-medium">Font Family</label>
-                          <Select
-                            value={editingSlide?.styling?.fontFamily || 'Inter, sans-serif'}
-                            onValueChange={(value) => updateEditingSlide('styling.fontFamily', value)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Inter, sans-serif">Inter</SelectItem>
-                              <SelectItem value="Arial, sans-serif">Arial</SelectItem>
-                              <SelectItem value="Helvetica, sans-serif">Helvetica</SelectItem>
-                              <SelectItem value="Georgia, serif">Georgia</SelectItem>
-                              <SelectItem value="Times New Roman, serif">Times New Roman</SelectItem>
-                              <SelectItem value="Courier New, monospace">Courier New</SelectItem>
-                              <SelectItem value="Roboto, sans-serif">Roboto</SelectItem>
-                              <SelectItem value="Open Sans, sans-serif">Open Sans</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-
-                      <Separator />
-
-                      {/* Section Management */}
-                      <div>
-                        <h4 className="font-medium mb-3">Sections</h4>
-                        <div className="space-y-3">
-                          <div className="flex gap-2 flex-wrap">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => addSection('title')}
-                            >
-                              <Type className="h-4 w-4 mr-1" />
-                              Add Title
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => addSection('text')}
-                            >
-                              <Type className="h-4 w-4 mr-1" />
-                              Add Text
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => addSection('bullet')}
-                            >
-                              <Type className="h-4 w-4 mr-1" />
-                              Add Bullets
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => addSection('image')}
-                            >
-                              <FileImage className="h-4 w-4 mr-1" />
-                              Add Image
-                            </Button>
-                          </div>
-                          
-                          {/* Section List */}
-                          <div className="space-y-2 max-h-48 overflow-y-auto">
-                            {(editingSlide?.content?.sections || [])
-                              .sort((a: any, b: any) => (a.order || 0) - (b.order || 0))
-                              .map((section: any) => (
-                                <div key={section.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                                  <div className="flex items-center space-x-2">
-                                    <span className="text-sm font-medium">{section.order}</span>
-                                    <span className="text-sm capitalize">{section.type}</span>
-                                    <span className="text-xs text-gray-600 truncate max-w-32">
-                                      {section.type === 'image' ? (section.content || 'No image') : (section.content || 'Empty')}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center space-x-1">
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => moveSectionOrder(section.id, 'up')}
-                                    >
-                                      <MoveUp className="h-3 w-3" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => moveSectionOrder(section.id, 'down')}
-                                    >
-                                      <MoveDown className="h-3 w-3" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => removeSection(section.id)}
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                    </Button>
-                                  </div>
-                                </div>
-                              ))}
-                          </div>
-                        </div>
-                      </div>
-
-                      <Separator />
-
-                      {/* Background Settings */}
-                      <div>
-                        <h4 className="font-medium mb-3">Background</h4>
-                        <div className="space-y-4">
-                          <div>
-                            <label className="text-sm font-medium mb-2 block">Background Color</label>
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="color"
-                                value={editingSlide?.styling?.backgroundColor || '#ffffff'}
-                                onChange={(e) => updateEditingSlide('styling.backgroundColor', e.target.value)}
-                                className="w-12 h-10 rounded border border-gray-300"
-                              />
-                              <Input
-                                value={editingSlide?.styling?.backgroundColor || '#ffffff'}
-                                onChange={(e) => updateEditingSlide('styling.backgroundColor', e.target.value)}
-                                placeholder="#ffffff"
-                                className="flex-1"
-                              />
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => updateEditingSlide('styling.backgroundColor', '#ffffff')}
-                              >
-                                Reset
-                              </Button>
+                    isEditing ? (
+                      <div className="w-full">
+                                                {/* Side-by-side editing layout */}
+                        <div className="grid grid-cols-1 xl:grid-cols-8 gap-8">
+                          {/* Live Preview - Takes up 4/8 of the space */}
+                          <div className="xl:col-span-4">
+                            <div className="p-6 bg-gray-50 rounded-lg border h-full">
+                              <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                                <Eye className="h-5 w-5 text-blue-600" />
+                                Live Preview
+                              </h4>
+                              <div className="w-full h-[500px]">
+                                {editingSlide && renderSlideContent(editingSlide, true)}
+                              </div>
+                              <p className="text-xs text-gray-500 text-center mt-3">
+                                This is how your slide will look with the current changes
+                              </p>
                             </div>
                           </div>
-
-                          <div>
-                            <label className="text-sm font-medium mb-2 block">Upload Background Image</label>
-                            <ObjectUploader
-                              maxNumberOfFiles={1}
-                              maxFileSize={5242880} // 5MB
-                              onGetUploadParameters={async () => {
-                                const response = await fetch('/api/objects/upload', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' }
-                                });
-                                const data = await response.json();
-                                return {
-                                  method: 'PUT' as const,
-                                  url: data.uploadURL
-                                };
-                              }}
-                              onComplete={(result: UploadResult<Record<string, unknown>, Record<string, unknown>>) => {
-                                if (result.successful && result.successful[0]) {
-                                  const uploadedFile = result.successful[0];
-                                  const imageUrl = uploadedFile.uploadURL;
-                                  
-                                  // Update the background image with the uploaded URL
-                                  updateEditingSlide('styling.backgroundImage', imageUrl);
-                                  
-                                  toast({
-                                    title: "Background image uploaded",
-                                    description: "Your background image has been uploaded successfully.",
-                                  });
-                                }
-                              }}
-                              buttonClassName="w-full"
-                            >
-                              <div className="flex items-center gap-2">
-                                <Image className="h-4 w-4" />
-                                <span>Upload Background Image</span>
-                              </div>
-                            </ObjectUploader>
+                          
+                          {/* Editing Form - Takes up 4/8 of the space */}
+                          <div className="xl:col-span-4">
+                            {renderEditableSlideContent(currentSlideData)}
                           </div>
-                          
-                          <div className="text-xs text-gray-500 text-center">OR</div>
-                          
-                          <div>
-                            <label className="text-sm font-medium">Background Image URL</label>
-                            <Input
-                              value={editingSlide?.styling?.backgroundImage || ''}
-                              onChange={(e) => updateEditingSlide('styling.backgroundImage', e.target.value)}
-                              placeholder="https://example.com/image.jpg"
-                            />
+                        </div>
                           </div>
-                          
-                          {editingSlide?.styling?.backgroundImage && (
-                            <div className="mt-3">
-                              <label className="text-sm font-medium mb-2 block">Preview</label>
-                              <div 
-                                className="w-full h-24 rounded-lg border bg-cover bg-center bg-no-repeat"
-                                style={{ 
-                                  backgroundImage: `url(${editingSlide.styling.backgroundImage})`,
-                                  backgroundColor: editingSlide?.styling?.backgroundColor || '#f3f4f6'
-                                }}
-                              />
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => updateEditingSlide('styling.backgroundImage', '')}
-                                className="mt-2 w-full"
-                              >
-                                Remove Background Image
-                              </Button>
+                    ) : (
+                      renderSlideContent(currentSlideData)
+                    )
+                  ) : (
+                    <div className="text-center py-16 px-6">
+                      <p className="text-gray-500">No slide content available</p>
                             </div>
                           )}
                         </div>
                       </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
             </div>
 
-            {/* Navigation Controls */}
+            {/* Navigation Controls - Only show when not editing */}
+            {!isEditing && (
             <div className="flex items-center justify-between mt-6">
               <Button 
                 variant="outline" 
@@ -1268,87 +973,8 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                 <ChevronRight className="h-4 w-4 ml-2" />
               </Button>
             </div>
+            )}
           </div>
-
-          {/* Slide Manager Modal */}
-          {showSlideManager && (
-            <Dialog open={showSlideManager} onOpenChange={setShowSlideManager}>
-              <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Manage Slides</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                  {sortedSlides.map((slide, index) => (
-                    <div key={slide.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex items-center space-x-4">
-                        <span className="text-sm font-medium">{index + 1}</span>
-                        <div>
-                          <h4 className="font-medium">{slide.title}</h4>
-                          <p className="text-sm text-gray-600">{slide.type}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            if (index > 0) {
-                              const reorderedSlides = [...sortedSlides];
-                              [reorderedSlides[index], reorderedSlides[index - 1]] = 
-                                [reorderedSlides[index - 1], reorderedSlides[index]];
-                              const slideOrders = reorderedSlides.map((s, i) => ({ slideId: s.id, order: i }));
-                              reorderSlidesMutation.mutate(slideOrders);
-                            }
-                          }}
-                          disabled={index === 0}
-                        >
-                          <MoveUp className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            if (index < sortedSlides.length - 1) {
-                              const reorderedSlides = [...sortedSlides];
-                              [reorderedSlides[index], reorderedSlides[index + 1]] = 
-                                [reorderedSlides[index + 1], reorderedSlides[index]];
-                              const slideOrders = reorderedSlides.map((s, i) => ({ slideId: s.id, order: i }));
-                              reorderSlidesMutation.mutate(slideOrders);
-                            }
-                          }}
-                          disabled={index === sortedSlides.length - 1}
-                        >
-                          <MoveDown className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setShowSlideManager(false);
-                            goToSlide(index);
-                          }}
-                        >
-                          View
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => {
-                            if (window.confirm('Are you sure you want to delete this slide?')) {
-                              deleteSlideMutation.mutate(slide.id);
-                            }
-                          }}
-                          disabled={sortedSlides.length <= 1}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </DialogContent>
-            </Dialog>
-          )}
         </div>
       </div>
     </div>

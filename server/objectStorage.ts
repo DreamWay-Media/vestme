@@ -1,34 +1,16 @@
-import { Storage, File } from "@google-cloud/storage";
+import { createClient } from '@supabase/supabase-js';
 import { Response } from "express";
 import { randomUUID } from "crypto";
-import {
-  ObjectAclPolicy,
-  ObjectPermission,
-  canAccessObject,
-  getObjectAclPolicy,
-  setObjectAclPolicy,
-} from "./objectAcl";
 
-const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
+// Initialize Supabase client for storage
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
-// The object storage client is used to interact with the object storage service.
-export const objectStorageClient = new Storage({
-  credentials: {
-    audience: "replit",
-    subject_token_type: "access_token",
-    token_url: `${REPLIT_SIDECAR_ENDPOINT}/token`,
-    type: "external_account",
-    credential_source: {
-      url: `${REPLIT_SIDECAR_ENDPOINT}/credential`,
-      format: {
-        type: "json",
-        subject_token_field_name: "access_token",
-      },
-    },
-    universe_domain: "googleapis.com",
-  },
-  projectId: "",
-});
+if (!supabaseUrl || !supabaseServiceKey) {
+  throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY) must be set');
+}
+
+export const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 export class ObjectNotFoundError extends Error {
   constructor() {
@@ -38,262 +20,249 @@ export class ObjectNotFoundError extends Error {
   }
 }
 
-// The object storage service is used to interact with the object storage service.
+// The object storage service using Supabase Storage
 export class ObjectStorageService {
-  constructor() {}
+  private bucketName: string;
 
-  // Gets the public object search paths.
+  constructor() {
+    this.bucketName = process.env.SUPABASE_STORAGE_BUCKET || 'pitch-perfect-files';
+  }
+
+  // Gets the public object search paths (for compatibility)
   getPublicObjectSearchPaths(): Array<string> {
-    const pathsStr = process.env.PUBLIC_OBJECT_SEARCH_PATHS || "";
-    const paths = Array.from(
-      new Set(
-        pathsStr
-          .split(",")
-          .map((path) => path.trim())
-          .filter((path) => path.length > 0)
-      )
-    );
-    if (paths.length === 0) {
-      throw new Error(
-        "PUBLIC_OBJECT_SEARCH_PATHS not set. Create a bucket in 'Object Storage' " +
-          "tool and set PUBLIC_OBJECT_SEARCH_PATHS env var (comma-separated paths)."
-      );
-    }
-    return paths;
+    return [`${this.bucketName}/public`];
   }
 
-  // Gets the private object directory.
+  // Gets the private object directory (for compatibility)
   getPrivateObjectDir(): string {
-    const dir = process.env.PRIVATE_OBJECT_DIR || "";
-    if (!dir) {
-      throw new Error(
-        "PRIVATE_OBJECT_DIR not set. Create a bucket in 'Object Storage' " +
-          "tool and set PRIVATE_OBJECT_DIR env var."
-      );
-    }
-    return dir;
+    return `${this.bucketName}/private`;
   }
 
-  // Search for a public object from the search paths.
-  async searchPublicObject(filePath: string): Promise<File | null> {
-    for (const searchPath of this.getPublicObjectSearchPaths()) {
-      const fullPath = `${searchPath}/${filePath}`;
-
-      // Full path format: /<bucket_name>/<object_name>
-      const { bucketName, objectName } = parseObjectPath(fullPath);
-      const bucket = objectStorageClient.bucket(bucketName);
-      const file = bucket.file(objectName);
-
-      // Check if file exists
-      const [exists] = await file.exists();
-      if (exists) {
-        return file;
-      }
-    }
-
-    return null;
-  }
-
-  // Downloads an object to the response.
-  async downloadObject(file: File, res: Response, cacheTtlSec: number = 3600) {
+  // Search for a public object
+  async searchPublicObject(filePath: string): Promise<any> {
     try {
-      // Get file metadata
-      const [metadata] = await file.getMetadata();
-      // Get the ACL policy for the object.
-      const aclPolicy = await getObjectAclPolicy(file);
-      const isPublic = aclPolicy?.visibility === "public";
-      // Set appropriate headers
-      res.set({
-        "Content-Type": metadata.contentType || "application/octet-stream",
-        "Content-Length": metadata.size,
-        "Cache-Control": `${
-          isPublic ? "public" : "private"
-        }, max-age=${cacheTtlSec}`,
-      });
+      const { data, error } = await supabase.storage
+        .from(this.bucketName)
+        .list('public', {
+          search: filePath,
+          limit: 1
+        });
 
-      // Stream the file to the response
-      const stream = file.createReadStream();
+      if (error) {
+        console.error('Error searching public object:', error);
+        return null;
+      }
 
-      stream.on("error", (err) => {
-        console.error("Stream error:", err);
-        if (!res.headersSent) {
-          res.status(500).json({ error: "Error streaming file" });
-        }
-      });
+      if (data && data.length > 0) {
+        return data[0];
+      }
 
-      stream.pipe(res);
+      return null;
     } catch (error) {
-      console.error("Error downloading file:", error);
-      if (!res.headersSent) {
-        res.status(500).json({ error: "Error downloading file" });
+      console.error('Error searching public object:', error);
+      return null;
+    }
+  }
+
+  // Downloads an object to the response
+  async downloadObject(filePath: string, res: Response, cacheTtlSec: number = 3600) {
+    try {
+      const { data, error } = await supabase.storage
+        .from(this.bucketName)
+        .download(filePath);
+
+      if (error) {
+        throw new ObjectNotFoundError();
+      }
+
+      // Set cache headers
+      res.setHeader('Cache-Control', `public, max-age=${cacheTtlSec}`);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${filePath.split('/').pop()}"`);
+
+      // Send the file data
+      res.send(data);
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) {
+        res.status(404).json({ error: 'File not found' });
+      } else {
+        console.error('Error downloading object:', error);
+        res.status(500).json({ error: 'Failed to download file' });
       }
     }
   }
 
-  // Gets the upload URL for an object entity.
-  async getObjectEntityUploadURL(): Promise<string> {
-    const privateObjectDir = this.getPrivateObjectDir();
-    if (!privateObjectDir) {
-      throw new Error(
-        "PRIVATE_OBJECT_DIR not set. Create a bucket in 'Object Storage' " +
-          "tool and set PRIVATE_OBJECT_DIR env var."
-      );
-    }
-
-    const objectId = randomUUID();
-    const fullPath = `${privateObjectDir}/uploads/${objectId}`;
-
-    const { bucketName, objectName } = parseObjectPath(fullPath);
-
-    // Sign URL for PUT method with TTL
-    return signObjectURL({
-      bucketName,
-      objectName,
-      method: "PUT",
-      ttlSec: 900,
-    });
-  }
-
-  // Gets the object entity file from the object path.
-  async getObjectEntityFile(objectPath: string): Promise<File> {
-    if (!objectPath.startsWith("/objects/")) {
-      throw new ObjectNotFoundError();
-    }
-
-    const parts = objectPath.slice(1).split("/");
-    if (parts.length < 2) {
-      throw new ObjectNotFoundError();
-    }
-
-    const entityId = parts.slice(1).join("/");
-    let entityDir = this.getPrivateObjectDir();
-    if (!entityDir.endsWith("/")) {
-      entityDir = `${entityDir}/`;
-    }
-    const objectEntityPath = `${entityDir}${entityId}`;
-    const { bucketName, objectName } = parseObjectPath(objectEntityPath);
-    const bucket = objectStorageClient.bucket(bucketName);
-    const objectFile = bucket.file(objectName);
-    const [exists] = await objectFile.exists();
-    if (!exists) {
-      throw new ObjectNotFoundError();
-    }
-    return objectFile;
-  }
-
-  normalizeObjectEntityPath(
-    rawPath: string,
-  ): string {
-    if (!rawPath.startsWith("https://storage.googleapis.com/")) {
-      return rawPath;
-    }
-  
-    // Extract the path from the URL by removing query parameters and domain
-    const url = new URL(rawPath);
-    const rawObjectPath = url.pathname;
-  
-    let objectEntityDir = this.getPrivateObjectDir();
-    if (!objectEntityDir.endsWith("/")) {
-      objectEntityDir = `${objectEntityDir}/`;
-    }
-  
-    if (!rawObjectPath.startsWith(objectEntityDir)) {
-      return rawObjectPath;
-    }
-  
-    // Extract the entity ID from the path
-    const entityId = rawObjectPath.slice(objectEntityDir.length);
-    return `/objects/${entityId}`;
-  }
-
-  // Tries to set the ACL policy for the object entity and return the normalized path.
-  async trySetObjectEntityAclPolicy(
-    rawPath: string,
-    aclPolicy: ObjectAclPolicy
+  // Uploads a file to Supabase Storage
+  async uploadFile(
+    filePath: string,
+    fileBuffer: Buffer,
+    contentType: string,
+    isPublic: boolean = false
   ): Promise<string> {
-    const normalizedPath = this.normalizeObjectEntityPath(rawPath);
-    if (!normalizedPath.startsWith("/")) {
-      return normalizedPath;
-    }
+    try {
+      const folder = isPublic ? 'public' : 'private';
+      const fullPath = `${folder}/${filePath}`;
 
-    const objectFile = await this.getObjectEntityFile(normalizedPath);
-    await setObjectAclPolicy(objectFile, aclPolicy);
-    return normalizedPath;
+      const { data, error } = await supabase.storage
+        .from(this.bucketName)
+        .upload(fullPath, fileBuffer, {
+          contentType,
+          upsert: true
+        });
+
+      if (error) {
+        console.error('Error uploading file:', error);
+        throw new Error(`Failed to upload file: ${error.message}`);
+      }
+
+      // Get public URL if it's a public file
+      if (isPublic) {
+        const { data: urlData } = supabase.storage
+          .from(this.bucketName)
+          .getPublicUrl(fullPath);
+        
+        return urlData.publicUrl;
+      }
+
+      return fullPath;
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      throw error;
+    }
   }
 
-  // Checks if the user can access the object entity.
-  async canAccessObjectEntity({
-    userId,
-    objectFile,
-    requestedPermission,
-  }: {
-    userId?: string;
-    objectFile: File;
-    requestedPermission?: ObjectPermission;
-  }): Promise<boolean> {
-    return canAccessObject({
-      userId,
-      objectFile,
-      requestedPermission: requestedPermission ?? ObjectPermission.READ,
-    });
+  // Deletes a file from Supabase Storage
+  async deleteFile(filePath: string): Promise<void> {
+    try {
+      const { error } = await supabase.storage
+        .from(this.bucketName)
+        .remove([filePath]);
+
+      if (error) {
+        console.error('Error deleting file:', error);
+        throw new Error(`Failed to delete file: ${error.message}`);
+      }
+    } catch (error) {
+      console.error('Error deleting file:', error);
+      throw error;
+    }
+  }
+
+  // Gets a signed URL for file upload
+  async getSignedUploadURL(
+    filePath: string,
+    contentType: string,
+    expiresIn: number = 3600
+  ): Promise<string> {
+    try {
+      const folder = 'public';
+      const fullPath = `${folder}/${filePath}`;
+
+      const { data, error } = await supabase.storage
+        .from(this.bucketName)
+        .createSignedUploadUrl(fullPath, {
+          expiresIn
+        });
+
+      if (error) {
+        console.error('Error creating signed upload URL:', error);
+        throw new Error(`Failed to create upload URL: ${error.message}`);
+      }
+
+      return data.signedUrl;
+    } catch (error) {
+      console.error('Error creating signed upload URL:', error);
+      throw error;
+    }
+  }
+
+  // Gets a signed URL for file download
+  async getSignedDownloadURL(
+    filePath: string,
+    expiresIn: number = 3600
+  ): Promise<string> {
+    try {
+      const { data, error } = await supabase.storage
+        .from(this.bucketName)
+        .createSignedUrl(filePath, expiresIn);
+
+      if (error) {
+        console.error('Error creating signed download URL:', error);
+        throw new Error(`Failed to create download URL: ${error.message}`);
+      }
+
+      return data.signedUrl;
+    } catch (error) {
+      console.error('Error creating signed download URL:', error);
+      throw error;
+    }
+  }
+
+  // Lists files in a folder
+  async listFiles(folder: string, limit: number = 100): Promise<any[]> {
+    try {
+      const { data, error } = await supabase.storage
+        .from(this.bucketName)
+        .list(folder, {
+          limit
+        });
+
+      if (error) {
+        console.error('Error listing files:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Error listing files:', error);
+      return [];
+    }
+  }
+
+  // Checks if a file exists
+  async fileExists(filePath: string): Promise<boolean> {
+    try {
+      const { data, error } = await supabase.storage
+        .from(this.bucketName)
+        .list(filePath.split('/').slice(0, -1).join('/'), {
+          search: filePath.split('/').pop(),
+          limit: 1
+        });
+
+      if (error) {
+        return false;
+      }
+
+      return data && data.length > 0;
+    } catch (error) {
+      return false;
+    }
   }
 }
 
-function parseObjectPath(path: string): {
-  bucketName: string;
-  objectName: string;
-} {
-  if (!path.startsWith("/")) {
-    path = `/${path}`;
+// Create a default instance
+export const objectStorageService = new ObjectStorageService();
+
+// Legacy compatibility functions
+export const objectStorageClient = {
+  bucket: (bucketName: string) => ({
+    file: (fileName: string) => ({
+      exists: async () => [await objectStorageService.fileExists(`${bucketName}/${fileName}`)],
+      download: async () => [await objectStorageService.getSignedDownloadURL(`${bucketName}/${fileName}`)],
+      delete: async () => [await objectStorageService.deleteFile(`${bucketName}/${fileName}`)]
+    })
+  })
+};
+
+// Parse object path helper (for compatibility)
+export function parseObjectPath(path: string): { bucketName: string; objectName: string } {
+  const parts = path.split('/').filter(p => p);
+  if (parts.length < 2) {
+    throw new Error('Invalid object path');
   }
-  const pathParts = path.split("/");
-  if (pathParts.length < 3) {
-    throw new Error("Invalid path: must contain at least a bucket name");
-  }
-
-  const bucketName = pathParts[1];
-  const objectName = pathParts.slice(2).join("/");
-
-  return {
-    bucketName,
-    objectName,
-  };
-}
-
-async function signObjectURL({
-  bucketName,
-  objectName,
-  method,
-  ttlSec,
-}: {
-  bucketName: string;
-  objectName: string;
-  method: "GET" | "PUT" | "DELETE" | "HEAD";
-  ttlSec: number;
-}): Promise<string> {
-  const request = {
-    bucket_name: bucketName,
-    object_name: objectName,
-    method,
-    expires_at: new Date(Date.now() + ttlSec * 1000).toISOString(),
-  };
-  const response = await fetch(
-    `${REPLIT_SIDECAR_ENDPOINT}/object-storage/signed-object-url`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
-    }
-  );
-  if (!response.ok) {
-    throw new Error(
-      `Failed to sign object URL, errorcode: ${response.status}, ` +
-        `make sure you're running on Replit`
-    );
-  }
-
-  const { signed_url: signedURL } = await response.json();
-  return signedURL;
+  
+  const bucketName = parts[0];
+  const objectName = parts.slice(1).join('/');
+  
+  return { bucketName, objectName };
 }

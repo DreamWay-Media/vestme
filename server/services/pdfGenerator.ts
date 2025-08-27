@@ -41,16 +41,37 @@ export interface GeneratePDFOptions {
  */
 function generateSlideHTML(slide: SlideContent, branding: BrandingConfig, slideNumber: number): string {
   const content = slide.content || {};
-  const styling = slide.styling || branding;
+  const styling: any = { ...(branding || {}), ...(slide.styling || {}) };
   
   const primaryColor = styling.primaryColor || '#3b82f6';
-  const textColor = styling.textColor || '#333333';
-  const backgroundColor = styling.backgroundColor || '#ffffff';
-  const fontFamily = styling.fontFamily || 'Arial, sans-serif';
+  const secondaryColor = styling.secondaryColor || '#64748b';
+  const accentColor = styling.accentColor || '#10b981';
+  const textColor = styling.textColor || slide.textColor || '#333333';
+  const backgroundColor = styling.backgroundColor || slide.backgroundColor || '#ffffff';
+  const fontFamily = styling.fontFamily || 'Inter, Arial, sans-serif';
   const logoUrl = styling.logoUrl;
 
   let slideContent = '';
   
+  // Tailwind-like font size mapping to px
+  const toPx = (size: string | undefined, fallback: string): string => {
+    switch (size) {
+      case '5xl': return '48px';
+      case '4xl': return '36px';
+      case '3xl': return '32px';
+      case '2xl': return '28px';
+      case 'xl': return '20px';
+      case 'lg': return '18px';
+      case 'base': return '16px';
+      case 'sm': return '14px';
+      default: return fallback;
+    }
+  };
+
+  const titleSizePx = toPx(styling.titleFontSize, '32px');
+  const descSizePx = toPx(styling.descriptionFontSize, '16px');
+  const bulletSizePx = toPx(styling.bulletFontSize, '16px');
+
   // Handle different slide types and content formats
   if (content.sections && Array.isArray(content.sections)) {
     // Dynamic sections format
@@ -74,29 +95,35 @@ function generateSlideHTML(slide: SlideContent, branding: BrandingConfig, slideN
         return '';
       }).join('');
   } else {
-    // Legacy content format
+    // New slide format with content.description and content.bullets
     if (slide.title) {
-      slideContent += `<h1 style="color: ${primaryColor}; font-size: 32px; font-weight: bold; margin-bottom: 20px; font-family: ${fontFamily};">${slide.title}</h1>`;
+      slideContent += `<h1 style="color: ${textColor}; font-size: ${titleSizePx}; font-weight: 800; margin-bottom: 20px; font-family: ${fontFamily}; letter-spacing: 0.2px; text-shadow: 0 1px 2px rgba(0,0,0,0.12);">${slide.title}</h1>`;
     }
     
+    if (content.description) {
+      slideContent += `<div style="border-left: 4px solid ${primaryColor}; padding-left: 14px;">
+        <p style="color: ${textColor}; font-size: ${descSizePx}; margin: 0 0 18px 0; line-height: 1.6; font-family: ${fontFamily};">${content.description}</p>
+      </div>`;
+    }
+    
+    if (content.bullets && Array.isArray(content.bullets)) {
+      slideContent += '<div style="margin: 18px 0;">';
+      content.bullets.forEach((bullet: string) => {
+        slideContent += `<div style="display: flex; align-items: flex-start; margin-bottom: 10px;">
+          <span style="display:inline-block; width:10px; height:10px; background:${accentColor}; border-radius:50%; margin-right:10px; margin-top:6px;"></span>
+          <span style="color: ${textColor}; font-size: ${bulletSizePx}; line-height: 1.5; font-family: ${fontFamily};">${bullet}</span>
+        </div>`;
+      });
+      slideContent += '</div>';
+    }
+    
+    // Fallback for other content formats
     if (content.title && content.title !== slide.title) {
       slideContent += `<h2 style="color: ${primaryColor}; font-size: 24px; font-weight: bold; margin-bottom: 15px; font-family: ${fontFamily};">${content.title}</h2>`;
     }
     
     if (content.subtitle) {
       slideContent += `<p style="color: ${textColor}; font-size: 18px; margin-bottom: 15px; line-height: 1.5; font-family: ${fontFamily};">${content.subtitle}</p>`;
-    }
-    
-    if (content.description) {
-      slideContent += `<p style="color: ${textColor}; font-size: 16px; margin-bottom: 15px; line-height: 1.6; font-family: ${fontFamily};">${content.description}</p>`;
-    }
-    
-    if (content.bullets && Array.isArray(content.bullets)) {
-      slideContent += '<ul style="margin: 20px 0; padding-left: 20px;">';
-      content.bullets.forEach((bullet: string) => {
-        slideContent += `<li style="color: ${textColor}; font-size: 16px; margin-bottom: 8px; line-height: 1.5; font-family: ${fontFamily};">${bullet}</li>`;
-      });
-      slideContent += '</ul>';
     }
     
     if (content.bullet_points && Array.isArray(content.bullet_points)) {
@@ -113,30 +140,36 @@ function generateSlideHTML(slide: SlideContent, branding: BrandingConfig, slideN
     }
   }
 
+  // Slide background: gradient using brand colors similar to preview
+  const backgroundStyle = `background: linear-gradient(135deg, ${secondaryColor} 0%, ${backgroundColor} 60%);`;
+
+  // Logo block
+  const logoBlock = logoUrl ? `
+    <div style="position:absolute; top: 24px; right: 24px;">
+      <img src="${logoUrl}" alt="Logo" style="height: 42px; width: auto; opacity: 0.95;" />
+    </div>
+  ` : '';
+
   return `
     <div style="
       width: 800px; 
       height: 600px; 
-      padding: 60px; 
-      background-color: ${backgroundColor};
+      padding: 56px; 
+      ${backgroundStyle}
       font-family: ${fontFamily};
       box-sizing: border-box;
       page-break-after: always;
       display: flex;
       flex-direction: column;
       position: relative;
+      border-radius: 12px;
+      overflow: hidden;
     ">
-      ${slide.type === 'title' && logoUrl ? `
-        <div style="text-align: center; margin-bottom: 40px;">
-          <img src="${logoUrl}" alt="Logo" style="height: 60px; width: auto;" />
-        </div>
-      ` : ''}
-      
+      ${logoBlock}
       <div style="flex: 1;">
         ${slideContent}
       </div>
-      
-      <div style="position: absolute; bottom: 20px; right: 30px; font-size: 12px; color: #666;">
+      <div style="position: absolute; bottom: 20px; right: 30px; font-size: 12px; color: rgba(255,255,255,0.85); background: rgba(0,0,0,0.18); padding: 4px 8px; border-radius: 8px;">
         ${slideNumber}
       </div>
     </div>
@@ -191,21 +224,50 @@ export async function generatePitchDeckPDF(options: GeneratePDFOptions): Promise
       </html>
     `;
 
-    // Find system Chromium executable
-    let chromiumPath = 'chromium';
+    // Find system Chromium executable with multiple fallback options
+    let chromiumPath: string | undefined;
+    const possiblePaths = [
+      'chromium',
+      'chromium-browser',
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser'
+    ];
+    
     try {
       const { execSync } = require('child_process');
-      chromiumPath = execSync('which chromium').toString().trim();
+      for (const path of possiblePaths) {
+        try {
+          const result = execSync(`which "${path}"`, { encoding: 'utf8' }).trim();
+          if (result) {
+            chromiumPath = result;
+            break;
+          }
+        } catch (e) {
+          // Try next path
+        }
+      }
     } catch (error) {
-      console.log('Using default chromium path:', chromiumPath);
+      console.log('Could not find Chromium via which command');
     }
     
-    console.log('Using Chromium executable:', chromiumPath);
+    // If no system Chromium found, try to use Puppeteer's installed browser
+    if (!chromiumPath) {
+      try {
+        const puppeteer = require('puppeteer');
+        chromiumPath = puppeteer.executablePath();
+        console.log('Using Puppeteer-installed browser:', chromiumPath);
+      } catch (error) {
+        console.log('Could not find Puppeteer browser path');
+      }
+    }
+    
+    console.log('Using Chromium executable:', chromiumPath || 'system default');
     
     // Launch Puppeteer and generate PDF
-    const browser = await puppeteer.launch({
+    const launchOptions: any = {
       headless: true,
-      executablePath: chromiumPath,
       args: [
         '--no-sandbox', 
         '--disable-setuid-sandbox',
@@ -217,7 +279,24 @@ export async function generatePitchDeckPDF(options: GeneratePDFOptions): Promise
         '--disable-backgrounding-occluded-windows',
         '--disable-renderer-backgrounding'
       ]
-    });
+    };
+    
+    // Only set executablePath if we found a valid Chromium path
+    if (chromiumPath) {
+      launchOptions.executablePath = chromiumPath;
+    }
+    
+    console.log('Launching browser with options:', launchOptions);
+    
+    let browser;
+    try {
+      browser = await puppeteer.launch(launchOptions);
+    } catch (error) {
+      console.error('Failed to launch browser with executablePath, trying without:', error.message);
+      // Try launching without executablePath as fallback
+      delete launchOptions.executablePath;
+      browser = await puppeteer.launch(launchOptions);
+    }
     
     const page = await browser.newPage();
     
@@ -228,7 +307,7 @@ export async function generatePitchDeckPDF(options: GeneratePDFOptions): Promise
     await page.setContent(fullHTML, { waitUntil: 'networkidle0', timeout: 30000 });
     
     console.log('Generating PDF buffer...');
-    const pdfBuffer = await page.pdf({
+    let pdfBuffer: any = await page.pdf({
       format: 'A4',
       landscape: true,
       printBackground: true,
@@ -239,8 +318,13 @@ export async function generatePitchDeckPDF(options: GeneratePDFOptions): Promise
     
     await browser.close();
     
+    // Normalize to Node Buffer (Puppeteer can return Uint8Array in some envs)
+    if (pdfBuffer && !(Buffer.isBuffer(pdfBuffer))) {
+      pdfBuffer = Buffer.from(pdfBuffer);
+    }
+
     // Validate PDF buffer
-    if (!pdfBuffer || pdfBuffer.length === 0) {
+    if (!pdfBuffer || !Buffer.isBuffer(pdfBuffer) || pdfBuffer.length === 0) {
       throw new Error('Generated PDF buffer is empty');
     }
     

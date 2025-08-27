@@ -32,6 +32,7 @@ export interface IStorage {
   // User operations (required for Replit Auth)
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
+  updateUser(id: string, updates: Partial<User>): Promise<User>;
 
   // Project operations
   createProject(project: InsertProject): Promise<Project>;
@@ -129,6 +130,15 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  async updateUser(id: string, updates: Partial<User>): Promise<User> {
+    const [updatedUser] = await db
+      .update(users)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return updatedUser;
+  }
+
   // Project operations
   async createProject(project: InsertProject): Promise<Project> {
     const [newProject] = await db.insert(projects).values(project).returning();
@@ -186,11 +196,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateBrandKit(id: string, updates: Partial<BrandKit>): Promise<BrandKit> {
+    console.log('Storage: Updating brand kit with ID:', id);
+    console.log('Storage: Updates being applied:', updates);
+    console.log('Storage: brandAssets in updates:', updates.brandAssets);
+    
     const [updatedBrandKit] = await db
       .update(brandKits)
       .set({ ...updates, updatedAt: new Date() })
       .where(eq(brandKits.id, id))
       .returning();
+      
+    console.log('Storage: Brand kit updated successfully');
+    console.log('Storage: Updated brand kit data:', updatedBrandKit);
+    console.log('Storage: brandAssets after update:', updatedBrandKit.brandAssets);
+    
     return updatedBrandKit;
   }
 

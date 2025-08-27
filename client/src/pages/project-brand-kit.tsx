@@ -21,6 +21,11 @@ interface BrandKit {
   accentColor: string;
   fontFamily: string;
   logoUrl?: string;
+  brandAssets?: Array<{
+    type: string;
+    url: string;
+    name?: string;
+  }>;
 }
 
 export default function ProjectBrandKit() {
@@ -48,6 +53,9 @@ export default function ProjectBrandKit() {
       return await apiRequest("POST", `/api/projects/${projectId}/brand-kit`, data);
     },
     onSuccess: (response: any) => {
+      console.log('Brand kit generation response:', response);
+      console.log('Suggestions:', response.suggestions);
+      console.log('Logo analysis:', response.suggestions?.logoAnalysis);
       setGeneratedSuggestions(response.suggestions);
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "brand-kits"] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
@@ -64,7 +72,7 @@ export default function ProjectBrandKit() {
           variant: "destructive",
         });
         setTimeout(() => {
-          window.location.href = "/api/login";
+          window.location.href = "/";
         }, 500);
         return;
       }
@@ -98,7 +106,7 @@ export default function ProjectBrandKit() {
           variant: "destructive",
         });
         setTimeout(() => {
-          window.location.href = "/api/login";
+          window.location.href = "/";
         }, 500);
         return;
       }
@@ -130,7 +138,7 @@ export default function ProjectBrandKit() {
           variant: "destructive",
         });
         setTimeout(() => {
-          window.location.href = "/api/login";
+          window.location.href = "/";
         }, 500);
         return;
       }
@@ -168,6 +176,7 @@ export default function ProjectBrandKit() {
         accentColor: activeBrandKit.accentColor,
         fontFamily: activeBrandKit.fontFamily,
         logoUrl: activeBrandKit.logoUrl,
+        brandAssets: activeBrandKit.brandAssets || [],
         name: activeBrandKit.name,
       });
       setCustomizing(true);
@@ -176,6 +185,8 @@ export default function ProjectBrandKit() {
 
   const handleSaveBrandKit = () => {
     if (editingBrandKit) {
+      console.log('Saving brand kit with data:', editingBrandKit);
+      console.log('brandAssets being sent:', editingBrandKit.brandAssets);
       updateBrandKitMutation.mutate(editingBrandKit);
     }
   };
@@ -201,6 +212,10 @@ export default function ProjectBrandKit() {
 
   const activeBrandKit = brandKits?.[0] as BrandKit | undefined;
   const hasBrandKit = !!activeBrandKit;
+  
+  // Debug logging
+  console.log('Active brand kit:', activeBrandKit);
+  console.log('brandAssets in active brand kit:', activeBrandKit?.brandAssets);
 
   return (
     <ProjectLayoutWithHeader>
@@ -259,6 +274,44 @@ export default function ProjectBrandKit() {
                           </div>
                         </div>
                       )}
+                      {project.businessProfile.websiteContent.designElements.logoUrls && project.businessProfile.websiteContent.designElements.logoUrls.length > 0 && (
+                        <div>
+                          <p className="text-xs text-blue-700 mb-1">Logos found:</p>
+                          <div className="flex gap-2">
+                            {project.businessProfile.websiteContent.designElements.logoUrls.slice(0, 3).map((logoUrl: string, idx: number) => (
+                              <div key={idx} className="w-12 h-12 border rounded overflow-hidden">
+                                <img 
+                                  src={logoUrl} 
+                                  alt={`Logo ${idx + 1}`}
+                                  className="w-full h-full object-contain"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                  }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {project.businessProfile.websiteContent.designElements.keyImages && project.businessProfile.websiteContent.designElements.keyImages.length > 0 && (
+                        <div>
+                          <p className="text-xs text-blue-700 mb-1">Key images found:</p>
+                          <div className="flex gap-2">
+                            {project.businessProfile.websiteContent.designElements.keyImages.slice(0, 3).map((imageUrl: string, idx: number) => (
+                              <div key={idx} className="w-12 h-12 border rounded overflow-hidden">
+                                <img 
+                                  src={imageUrl} 
+                                  alt={`Image ${idx + 1}`}
+                                  className="w-full h-full object-contain"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                  }}
+                                />
+                              </div>
+                          ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -290,24 +343,13 @@ export default function ProjectBrandKit() {
                   {project?.websiteUrl && (
                     <Button 
                       onClick={handleAnalyzeBrand}
-                      disabled={analyzeBrandMutation.isPending || generateBrandKitMutation.isPending}
+                      disabled={analyzeBrandMutation.isPending}
                       className="w-full"
-                      variant="outline"
                     >
                       <Brain className="h-4 w-4 mr-2" />
                       {analyzeBrandMutation.isPending ? "Analyzing Website..." : "AI Analyze Website Brand"}
                     </Button>
                   )}
-                  
-                  <Button 
-                    onClick={handleGenerateBrandKit}
-                    disabled={generateBrandKitMutation.isPending || analyzeBrandMutation.isPending}
-                    className="w-full"
-                  >
-                    {generateBrandKitMutation.isPending ? "Generating..." : 
-                     project?.businessProfile?.websiteContent?.designElements ? 
-                     "Generate Brand Kit from Website" : "Generate Brand Kit"}
-                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -325,6 +367,38 @@ export default function ProjectBrandKit() {
                 {generatedSuggestions?.reasoning && (
                   <div className="mt-2 p-3 bg-green-50 rounded text-sm text-green-800">
                     <strong>AI Analysis:</strong> {generatedSuggestions.reasoning}
+                  </div>
+                )}
+                {generatedSuggestions?.logoAnalysis && (
+                  <div className="mt-2 p-3 bg-blue-50 rounded text-sm text-blue-800">
+                    <strong>Logo Analysis:</strong>
+                    <div className="mt-2 space-y-2">
+                      {generatedSuggestions.logoAnalysis.recommendations.map((rec: string, idx: number) => (
+                        <div key={idx} className="flex items-start gap-2">
+                          <span className="text-blue-600">•</span>
+                          <span>{rec}</span>
+                        </div>
+                      ))}
+                      {generatedSuggestions.logoAnalysis.logos.length > 0 && (
+                        <div className="mt-3">
+                          <p className="font-medium mb-2">Extracted Logos:</p>
+                          <div className="flex gap-2">
+                            {generatedSuggestions.logoAnalysis.logos.slice(0, 3).map((logoUrl: string, idx: number) => (
+                              <div key={idx} className="w-12 h-12 border rounded overflow-hidden bg-white">
+                                <img 
+                                  src={logoUrl} 
+                                  alt={`Extracted Logo ${idx + 1}`}
+                                  className="w-full h-full object-contain"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                  }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </CardHeader>
@@ -368,19 +442,61 @@ export default function ProjectBrandKit() {
                   </div>
                 </div>
 
-                {activeBrandKit.logoUrl && (
+                {(activeBrandKit.logoUrl || (activeBrandKit.brandAssets && activeBrandKit.brandAssets.length > 0)) && (
                   <div className="space-y-2">
-                    <Label>Logo</Label>
-                    <div className="p-4 border rounded flex items-center justify-center bg-gray-50">
-                      <img 
-                        src={activeBrandKit.logoUrl} 
-                        alt="Brand Logo"
-                        className="max-h-16 max-w-48 object-contain"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.style.display = 'none';
-                        }}
-                      />
+                    <Label>Logos</Label>
+                    <div className="space-y-3">
+                      {/* Show main logo if exists */}
+                      {activeBrandKit.logoUrl && (
+                        <div className="p-4 border-2 border-gray-200 rounded flex items-center justify-center" style={{
+                          backgroundImage: `
+                            linear-gradient(45deg, #f3f4f6 25%, transparent 25%),
+                            linear-gradient(-45deg, #f3f4f6 25%, transparent 25%),
+                            linear-gradient(45deg, transparent 75%, #f3f4f6 75%),
+                            linear-gradient(-45deg, transparent 75%, #f3f4f6 75%)
+                          `,
+                          backgroundSize: '20px 20px',
+                          backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px'
+                        }}>
+                          <img 
+                            src={activeBrandKit.logoUrl} 
+                            alt="Main Brand Logo"
+                            className="max-h-16 max-w-48 object-contain"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.style.display = 'none';
+                            }}
+                          />
+                        </div>
+                      )}
+                      
+                      {/* Show additional brand assets */}
+                      {activeBrandKit.brandAssets && activeBrandKit.brandAssets.length > 0 && (
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                          {activeBrandKit.brandAssets.map((asset, index) => (
+                            <div key={index} className="relative p-3 border-2 border-gray-200 rounded flex items-center justify-center shadow-sm" style={{
+                              backgroundImage: `
+                                linear-gradient(45deg, #f3f4f6 25%, transparent 25%),
+                                linear-gradient(-45deg, #f3f4f6 25%, transparent 25%),
+                                linear-gradient(45deg, transparent 75%, #f3f4f6 75%),
+                                linear-gradient(-45deg, transparent 75%, #f3f4f6 75%)
+                              `,
+                              backgroundSize: '20px 20px',
+                              backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px'
+                            }}>
+                              <img 
+                                src={asset.url} 
+                                alt={asset.name || `Brand Asset ${index + 1}`}
+                                className="max-h-16 max-w-32 object-contain"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  target.style.display = 'none';
+                                }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -480,27 +596,75 @@ export default function ProjectBrandKit() {
                       
                       <div>
                         <Label htmlFor="font-family">Font Family</Label>
-                        <Input
+                        <select
                           id="font-family"
                           value={editingBrandKit?.fontFamily || ""}
                           onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, fontFamily: e.target.value} : null)}
-                          placeholder="Enter font family name"
-                        />
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <option value="">Select a font family</option>
+                          <option value="Inter">Inter - Modern & Clean</option>
+                          <option value="Roboto">Roboto - Professional & Readable</option>
+                          <option value="Open Sans">Open Sans - Friendly & Accessible</option>
+                          <option value="Lato">Lato - Warm & Professional</option>
+                          <option value="Poppins">Poppins - Modern & Geometric</option>
+                          <option value="Montserrat">Montserrat - Elegant & Contemporary</option>
+                          <option value="Source Sans Pro">Source Sans Pro - Clean & Versatile</option>
+                          <option value="Nunito">Nunito - Rounded & Friendly</option>
+                          <option value="Work Sans">Work Sans - Modern & Geometric</option>
+                          <option value="Raleway">Raleway - Elegant & Lightweight</option>
+                          <option value="Ubuntu">Ubuntu - Modern & Humanist</option>
+                          <option value="Merriweather">Merriweather - Serif & Readable</option>
+                          <option value="Playfair Display">Playfair Display - Elegant Serif</option>
+                          <option value="Georgia">Georgia - Classic Serif</option>
+                          <option value="Times New Roman">Times New Roman - Traditional Serif</option>
+                        </select>
                       </div>
                       
                       <div>
-                        <Label htmlFor="logo-url">Logo URL</Label>
+                        <Label htmlFor="logo-url">Logos</Label>
                         <div className="space-y-3">
                           <Input
                             id="logo-url"
-                            value={editingBrandKit?.logoUrl || ""}
-                            onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, logoUrl: e.target.value} : null)}
-                            placeholder="Enter logo image URL"
+                            value=""
+                            onChange={(e) => {
+                              if (e.target.value.trim()) {
+                                const newLogoUrl = e.target.value.trim();
+                                setEditingBrandKit(prev => prev ? {
+                                  ...prev, 
+                                  brandAssets: [...(prev.brandAssets || []), {
+                                    type: 'logo',
+                                    url: newLogoUrl,
+                                    name: `Logo ${(prev.brandAssets?.length || 0) + 1}`
+                                  }]
+                                } : null);
+                                e.target.value = '';
+                              }
+                            }}
+                            placeholder="Enter logo image URL and press Enter"
+                            onKeyPress={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const target = e.target as HTMLInputElement;
+                                if (target.value.trim()) {
+                                  const newLogoUrl = target.value.trim();
+                                  setEditingBrandKit(prev => prev ? {
+                                    ...prev, 
+                                    brandAssets: [...(prev.brandAssets || []), {
+                                      type: 'logo',
+                                      url: newLogoUrl,
+                                      name: `Logo ${(prev.brandAssets?.length || 0) + 1}`
+                                    }]
+                                  } : null);
+                                  target.value = '';
+                                }
+                              }
+                            }}
                           />
                           <div className="flex gap-2">
                             <ObjectUploader
-                              maxNumberOfFiles={1}
-                              maxFileSize={5242880} // 5MB
+                              maxNumberOfFiles={5}
+                              maxFileSize={10485760} // 10MB for SVG files
                               onGetUploadParameters={async () => {
                                 const response = await fetch('/api/objects/upload', {
                                   method: 'POST',
@@ -513,33 +677,32 @@ export default function ProjectBrandKit() {
                                 };
                               }}
                               onComplete={async (result) => {
-                                if (result.successful?.[0]?.uploadURL) {
+                                if (result.successful && result.successful.length > 0) {
                                   try {
-                                    // Set logo URL from the upload result
-                                    const logoUrl = result.successful[0].uploadURL.split('?')[0]; // Remove query params
-                                    
-                                    // Process the uploaded logo to convert to proper object storage path
-                                    const response = await fetch(`/api/projects/${projectId}/process-logo`, {
-                                      method: 'POST',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({ logoUrl })
-                                    });
-                                    
-                                    if (response.ok) {
-                                      const data = await response.json();
-                                      setEditingBrandKit(prev => prev ? {...prev, logoUrl: data.objectPath || logoUrl} : null);
-                                    } else {
-                                      setEditingBrandKit(prev => prev ? {...prev, logoUrl} : null);
+                                    for (const file of result.successful) {
+                                      // Use the upload URL directly without processing
+                                      const logoUrl = file.uploadURL.split('?')[0]; // Remove query params
+                                      
+                                      // Add the new logo to brand assets (not replacing existing ones)
+                                      setEditingBrandKit(prev => prev ? {
+                                        ...prev, 
+                                        brandAssets: [...(prev.brandAssets || []), {
+                                          type: 'logo',
+                                          url: logoUrl,
+                                          name: `Uploaded Logo ${(prev.brandAssets?.length || 0) + 1}`
+                                        }]
+                                      } : null);
                                     }
                                     
                                     toast({
-                                      title: "Logo Uploaded",
-                                      description: "Your logo has been uploaded successfully.",
+                                      title: "Logos Uploaded",
+                                      description: `${result.successful.length} logo(s) have been added successfully.`,
                                     });
                                   } catch (error) {
+                                    console.error('Logo upload error:', error);
                                     toast({
                                       title: "Upload Error",
-                                      description: "Logo uploaded but failed to process. You can still use it.",
+                                      description: "Failed to add logos. Please try again.",
                                       variant: "destructive",
                                     });
                                   }
@@ -548,7 +711,7 @@ export default function ProjectBrandKit() {
                               buttonClassName="flex-1 h-8"
                             >
                               <Upload className="h-4 w-4 mr-2" />
-                              Upload Logo
+                              Upload Logos
                             </ObjectUploader>
                             {project?.websiteUrl && (
                               <Button
@@ -559,7 +722,14 @@ export default function ProjectBrandKit() {
                                   try {
                                     const result = await analyzeBrandMutation.mutateAsync();
                                     if (result?.analysis?.logo?.logoUrl) {
-                                      setEditingBrandKit(prev => prev ? {...prev, logoUrl: result.analysis.logo.logoUrl} : null);
+                                      setEditingBrandKit(prev => prev ? {
+                                        ...prev, 
+                                        brandAssets: [...(prev.brandAssets || []), {
+                                          type: 'logo',
+                                          url: result.analysis.logo.logoUrl,
+                                          name: 'Website Logo'
+                                        }]
+                                      } : null);
                                       toast({
                                         title: "Logo Extracted",
                                         description: "Logo has been extracted from your website.",
@@ -586,11 +756,65 @@ export default function ProjectBrandKit() {
                               </Button>
                             )}
                           </div>
+                          
+                          {/* Display current brand assets with remove functionality */}
+                          {editingBrandKit?.brandAssets && editingBrandKit.brandAssets.length > 0 && (
+                            <div className="space-y-2">
+                              <p className="text-sm font-medium text-gray-700">Current Logos:</p>
+                              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                {editingBrandKit.brandAssets.map((asset, index) => (
+                                  <div key={index} className="relative p-2 border-2 border-gray-200 rounded shadow-sm" style={{
+                                    backgroundImage: `
+                                      linear-gradient(45deg, #f3f4f6 25%, transparent 25%),
+                                      linear-gradient(-45deg, #f3f4f6 25%, transparent 25%),
+                                      linear-gradient(45deg, transparent 75%, #f3f4f6 75%),
+                                      linear-gradient(-45deg, transparent 75%, #f3f4f6 75%)
+                                    `,
+                                    backgroundSize: '20px 20px',
+                                    backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px'
+                                  }}>
+                                    <img 
+                                      src={asset.url} 
+                                      alt={asset.name || `Logo ${index + 1}`}
+                                      className="w-full h-16 object-contain"
+                                      onError={(e) => {
+                                        const target = e.target as HTMLImageElement;
+                                        target.style.display = 'none';
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingBrandKit(prev => prev ? {
+                                          ...prev,
+                                          brandAssets: prev.brandAssets?.filter((_, i) => i !== index) || []
+                                        } : null);
+                                      }}
+                                      className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center text-xs hover:bg-red-600 transition-colors"
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Display main logo if exists */}
                           {editingBrandKit?.logoUrl && (
-                            <div className="p-3 border rounded bg-gray-50 flex items-center justify-center">
+                            <div className="p-3 border-2 border-gray-200 rounded shadow-sm flex items-center justify-center" style={{
+                              backgroundImage: `
+                                linear-gradient(45deg, #f3f4f6 25%, transparent 25%),
+                                linear-gradient(-45deg, #f3f4f6 25%, transparent 25%),
+                                linear-gradient(45deg, transparent 75%, #f3f4f6 75%),
+                                linear-gradient(-45deg, transparent 75%, #f3f4f6 75%)
+                              `,
+                              backgroundSize: '20px 20px',
+                              backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px'
+                            }}>
                               <img 
                                 src={editingBrandKit.logoUrl} 
-                                alt="Logo Preview"
+                                alt="Main Logo"
                                 className="max-h-12 max-w-32 object-contain"
                                 onError={(e) => {
                                   const target = e.target as HTMLImageElement;

@@ -29,7 +29,7 @@ PitchPerfect is an advanced AI-powered web application that enables entrepreneur
 - **Node.js** with Express.js
 - **TypeScript** with ES modules
 - **Drizzle ORM** with PostgreSQL
-- **Passport.js** with Replit Auth (OpenID Connect)
+- **Supabase Auth** with Google OAuth
 - **Google Cloud Storage** for file management
 
 ### Database & Storage
@@ -82,12 +82,16 @@ PitchPerfect is an advanced AI-powered web application that enables entrepreneur
    # Session Configuration
    SESSION_SECRET=your_session_secret_here
 
+   # Supabase Configuration
+   SUPABASE_URL=https://your-project-id.supabase.co
+   SUPABASE_ANON_KEY=your_supabase_anon_key
+
    # Optional: SendGrid for Email Campaigns
    SENDGRID_API_KEY=your_sendgrid_api_key
 
    # Development
    NODE_ENV=development
-   PORT=5000
+   PORT=3000
    ```
 
 ## Database Setup

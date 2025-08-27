@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { supabase } from "@/lib/supabase";
 
 export default function Settings() {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -15,24 +16,49 @@ export default function Settings() {
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [campaignNotifications, setCampaignNotifications] = useState(true);
   const [weeklyReports, setWeeklyReports] = useState(false);
+  
+  // Profile form state
+  const [firstName, setFirstName] = useState(user?.firstName || '');
+  const [lastName, setLastName] = useState(user?.lastName || '');
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  // Update form fields when user data changes
+  useEffect(() => {
+    if (user) {
+      setFirstName(user.firstName || '');
+      setLastName(user.lastName || '');
+    }
+  }, [user]);
 
   // Redirect to login if not authenticated
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       toast({
         title: "Unauthorized",
-        description: "You are logged out. Logging in again...",
+        description: "You are logged out. Please log in again.",
         variant: "destructive",
       });
+      // Redirect to landing page for login
       setTimeout(() => {
-        window.location.href = "/api/login";
-      }, 500);
+        window.location.href = "/";
+      }, 2000);
       return;
     }
   }, [isAuthenticated, isLoading, toast]);
 
-  const handleLogout = () => {
-    window.location.href = "/api/logout";
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      // Redirect to landing page after logout
+      window.location.href = "/";
+    } catch (error) {
+      console.error('Error signing out:', error);
+      toast({
+        title: "Logout Error",
+        description: "Failed to sign out. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleExportData = () => {
@@ -48,6 +74,52 @@ export default function Settings() {
       description: "Please contact support to delete your account.",
       variant: "destructive",
     });
+  };
+
+  const handleUpdateProfile = async () => {
+    if (!user) return;
+    
+    setIsUpdating(true);
+    try {
+      // Get the current session token
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('No active session');
+      }
+
+      const response = await fetch('/api/auth/user', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ firstName, lastName }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update profile');
+      }
+
+      const updatedUser = await response.json();
+      
+      // Update local state
+      setFirstName(updatedUser.firstName || '');
+      setLastName(updatedUser.lastName || '');
+      
+      toast({
+        title: "Profile Updated",
+        description: "Your profile information has been updated successfully.",
+      });
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      toast({
+        title: "Update Failed",
+        description: "Failed to update profile. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
   if (isLoading || !isAuthenticated) {
@@ -106,7 +178,8 @@ export default function Settings() {
                 <Label htmlFor="firstName">First Name</Label>
                 <Input 
                   id="firstName" 
-                  defaultValue={user?.firstName || ""} 
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
                   className="mt-1"
                 />
               </div>
@@ -114,7 +187,8 @@ export default function Settings() {
                 <Label htmlFor="lastName">Last Name</Label>
                 <Input 
                   id="lastName" 
-                  defaultValue={user?.lastName || ""} 
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
                   className="mt-1"
                 />
               </div>
@@ -132,8 +206,19 @@ export default function Settings() {
               <p className="text-xs text-gray-500 mt-1">Email cannot be changed</p>
             </div>
 
-            <Button className="bg-primary-500 hover:bg-primary-600">
-              Save Changes
+            <Button 
+              className="bg-primary-500 hover:bg-primary-600"
+              onClick={handleUpdateProfile}
+              disabled={isUpdating}
+            >
+              {isUpdating ? (
+                <>
+                  <i className="fas fa-spinner fa-spin mr-2"></i>
+                  Saving...
+                </>
+              ) : (
+                'Save Changes'
+              )}
             </Button>
           </CardContent>
         </Card>

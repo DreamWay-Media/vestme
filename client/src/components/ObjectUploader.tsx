@@ -4,14 +4,14 @@ import Uppy from "@uppy/core";
 import { DashboardModal } from "@uppy/react";
 import "@uppy/core/dist/style.min.css";
 import "@uppy/dashboard/dist/style.min.css";
-import AwsS3 from "@uppy/aws-s3";
 import type { UploadResult } from "@uppy/core";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/lib/supabase";
 
 interface ObjectUploaderProps {
   maxNumberOfFiles?: number;
   maxFileSize?: number;
-  onGetUploadParameters: () => Promise<{
+  onGetUploadParameters?: () => Promise<{
     method: "PUT";
     url: string;
   }>;
@@ -64,17 +64,80 @@ export function ObjectUploader({
       restrictions: {
         maxNumberOfFiles,
         maxFileSize,
-        allowedFileTypes: ['image/*'], // Only allow image files for background uploads
+        allowedFileTypes: ['image/*', 'application/pdf', 'text/*', 'application/*'], // Allow various file types
       },
       autoProceed: false,
     })
-      .use(AwsS3, {
-        shouldUseMultipart: false,
-        getUploadParameters: onGetUploadParameters,
+      .on("file-added", async (file) => {
+        try {
+          console.log('Starting upload for file:', file.name);
+          console.log('File data type:', typeof file.data);
+          console.log('File size:', file.data?.size || 'unknown');
+          
+          // Upload file directly to Supabase Storage
+          // Sanitize filename to remove invalid characters
+          const sanitizedName = file.name
+            .replace(/[^a-zA-Z0-9.-]/g, '_') // Replace invalid chars with underscore
+            .replace(/_{2,}/g, '_') // Replace multiple underscores with single
+            .replace(/^_|_$/g, ''); // Remove leading/trailing underscores
+          
+          const fileName = `${Date.now()}-${sanitizedName}`;
+          console.log('Original filename:', file.name);
+          console.log('Sanitized filename:', sanitizedName);
+          console.log('Final filename:', fileName);
+          
+          const bucketName = 'pitch-perfect-files'; // This should match your SUPABASE_STORAGE_BUCKET
+          console.log('Using bucket:', bucketName);
+          console.log('Supabase client:', supabase);
+          
+          // Try uploading without the 'public/' prefix first
+          const uploadPath = fileName;
+          console.log('Upload path:', uploadPath);
+          
+          const { data, error } = await supabase.storage
+            .from(bucketName)
+            .upload(uploadPath, file.data, {
+              contentType: file.type,
+              upsert: true
+            });
+
+          if (error) {
+            console.error('Upload error:', error);
+            uppy.emit('upload-error', file, error);
+            return;
+          }
+
+          // Get public URL
+          const { data: urlData } = supabase.storage
+            .from(bucketName)
+            .getPublicUrl(uploadPath);
+
+          // Mark file as uploaded
+          file.meta.uploadURL = urlData.publicUrl;
+          uppy.emit('upload-success', file, { uploadURL: urlData.publicUrl });
+          
+          // Trigger complete event
+          const result: UploadResult<Record<string, unknown>, Record<string, unknown>> = {
+            successful: [{
+              ...file,
+              uploadURL: urlData.publicUrl
+            }],
+            failed: [],
+            uploadURL: urlData.publicUrl
+          };
+          
+          onComplete?.(result);
+          setShowModal(false);
+        } catch (error) {
+          console.error('Upload failed:', error);
+          uppy.emit('upload-error', file, error);
+        }
       })
-      .on("complete", (result) => {
-        onComplete?.(result);
-        setShowModal(false); // Close modal after upload
+      .on("upload-success", (file, response) => {
+        console.log(`File ${file.name} uploaded successfully:`, response);
+      })
+      .on("upload-error", (file, error) => {
+        console.error(`Upload failed for ${file.name}:`, error);
       })
   );
 

@@ -66,6 +66,10 @@ export class BrandAnalyzer {
       const html = await response.text();
       const dom = new JSDOM(html);
       const document = dom.window.document;
+      
+      // Look for lazy loading patterns and extract real image URLs
+      const realImageUrls = this.extractRealImageUrls(html, url);
+      console.log(`Found ${realImageUrls.length} potential real image URLs from lazy loading patterns`);
 
       // Extract comprehensive CSS and style information
       const styles: string[] = [];
@@ -163,7 +167,10 @@ export class BrandAnalyzer {
       const imageElements = Array.from(document.querySelectorAll('img, svg'));
       const imageDetails: any[] = [];
       
-      imageElements.forEach(img => {
+      console.log(`Found ${imageElements.length} image elements on the page`);
+      
+      // Process DOM image elements
+      imageElements.forEach((img, index) => {
         const src = img.getAttribute('src') || img.getAttribute('href') || img.getAttribute('data-src');
         const alt = img.getAttribute('alt') || '';
         const className = img.getAttribute('class') || '';
@@ -173,6 +180,19 @@ export class BrandAnalyzer {
           try {
             const fullSrc = new URL(src, url).href;
             const isLogo = this.isLikelyLogo(img, src, alt, className, id);
+            const isPlaceholder = this.isPlaceholderImage(src);
+            
+            if (index < 10) { // Log first 10 images for debugging
+              console.log(`Image ${index + 1}:`, {
+                src: fullSrc.substring(0, 100) + (fullSrc.length > 100 ? '...' : ''),
+                alt,
+                className,
+                id,
+                isLogo,
+                isPlaceholder,
+                placement: this.getImagePlacement(img)
+              });
+            }
             
             imageDetails.push({
               src: fullSrc,
@@ -188,6 +208,22 @@ export class BrandAnalyzer {
           }
         }
       });
+      
+      // Add real image URLs found from lazy loading patterns
+      realImageUrls.forEach((realUrl, index) => {
+        const isLogo = this.isLikelyLogoFromUrl(realUrl);
+        imageDetails.push({
+          src: realUrl,
+          alt: `Real image ${index + 1}`,
+          className: 'extracted-from-lazy-loading',
+          id: '',
+          isLogo,
+          parentContext: 'extracted',
+          placement: 'header' // Assume extracted images are important
+        });
+      });
+      
+      console.log(`Processed ${imageDetails.length} total images (${imageElements.length} DOM + ${realImageUrls.length} extracted), ${imageDetails.filter(img => img.isLogo).length} marked as logos`);
 
       // Sort images by logo likelihood
       imageDetails.sort((a, b) => {
@@ -335,6 +371,11 @@ export class BrandAnalyzer {
     const classLower = className.toLowerCase();
     const idLower = id.toLowerCase();
     
+    // Filter out placeholder and invalid images
+    if (this.isPlaceholderImage(src)) {
+      return false;
+    }
+    
     // Check if any logo terms appear in attributes
     const hasLogoTerms = logoTerms.some(term => 
       srcLower.includes(term) || 
@@ -353,6 +394,125 @@ export class BrandAnalyzer {
       (parseInt(width) < 500 && parseInt(height) < 200) : true;
     
     return hasLogoTerms || (isInHeader && hasReasonableDimensions);
+  }
+
+  private isPlaceholderImage(src: string): boolean {
+    // Filter out common placeholder patterns
+    const placeholderPatterns = [
+      /^data:image\/svg\+xml;base64,PHN2ZyB3aWR0aD0iMSIgaGVpZ2h0PSIxIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjwvc3ZnPg==$/, // 1x1 SVG
+      /^data:image\/svg\+xml;base64,PHN2ZyB3aWR0aD0iMSIgaGVpZ2h0PSIxIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjwvc3ZnPg==$/, // Exact match
+      /^data:image\/svg\+xml.*width="1".*height="1"/, // 1x1 SVG patterns
+      /^data:image\/.*1x1/, // 1x1 data URLs
+      /^data:image\/.*placeholder/, // Placeholder data URLs
+      /^https?:\/\/.*placeholder/, // Placeholder URLs
+      /^https?:\/.*1x1/, // 1x1 URLs
+      /^https?:\/\/via\.placeholder\.com/, // Via placeholder service
+      /^https?:\/\/placehold\.co/, // Placehold.co service
+      /^https?:\/\/dummyimage\.com/, // Dummy image service
+    ];
+    
+    return placeholderPatterns.some(pattern => pattern.test(src));
+  }
+
+  private isLikelyLogoFromUrl(url: string): boolean {
+    const urlLower = url.toLowerCase();
+    
+    // Check for common logo patterns in URLs
+    const logoPatterns = [
+      /logo/i,
+      /brand/i,
+      /mark/i,
+      /icon/i,
+      /symbol/i,
+      /emblem/i,
+      /crest/i,
+      /badge/i
+    ];
+    
+    // Check if URL contains logo-related terms
+    const hasLogoTerms = logoPatterns.some(pattern => pattern.test(urlLower));
+    
+    // Check for common logo file paths
+    const logoPaths = [
+      /\/logo\//i,
+      /\/brand\//i,
+      /\/images\/logo/i,
+      /\/assets\/logo/i,
+      /\/uploads\/logo/i,
+      /\/wp-content\/uploads\/.*logo/i
+    ];
+    
+    const hasLogoPath = logoPaths.some(pattern => pattern.test(urlLower));
+    
+    // Check for common logo file names
+    const logoFileNames = [
+      /logo\.(png|jpg|jpeg|gif|svg|webp)$/i,
+      /brand\.(png|jpg|jpeg|gif|svg|webp)$/i,
+      /mark\.(png|jpg|jpeg|gif|svg|webp)$/i,
+      /icon\.(png|jpg|jpeg|gif|svg|webp)$/i
+    ];
+    
+    const hasLogoFileName = logoFileNames.some(pattern => pattern.test(urlLower));
+    
+    return hasLogoTerms || hasLogoPath || hasLogoFileName;
+  }
+
+  private extractRealImageUrls(html: string, baseUrl: string): string[] {
+    const realImageUrls: string[] = [];
+    
+    // Look for common lazy loading patterns
+    const patterns = [
+      // data-src attribute (common lazy loading pattern)
+      /data-src=["']([^"']+)["']/gi,
+      // data-lazy-src attribute
+      /data-lazy-src=["']([^"']+)["']/gi,
+      // data-original attribute
+      /data-original=["']([^"']+)["']/gi,
+      // data-srcset attribute
+      /data-srcset=["']([^"']+)["']/gi,
+      // srcset attribute (responsive images)
+      /srcset=["']([^"']+)["']/gi,
+      // Background images in CSS
+      /background-image:\s*url\(["']?([^"')]+)["']?\)/gi,
+      // CSS background shorthand
+      /background:\s*url\(["']?([^"')]+)["']?\)/gi,
+      // WordPress specific patterns
+      /wp-content\/uploads\/([^"'\s]+)/gi,
+      // Common image paths
+      /\/images?\/([^"'\s]+)/gi,
+      /\/assets?\/([^"'\s]+)/gi,
+      /\/media\/([^"'\s]+)/gi,
+      /\/uploads\/([^"'\s]+)/gi,
+    ];
+    
+    patterns.forEach(pattern => {
+      let match;
+      while ((match = pattern.exec(html)) !== null) {
+        const imageUrl = match[1];
+        if (imageUrl && !this.isPlaceholderImage(imageUrl)) {
+          try {
+            const fullUrl = imageUrl.startsWith('http') ? imageUrl : new URL(imageUrl, baseUrl).href;
+            if (!realImageUrls.includes(fullUrl)) {
+              realImageUrls.push(fullUrl);
+            }
+          } catch (e) {
+            // Skip invalid URLs
+          }
+        }
+      }
+    });
+    
+    // Also look for any URLs that contain common image extensions
+    const imageExtensions = /\.(jpg|jpeg|png|gif|svg|webp|ico)$/i;
+    const urlMatches = html.match(/https?:\/\/[^\s"']+\.(jpg|jpeg|png|gif|svg|webp|ico)/gi) || [];
+    
+    urlMatches.forEach(url => {
+      if (!this.isPlaceholderImage(url) && !realImageUrls.includes(url)) {
+        realImageUrls.push(url);
+      }
+    });
+    
+    return realImageUrls;
   }
 
   private getImagePlacement(img: Element): string {

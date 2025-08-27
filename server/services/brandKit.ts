@@ -35,6 +35,8 @@ export function generateBrandKitSuggestions(businessProfile: BusinessProfile): B
   // Extract website design elements if available
   const websiteColors = businessProfile.websiteContent?.designElements?.colors || [];
   const websiteFonts = businessProfile.websiteContent?.designElements?.fonts || [];
+  const websiteLogos = businessProfile.websiteContent?.designElements?.logoUrls || [];
+  const websiteImages = businessProfile.websiteContent?.designElements?.keyImages || [];
   
   // Define industry-specific color palettes
   const colorPalettes = {
@@ -96,6 +98,26 @@ export function generateBrandKitSuggestions(businessProfile: BusinessProfile): B
     }
   };
 
+  // Check if we have website-extracted design elements
+  if (websiteColors.length > 0 || websiteFonts.length > 0 || websiteLogos.length > 0) {
+    console.log('Using website-extracted design elements');
+    console.log('Found colors:', websiteColors.length);
+    console.log('Found fonts:', websiteFonts.length);
+    console.log('Found logos:', websiteLogos.length);
+    console.log('Found images:', websiteImages.length);
+    
+    const extractedPalette = createPaletteFromWebsiteColors(websiteColors, websiteFonts, websiteLogos, websiteImages);
+    if (extractedPalette) {
+      console.log('Successfully created palette from website data');
+      return extractedPalette;
+    } else {
+      console.log('Failed to create palette from website data, falling back to industry palette');
+    }
+  }
+
+  // Fall back to industry-specific palettes if no website data
+  console.log('Using industry-specific palette for:', industry);
+  
   // Determine industry category
   let selectedPalette = colorPalettes.technology; // Default
 
@@ -141,10 +163,20 @@ export function generateBrandKitSuggestions(businessProfile: BusinessProfile): B
 }
 
 /**
- * Creates a cohesive brand palette from extracted website colors and fonts
+ * Creates a cohesive brand palette from extracted website colors, fonts, logos, and images
  */
-function createPaletteFromWebsiteColors(colors: string[], fonts: string[]): BrandKitSuggestion | null {
-  if (colors.length === 0) return null;
+function createPaletteFromWebsiteColors(
+  colors: string[], 
+  fonts: string[], 
+  logos: string[], 
+  images: string[]
+): BrandKitSuggestion | null {
+  console.log('createPaletteFromWebsiteColors called with:', { colors: colors.length, fonts: fonts.length, logos: logos.length, images: images.length });
+  
+  if (colors.length === 0 && logos.length === 0) {
+    console.log('No colors or logos found, returning null');
+    return null;
+  }
 
   // Clean and sort colors by prevalence/importance
   const cleanColors = colors
@@ -212,12 +244,68 @@ function createPaletteFromWebsiteColors(colors: string[], fonts: string[]): Bran
     }
   }
 
-  return {
+  // Build comprehensive reasoning
+  let reasoning = `Extracted from your website's existing design`;
+  
+  if (logos.length > 0) {
+    reasoning += `. Found ${logos.length} logo(s) that will be incorporated into your brand kit`;
+  }
+  
+  if (images.length > 0) {
+    reasoning += `. Extracted ${images.length} key image(s) for brand consistency`;
+  }
+  
+  if (colors.length > 0) {
+    reasoning += `. Color palette derived from your website's design`;
+  }
+  
+  if (fonts.length > 0) {
+    reasoning += `. Typography based on your website's font choices`;
+  }
+
+  const result = {
     primaryColor,
     secondaryColor,
     accentColor,
     fontFamily,
-    reasoning: `Extracted from your website's existing design`
+    reasoning
+  };
+  
+  console.log('Created palette result:', result);
+  return result;
+}
+
+/**
+ * Extracts and validates logos from business profile
+ */
+export function extractBrandLogos(businessProfile: BusinessProfile): {
+  logos: string[];
+  images: string[];
+  hasValidAssets: boolean;
+  recommendations: string[];
+} {
+  const logos = businessProfile.websiteContent?.designElements?.logoUrls || [];
+  const images = businessProfile.websiteContent?.designElements?.keyImages || [];
+  
+  const recommendations: string[] = [];
+  
+  if (logos.length === 0 && images.length === 0) {
+    recommendations.push("No logos or key images found. Consider adding your company logo to your website for better brand extraction.");
+  } else if (logos.length === 0) {
+    recommendations.push("No logos found, but key images detected. Consider adding a dedicated logo for better brand recognition.");
+  } else if (logos.length > 0) {
+    recommendations.push(`Found ${logos.length} logo(s). These will be incorporated into your brand kit.`);
+  }
+  
+  if (images.length > 0) {
+    recommendations.push(`Found ${images.length} key image(s) that can be used for brand consistency.`);
+  }
+  
+  return {
+    logos,
+    images,
+    hasValidAssets: logos.length > 0 || images.length > 0,
+    recommendations
   };
 }
 
@@ -303,18 +391,29 @@ export function validateBrandKitAccessibility(colors: {
 /**
  * Generates brand kit assets metadata
  */
-export function generateBrandKitAssets(brandKit: {
-  name: string;
-  primaryColor: string;
-  secondaryColor: string;
-  accentColor: string;
-  fontFamily: string;
-}): {
+export function generateBrandKitAssets(
+  brandKit: {
+    name: string;
+    primaryColor: string;
+    secondaryColor: string;
+    accentColor: string;
+    fontFamily: string;
+  },
+  businessProfile?: BusinessProfile
+): {
   logoVariants: string[];
   colorSwatches: { name: string; hex: string; usage: string; }[];
   typography: { family: string; weights: string[]; usage: string; }[];
   guidelines: string[];
+  extractedAssets?: {
+    logos: string[];
+    images: string[];
+  };
 } {
+  // Get extracted logos and images if available
+  const extractedLogos = businessProfile?.websiteContent?.designElements?.logoUrls || [];
+  const extractedImages = businessProfile?.websiteContent?.designElements?.keyImages || [];
+  
   return {
     logoVariants: [
       "Primary logo (full color)",
@@ -355,6 +454,10 @@ export function generateBrandKitAssets(brandKit: {
       `Use ${brandKit.fontFamily} for all text to maintain brand consistency`,
       "Ensure minimum contrast ratios for accessibility compliance",
       "Test brand colors across different mediums and devices"
-    ]
+    ],
+    extractedAssets: extractedLogos.length > 0 || extractedImages.length > 0 ? {
+      logos: extractedLogos,
+      images: extractedImages
+    } : undefined
   };
 }

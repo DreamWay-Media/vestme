@@ -114,12 +114,13 @@ export default function Projects() {
     if (!isLoading && !isAuthenticated) {
       toast({
         title: "Unauthorized",
-        description: "You are logged out. Logging in again...",
+        description: "You are logged out. Please log in again.",
         variant: "destructive",
       });
+      // Redirect to landing page for login
       setTimeout(() => {
-        window.location.href = "/api/login";
-      }, 500);
+        window.location.href = "/";
+      }, 2000);
       return;
     }
   }, [isAuthenticated, isLoading, toast]);
@@ -146,12 +147,12 @@ export default function Projects() {
       if (isUnauthorizedError(error)) {
         toast({
           title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
+          description: "You are logged out. Please log in again.",
           variant: "destructive",
         });
         setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 500);
+          window.location.href = "/";
+        }, 2000);
         return;
       }
       toast({
@@ -178,12 +179,12 @@ export default function Projects() {
       if (isUnauthorizedError(error)) {
         toast({
           title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
+          description: "You are logged out. Please log in again.",
           variant: "destructive",
         });
         setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 500);
+          window.location.href = "/";
+        }, 2000);
         return;
       }
       toast({
@@ -214,12 +215,12 @@ export default function Projects() {
       if (isUnauthorizedError(error as Error)) {
         toast({
           title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
+          description: "You are logged out. Please log in again.",
           variant: "destructive",
         });
         setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 500);
+          window.location.href = "/";
+        }, 2000);
         return;
       }
       toast({
@@ -335,6 +336,16 @@ export default function Projects() {
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
+                      <button 
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          window.location.href = `/projects/${project.id}/generate-deck`;
+                        }}
+                        className="text-gray-400 hover:text-primary-600 transition-colors"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </button>
                     </div>
                   </div>
                 </CardHeader>
@@ -412,39 +423,7 @@ export default function Projects() {
                       </div>
                     )}
 
-                    {(project.status === "deck_ready" || project.status === "campaign_active") && (
-                      <div className="space-y-2">
-                        <div className="flex space-x-2">
-                          <Button 
-                            size="sm" 
-                            variant="outline" 
-                            className="flex-1"
-                            onClick={() => viewDeck(project.id)}
-                          >
-                            <Eye className="h-4 w-4 mr-2" />
-                            View Deck
-                          </Button>
-                          <Button size="sm" className="flex-1 bg-accent-500 hover:bg-accent-600">
-                            <Play className="h-4 w-4 mr-2" />
-                            Share
-                          </Button>
-                        </div>
-                        <div className="flex space-x-2">
-                          <Link to={`/projects/${project.id}/generate-deck`} className="flex-1">
-                            <Button size="sm" variant="outline" className="w-full">
-                              <Edit className="h-4 w-4 mr-2" />
-                              Edit Deck
-                            </Button>
-                          </Link>
-                          <Link to={`/projects/${project.id}/brand-kit`} className="flex-1">
-                            <Button size="sm" variant="outline" className="w-full">
-                              <Edit className="h-4 w-4 mr-2" />
-                              Edit Brand Kit
-                            </Button>
-                          </Link>
-                        </div>
-                      </div>
-                    )}
+
                   </div>
                 </CardContent>
               </Card>

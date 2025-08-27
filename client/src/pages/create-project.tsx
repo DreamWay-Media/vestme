@@ -52,14 +52,24 @@ export default function CreateProject() {
     mutationFn: async (data: FormData) => {
       return await apiRequest("POST", "/api/projects", data);
     },
-    onSuccess: (project: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
-      toast({
-        title: "Project Created",
-        description: "Your project has been created successfully.",
-      });
-      navigate(`/projects/${project.id}/discovery`);
+    onSuccess: async (response: Response) => {
+      try {
+        const project = await response.json();
+        queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+        toast({
+          title: "Project Created",
+          description: "Your project has been created successfully.",
+        });
+        navigate(`/projects/${project.id}/discovery`);
+      } catch (error) {
+        console.error('Error parsing project response:', error);
+        toast({
+          title: "Error",
+          description: "Project created but failed to navigate. Please refresh the page.",
+          variant: "destructive",
+        });
+      }
     },
     onError: (error) => {
       if (isUnauthorizedError(error as Error)) {
@@ -69,8 +79,8 @@ export default function CreateProject() {
           variant: "destructive",
         });
         setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 500);
+          window.location.href = "/";
+        }, 2000);
         return;
       }
       toast({

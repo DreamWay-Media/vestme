@@ -12,10 +12,19 @@ interface SlideRendererProps {
       secondaryColor?: string;
       accentColor?: string;
       fontFamily?: string;
+      fontSize?: string;
+      titleFontSize?: string;
+      descriptionFontSize?: string;
+      bulletFontSize?: string;
       logoUrl?: string;
       textColor?: string;
       backgroundColor?: string;
       backgroundImage?: string;
+      brandColors?: {
+        primary: string;
+        secondary: string;
+        accent: string;
+      };
     };
   };
   isCompact?: boolean;
@@ -27,14 +36,20 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
   
   // Extract styling variables
   const primaryColor = styling.primaryColor || '#3b82f6';
+  const secondaryColor = styling.secondaryColor || '#64748b';
   const textColor = styling.textColor || '#333333';
   const accentColor = styling.accentColor || '#fd7e14';
   const fontFamily = styling.fontFamily || 'Inter';
+  const fontSize = styling.fontSize || 'medium';
+  const titleFontSize = styling.titleFontSize || '2xl';
+  const descriptionFontSize = styling.descriptionFontSize || 'base';
+  const bulletFontSize = styling.bulletFontSize || 'base';
   const logoUrl = styling.logoUrl;
   const backgroundColor = styling.backgroundColor || '#ffffff';
   const backgroundImage = styling.backgroundImage;
+  const brandColors = styling.brandColors;
 
-  // Background style logic
+  // Background style logic - use all brand colors creatively
   const backgroundStyle = backgroundImage 
     ? { 
         backgroundImage: `url(${backgroundImage})`,
@@ -43,14 +58,43 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
         backgroundRepeat: 'no-repeat',
         backgroundColor
       }
-    : { backgroundColor };
+    : {
+        // Create beautiful gradient backgrounds using all brand colors
+        background: brandColors ? 
+          `linear-gradient(135deg, ${backgroundColor} 0%, ${brandColors.primary}20 50%, ${brandColors.secondary}20 100%)` :
+          backgroundColor,
+        backgroundColor: backgroundColor
+      };
+
+  // Convert fontSize to actual CSS values
+  const getFontSize = (size: string) => {
+    switch (size) {
+      case 'small': return '0.875rem'; // 14px
+      case 'base': return '1rem';      // 16px
+      case 'medium': return '1rem';    // 16px
+      case 'large': return '1.125rem'; // 18px
+      case 'lg': return '1.125rem';    // 18px
+      case 'xl': return '1.25rem';     // 20px
+      case '2xl': return '1.5rem';     // 24px
+      case '3xl': return '1.875rem';   // 30px
+      case '4xl': return '2.25rem';    // 36px
+      case '5xl': return '3rem';       // 48px
+      default: return '1rem';          // 16px
+    }
+  };
 
   // Style object for the entire slide content
   const slideStyle = {
     fontFamily,
+    fontSize: getFontSize(fontSize),
     color: textColor,
     ...backgroundStyle
   };
+
+  // Debug: Log the styling being applied
+  console.log('SlideRenderer - Styling received:', styling);
+  console.log('SlideRenderer - Background style:', backgroundStyle);
+  console.log('SlideRenderer - Final slide style:', slideStyle);
 
   // Render sections (new format)
   const renderSections = () => {
@@ -110,10 +154,14 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
 
   return (
     <div 
-      className={`relative overflow-hidden ${isCompact ? 'h-full p-2' : 'h-full p-6'}`}
-      style={slideStyle}
+      className={`relative overflow-hidden w-full ${isCompact ? 'h-full p-2' : 'h-full p-6'}`}
+      style={{
+        ...slideStyle,
+        // Ensure background color is applied
+        backgroundColor: backgroundColor
+      }}
     >
-      <div className={`h-full ${isCompact ? 'text-xs' : ''} overflow-hidden`}>
+      <div className={`w-full h-full ${isCompact ? 'text-xs' : ''} overflow-hidden`}>
         {/* Logo for title slides */}
         {slide.type === 'title' && logoUrl && (
           <div className={`flex justify-center ${isCompact ? 'mb-2' : 'mb-6'}`}>
@@ -128,8 +176,14 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
         {/* Always show slide title if it exists and no title section */}
         {slide.title && !content.sections?.some((s: any) => s.type === 'title') && (
           <div 
-            className={`${isCompact ? 'text-sm' : 'text-3xl'} font-bold leading-tight ${isCompact ? 'mb-1' : 'mb-6'}`}
-            style={{ color: primaryColor, fontFamily }}
+            className={`${isCompact ? 'text-sm' : ''} font-bold leading-tight ${isCompact ? 'mb-1' : 'mb-6'}`}
+            style={{ 
+              color: textColor, 
+              fontFamily,
+              fontSize: isCompact ? '0.875rem' : getFontSize(titleFontSize),
+              // Add subtle text shadow using brand colors for depth
+              textShadow: brandColors ? `2px 2px 4px ${brandColors.primary}40` : 'none'
+            }}
             dangerouslySetInnerHTML={{ __html: slide.title }}
           />
         )}
@@ -137,8 +191,56 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
         {/* Render dynamic sections first */}
         {renderSections()}
 
-        {/* Legacy content support - only render if no sections exist */}
-        {(!content.sections || content.sections.length === 0) && (
+        {/* AI-generated slide content support */}
+        {content.description && (
+          <div 
+            className={`${isCompact ? 'text-xs' : ''} leading-relaxed ${isCompact ? 'mb-1' : 'mb-4'}`}
+            style={{ 
+              color: textColor, 
+              fontFamily,
+              fontSize: isCompact ? '0.75rem' : getFontSize(descriptionFontSize),
+              // Add subtle border using brand colors
+              borderLeft: brandColors ? `4px solid ${brandColors.accent}` : 'none',
+              paddingLeft: brandColors ? '12px' : '0'
+            }}
+            dangerouslySetInnerHTML={{ __html: content.description }}
+          />
+        )}
+        
+        {content.bullets && Array.isArray(content.bullets) && content.bullets.length > 0 && (
+          <ul className={`${isCompact ? 'space-y-0' : 'space-y-2'}`}>
+            {content.bullets.slice(0, isCompact ? 3 : content.bullets.length).map((bullet: string, idx: number) => (
+              <li 
+                key={idx}
+                style={{ 
+                  color: textColor, 
+                  fontFamily,
+                  fontSize: isCompact ? '0.75rem' : getFontSize(bulletFontSize),
+                  // Use brand colors for bullet points
+                  listStyleType: 'none'
+                }}
+                className={`${isCompact ? 'text-xs' : ''} flex items-start`}
+              >
+                <span 
+                  className="mr-2 mt-1"
+                  style={{ 
+                    color: brandColors ? brandColors.accent : accentColor,
+                    fontSize: '1.2em'
+                  }}
+                >
+                  •
+                </span>
+                <span dangerouslySetInnerHTML={{ __html: bullet }} />
+              </li>
+            ))}
+            {isCompact && content.bullets.length > 3 && (
+              <li className="text-xs text-gray-500 ml-4">...and {content.bullets.length - 3} more</li>
+            )}
+          </ul>
+        )}
+
+        {/* Legacy content support - only render if no AI-generated content exists */}
+        {(!content.description && !content.bullets) && (
           <>
             {content.title && content.title !== slide.title && (
               <div 
