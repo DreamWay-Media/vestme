@@ -22,6 +22,7 @@ export default defineConfig(async ({ mode }) => {
           ]
         : []),
     ],
+    root: path.resolve(__dirname, "client"),
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "client", "src"),
@@ -29,7 +30,6 @@ export default defineConfig(async ({ mode }) => {
         "@assets": path.resolve(__dirname, "attached_assets"),
       },
     },
-    root: path.resolve(__dirname, "client"),
     build: {
       outDir: path.resolve(__dirname, "dist/public"),
       emptyOutDir: true,
