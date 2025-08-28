@@ -42,8 +42,14 @@ RUN /bin/sh scripts/docker-build.sh || (echo "Script failed, trying direct build
 # Production stage
 FROM node:20-alpine AS production
 
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
+# Install dumb-init and system dependencies (no Chrome download needed)
+RUN apk add --no-cache dumb-init \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont
 
 # Create app user for security
 RUN addgroup -g 1001 -S nodejs
@@ -71,6 +77,10 @@ RUN echo "📁 Files in builder stage:" && \
 
 # Switch to non-root user
 USER nextjs
+
+# Set Puppeteer environment variables for production
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Expose port
 EXPOSE 3000

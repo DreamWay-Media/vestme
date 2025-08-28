@@ -145,6 +145,16 @@ npm audit
   - ✅ Added `--minify` flag for smaller server bundle
   - ✅ Result: Server bundle reduced from 23.8MB to 138.3kb
 
+### Missing Module Dependency - FIXED
+
+- **Issue**: Production container failed with "Cannot find module '@vitejs/plugin-react'" error
+- **Root Cause**: Vite config was being imported in server code, bundling dev dependencies into production
+- **Solutions Applied**:
+  - ✅ Made Vite-related imports conditional in `server/vite.ts`
+  - ✅ Vite config and plugin-react only imported in development mode
+  - ✅ Production bundle no longer includes Vite development dependencies
+  - ✅ Result: Clean production build without unnecessary dev dependencies
+
 ### Deprecation Warnings and Build Optimizations - FIXED
 
 - **Issues Addressed**:
@@ -173,6 +183,7 @@ npm audit
 - Build process: ✅ Working (creates `dist/index.js` successfully)
 - Bundle size optimization: ✅ Implemented (client chunks + server minification)
 - Missing dependencies: ✅ Fixed (vite, esbuild, terser moved to dependencies)
+- Missing module dependencies: ✅ Fixed (@vitejs/plugin-react conditional import)
 - Deprecation warnings: ✅ Fixed (browserslist updated, empty chunks eliminated)
 - Build optimizations: ✅ Implemented (consistent minification, proper chunking)
 
