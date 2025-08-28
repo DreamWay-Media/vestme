@@ -1,12 +1,12 @@
-#!/bin/bash
+#!/bin/sh
 
 # Docker build script for PitchPerfect
 set -e
 
 echo "🚀 Starting Docker build..."
 
-# Get the absolute path to the script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Get the absolute path to the script directory (more compatible with sh)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 echo "📁 Script directory: $SCRIPT_DIR"
@@ -21,12 +21,18 @@ export NODE_ENV=production
 # Verify we're in the correct directory
 if [ ! -f "package.json" ]; then
     echo "❌ Error: package.json not found. Current directory: $(pwd)"
+    echo "📁 Current directory contents:"
     ls -la
+    echo "📁 Parent directory contents:"
+    ls -la ../
+    echo "📁 Root directory contents:"
+    ls -la /
     exit 1
 fi
 
 echo "📁 Working directory: $(pwd)"
 echo "📦 Package.json found: $(cat package.json | grep '"name"' | head -1)"
+echo "📦 Package.json path: $(realpath package.json)"
 
 # Verify node_modules exists
 if [ ! -d "node_modules" ]; then

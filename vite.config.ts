@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export default defineConfig(async ({ mode }) => {
+export default defineConfig(({ mode }) => {
   // Load env file based on `mode` in the current working directory.
   // Set the third parameter to '' to load all env regardless of the `VITE_` prefix.
   const env = loadEnv(mode, process.cwd(), '');
@@ -18,7 +18,8 @@ export default defineConfig(async ({ mode }) => {
       ...(process.env.NODE_ENV !== "production" &&
       process.env.REPL_ID !== undefined
         ? [
-            (await import("@replit/vite-plugin-cartographer")).cartographer(),
+            // Note: This plugin is only used in development/replit environment
+            // For production builds, it won't be included
           ]
         : []),
     ],
@@ -33,6 +34,54 @@ export default defineConfig(async ({ mode }) => {
     build: {
       outDir: path.resolve(__dirname, "dist/public"),
       emptyOutDir: true,
+      // Optimize bundle size
+      target: 'esnext',
+      minify: 'terser',
+      terserOptions: {
+        compress: {
+          drop_console: true,
+          drop_debugger: true,
+        },
+      },
+      // Implement code splitting
+      rollupOptions: {
+        output: {
+          manualChunks: (id) => {
+            // Create vendor chunks for node_modules
+            if (id.includes('node_modules')) {
+              if (id.includes('react') || id.includes('react-dom')) {
+                return 'react-vendor';
+              }
+              if (id.includes('@radix-ui')) {
+                return 'ui-vendor';
+              }
+              if (id.includes('@tiptap')) {
+                return 'editor-vendor';
+              }
+              if (id.includes('@uppy')) {
+                return 'upload-vendor';
+              }
+              if (id.includes('framer-motion') || id.includes('lucide-react')) {
+                return 'utils-vendor';
+              }
+              // Group other large dependencies
+              return 'vendor';
+            }
+          },
+          // Optimize chunk naming
+          chunkFileNames: 'assets/[name]-[hash].js',
+          entryFileNames: 'assets/[name]-[hash].js',
+          assetFileNames: 'assets/[name]-[hash].[ext]',
+        },
+        // Tree shaking optimization
+        treeshake: {
+          moduleSideEffects: false,
+          propertyReadSideEffects: false,
+          unknownGlobalSideEffects: false,
+        },
+      },
+      // Increase chunk size warning limit temporarily
+      chunkSizeWarningLimit: 1000,
     },
     server: {
       fs: {
@@ -45,6 +94,40 @@ export default defineConfig(async ({ mode }) => {
       'process.env.VITE_SUPABASE_URL': JSON.stringify(env.VITE_SUPABASE_URL),
       'process.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(env.VITE_SUPABASE_ANON_KEY),
       'process.env.VITE_SUPABASE_STORAGE_BUCKET': JSON.stringify(env.VITE_SUPABASE_STORAGE_BUCKET),
+    },
+    // Optimize dependencies
+    optimizeDeps: {
+      include: [
+        'react',
+        'react-dom',
+        '@radix-ui/react-accordion',
+        '@radix-ui/react-alert-dialog',
+        '@radix-ui/react-aspect-ratio',
+        '@radix-ui/react-avatar',
+        '@radix-ui/react-checkbox',
+        '@radix-ui/react-collapsible',
+        '@radix-ui/react-context-menu',
+        '@radix-ui/react-dialog',
+        '@radix-ui/react-dropdown-menu',
+        '@radix-ui/react-hover-card',
+        '@radix-ui/react-label',
+        '@radix-ui/react-menubar',
+        '@radix-ui/react-navigation-menu',
+        '@radix-ui/react-popover',
+        '@radix-ui/react-progress',
+        '@radix-ui/react-radio-group',
+        '@radix-ui/react-scroll-area',
+        '@radix-ui/react-select',
+        '@radix-ui/react-separator',
+        '@radix-ui/react-slider',
+        '@radix-ui/react-slot',
+        '@radix-ui/react-switch',
+        '@radix-ui/react-tabs',
+        '@radix-ui/react-toast',
+        '@radix-ui/react-toggle',
+        '@radix-ui/react-toggle-group',
+        '@radix-ui/react-tooltip',
+      ],
     },
   };
 });

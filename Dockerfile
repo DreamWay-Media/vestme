@@ -7,6 +7,12 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
+# Verify package.json was copied
+RUN echo "📦 Package files copied:" && \
+    ls -la package*.json && \
+    echo "📦 Package.json contents (name and version):" && \
+    cat package.json | grep -E '"name"|"version"' | head -2
+
 # Install ALL dependencies (including dev dependencies needed for build)
 RUN npm ci && npm cache clean --force
 
@@ -21,6 +27,10 @@ RUN chmod +x scripts/docker-build.sh && \
 RUN ls -la scripts/ && \
     echo "Script contents:" && \
     head -5 scripts/docker-build.sh
+
+# Check script syntax
+RUN sh -n scripts/docker-build.sh && \
+    echo "✅ Script syntax check passed"
 
 # Set production environment for build
 ENV NODE_ENV=production
@@ -46,11 +56,18 @@ WORKDIR /app
 COPY --from=builder --chown=nextjs:nodejs /app/dist ./dist
 COPY --from=builder --chown=nextjs:nodejs /app/package*.json ./
 
+# Verify package.json was copied to production stage
+RUN echo "📦 Production stage package files:" && \
+    ls -la package*.json && \
+    echo "📦 Package.json contents (name and version):" && \
+    cat package.json | grep -E '"name"|"version"' | head -2
+
 # Install only production dependencies
 RUN npm ci --only=production && npm cache clean --force
 
-# Copy environment file template
-COPY --from=builder --chown=nextjs:nodejs /app/.env.example ./.env.example
+# Debug: List files in builder stage
+RUN echo "📁 Files in builder stage:" && \
+    ls -la /app/ | head -20
 
 # Switch to non-root user
 USER nextjs
