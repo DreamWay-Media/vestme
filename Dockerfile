@@ -4,13 +4,10 @@ FROM node:20-alpine AS builder
 # Set working directory
 WORKDIR /app
 
-# Set production environment
-ENV NODE_ENV=production
-
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
+# Install ALL dependencies (including dev dependencies needed for build)
 RUN npm ci && npm cache clean --force
 
 # Copy source code
@@ -25,9 +22,12 @@ RUN ls -la scripts/ && \
     echo "Script contents:" && \
     head -5 scripts/docker-build.sh
 
+# Set production environment for build
+ENV NODE_ENV=production
+
 # Build the application with production environment variables
-# Try the docker build script first, fallback to direct build if it fails
-RUN npm run build:docker || npm run build
+# Use absolute path to ensure script is found, with robust fallback
+RUN /bin/sh scripts/docker-build.sh || (echo "Script failed, trying direct build..." && npm run build)
 
 # Production stage
 FROM node:20-alpine AS production

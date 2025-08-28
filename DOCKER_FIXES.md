@@ -110,6 +110,14 @@ npm audit
 - **Added**: Script verification and debugging steps in Dockerfile
 - **Added**: Fallback build method (`npm run build:docker || npm run build`)
 
+### Additional Fixes Applied
+
+- **Issue**: `NODE_ENV=production` was set too early, interfering with build process
+- **Fix**: Moved `NODE_ENV=production` to just before the build step
+- **Issue**: Script path resolution problems in Docker container
+- **Fix**: Used absolute path `/bin/sh scripts/docker-build.sh` and enhanced script with absolute path handling
+- **Added**: Robust fallback that directly runs build commands if script fails
+
 ### Enhanced Build Script
 
 - **Improved**: `scripts/docker-build.sh` with better error handling and verification

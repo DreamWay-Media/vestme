@@ -5,8 +5,15 @@ set -e
 
 echo "🚀 Starting Docker build..."
 
-# Ensure we're in the right directory
-cd "$(dirname "$0")/.."
+# Get the absolute path to the script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+echo "📁 Script directory: $SCRIPT_DIR"
+echo "📁 Project root: $PROJECT_ROOT"
+
+# Change to project root
+cd "$PROJECT_ROOT"
 
 # Set production mode
 export NODE_ENV=production
@@ -14,11 +21,18 @@ export NODE_ENV=production
 # Verify we're in the correct directory
 if [ ! -f "package.json" ]; then
     echo "❌ Error: package.json not found. Current directory: $(pwd)"
+    ls -la
     exit 1
 fi
 
 echo "📁 Working directory: $(pwd)"
 echo "📦 Package.json found: $(cat package.json | grep '"name"' | head -1)"
+
+# Verify node_modules exists
+if [ ! -d "node_modules" ]; then
+    echo "❌ Error: node_modules not found. Installing dependencies..."
+    npm install
+fi
 
 # Build the application
 echo "📦 Building application..."
@@ -27,6 +41,8 @@ npm run build
 # Verify build output
 if [ ! -f "dist/index.js" ]; then
     echo "❌ Error: Build failed - dist/index.js not found"
+    echo "📁 Contents of dist/:"
+    ls -la dist/ || echo "dist/ directory not found"
     exit 1
 fi
 
