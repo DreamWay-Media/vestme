@@ -120,7 +120,8 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
-migrations/*.sql
+# Keep migration files but ignore generated ones
+# migrations/*.sql
 
 # Temporary files
 *.tmp

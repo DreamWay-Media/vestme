@@ -74,10 +74,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/dist ./dist
 COPY --from=builder --chown=nextjs:nodejs /app/package*.json ./
 
 # Copy additional necessary files that might be needed at runtime
-COPY --from=builder --chown=nextjs:nodejs /app/shared ./shared
-COPY --from=builder --chown=nextjs:nodejs /app/migrations ./migrations
-COPY --from=builder --chown=nextjs:nodejs /app/drizzle.config.ts ./drizzle.config.ts
-COPY --from=builder --chown=nextjs:nodejs /app/tsconfig.json ./tsconfig.json
+COPY --from=builder --chown=nextjs:nodejs /app/dist/shared ./shared
+COPY --from=builder --chown=nextjs:nodejs /app/dist/migrations ./migrations
+COPY --from=builder --chown=nextjs:nodejs /app/dist/drizzle.config.ts ./drizzle.config.ts
+COPY --from=builder --chown=nextjs:nodejs /app/dist/tsconfig.json ./tsconfig.json
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/startup.sh ./scripts/startup.sh
 
 # Verify package.json was copied to production stage
@@ -119,7 +119,7 @@ RUN echo "🧪 Testing application startup..." && \
     echo "📦 Testing critical dependencies..." && \
     node -e "try { require('express'); console.log('✅ Express loaded'); require('@supabase/supabase-js'); console.log('✅ Supabase loaded'); require('puppeteer'); console.log('✅ Puppeteer loaded'); } catch(e) { console.log('❌ Dependency loading failed:', e.message); process.exit(1); }" && \
     echo "📦 Testing file structure..." && \
-    node -e "const fs = require('fs'); const requiredDirs = ['dist', 'shared', 'migrations', 'node_modules']; const missing = requiredDirs.filter(dir => !fs.existsSync(dir)); if (missing.length > 0) { console.log('❌ Missing directories:', missing); process.exit(1); } else { console.log('✅ All required directories exist'); }" && \
+    node -e "const fs = require('fs'); const requiredDirs = ['shared', 'migrations', 'node_modules']; const missing = requiredDirs.filter(dir => !fs.existsSync(dir)); if (missing.length > 0) { console.log('❌ Missing directories:', missing); process.exit(1); } else { console.log('✅ All required directories exist'); }" && \
     echo "✅ All startup tests passed!"
 
 # Final verification: Test that the application can start without crashing
