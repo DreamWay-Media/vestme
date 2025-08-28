@@ -36,39 +36,14 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: true,
       // Optimize bundle size
       target: 'esnext',
-      minify: 'terser',
-      terserOptions: {
-        compress: {
-          drop_console: true,
-          drop_debugger: true,
-        },
+      minify: 'esbuild',
+      esbuild: {
+        drop: ['console', 'debugger'],
       },
       // Implement code splitting
       rollupOptions: {
         output: {
-          manualChunks: (id) => {
-            // Create vendor chunks for node_modules
-            if (id.includes('node_modules')) {
-              if (id.includes('react') || id.includes('react-dom')) {
-                return 'react-vendor';
-              }
-              if (id.includes('@radix-ui')) {
-                return 'ui-vendor';
-              }
-              if (id.includes('@tiptap')) {
-                return 'editor-vendor';
-              }
-              if (id.includes('@uppy')) {
-                return 'upload-vendor';
-              }
-              if (id.includes('framer-motion') || id.includes('lucide-react')) {
-                return 'utils-vendor';
-              }
-              // Group other large dependencies
-              return 'vendor';
-            }
-          },
-          // Optimize chunk naming
+          // Use default chunking strategy to avoid empty chunks
           chunkFileNames: 'assets/[name]-[hash].js',
           entryFileNames: 'assets/[name]-[hash].js',
           assetFileNames: 'assets/[name]-[hash].[ext]',
@@ -127,6 +102,12 @@ export default defineConfig(({ mode }) => {
         '@radix-ui/react-toggle',
         '@radix-ui/react-toggle-group',
         '@radix-ui/react-tooltip',
+      ],
+      exclude: [
+        // Exclude packages that might cause deprecation warnings
+        'puppeteer',
+        'jsdom',
+        'html-pdf-node',
       ],
     },
   };

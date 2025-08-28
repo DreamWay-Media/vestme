@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
-    "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "build": "vite build && esbuild server/index.ts --platform=node --external:./node_modules/* --bundle --format=esm --outdir=dist --minify --target=node20",
     "build:prod": "./scripts/build-prod.sh",
     "build:docker": "./scripts/docker-build.sh",
     "test:build": "./scripts/test-build.sh",
@@ -80,6 +80,7 @@
     "drizzle-orm": "^0.39.1",
     "drizzle-zod": "^0.7.0",
     "embla-carousel-react": "^8.6.0",
+    "esbuild": "^0.25.9",
     "express": "^4.21.2",
     "express-session": "^1.18.1",
     "framer-motion": "^11.13.1",
@@ -108,8 +109,10 @@
     "recharts": "^2.15.2",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
+    "terser": "^5.43.1",
     "tw-animate-css": "^1.2.5",
     "vaul": "^1.1.2",
+    "vite": "^5.4.19",
     "wouter": "^3.3.5",
     "ws": "^8.18.0",
     "zod": "^3.24.2",
@@ -132,13 +135,10 @@
     "@vitejs/plugin-react": "^4.3.2",
     "autoprefixer": "^10.4.20",
     "drizzle-kit": "^0.30.6",
-    "esbuild": "^0.25.9",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.17",
-    "terser": "^5.43.1",
     "tsx": "^4.20.4",
-    "typescript": "^5.6.3",
-    "vite": "^5.4.19"
+    "typescript": "^5.6.3"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8"
