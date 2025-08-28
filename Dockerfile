@@ -16,8 +16,18 @@ RUN npm ci && npm cache clean --force
 # Copy source code
 COPY . .
 
+# Ensure build script is executable and has correct line endings
+RUN chmod +x scripts/docker-build.sh && \
+    sed -i 's/\r$//' scripts/docker-build.sh
+
+# Verify the script exists and is executable
+RUN ls -la scripts/ && \
+    echo "Script contents:" && \
+    head -5 scripts/docker-build.sh
+
 # Build the application with production environment variables
-RUN npm run build:prod
+# Try the docker build script first, fallback to direct build if it fails
+RUN npm run build:docker || npm run build
 
 # Production stage
 FROM node:20-alpine AS production
