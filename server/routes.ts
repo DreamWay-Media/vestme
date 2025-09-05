@@ -1611,19 +1611,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { text, context } = req.body;
       const userId = req.user.id;
       
+      console.log('=== AI IMPROVE TEXT REQUEST ===');
+      console.log('Project ID:', projectId);
+      console.log('Text:', text);
+      console.log('Context:', context);
+      console.log('User ID:', userId);
+      
       // Verify project belongs to user
       const project = await storage.getProject(projectId);
       if (!project || project.userId !== userId) {
+        console.log('Project not found or unauthorized');
         return res.status(404).json({ message: "Project not found" });
       }
       
+      console.log('Project found:', project.id);
+      console.log('Business profile exists:', !!project.businessProfile);
+      
       const { improveSlideText } = await import('./services/openai');
-      const improvedText = await improveSlideText({
+      const result = await improveSlideText({
         text,
         context,
         businessProfile: project.businessProfile
       });
-      res.json({ improvedText });
+      
+      console.log('AI improvement result:', result);
+      console.log('Result type:', typeof result);
+      console.log('Result keys:', Object.keys(result));
+      
+      // Ensure we return the result in the expected format
+      res.json({ improvedText: result.improvedText });
     } catch (error) {
       console.error("Error improving text with AI:", error);
       res.status(500).json({ message: "Failed to improve text" });

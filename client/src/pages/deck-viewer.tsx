@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { cn } from "@/lib/utils";
-import { ChevronLeft, ChevronRight, Trash2, Edit3, Save, X, Eye } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2, Edit3, Save, X, Eye, Sparkles } from "lucide-react";
 import { SlideRenderer } from "@/components/SlideRenderer";
 
 interface DeckViewerProps {
@@ -263,6 +263,307 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     },
   });
 
+  // AI Improvement mutations
+  const improveTitleMutation = useMutation({
+    mutationFn: async ({ title, index, isMainTitle }: { title: string; index: number; isMainTitle?: boolean }) => {
+      if (!deck?.projectId) throw new Error('Project ID not found');
+      const response = await apiRequest("POST", `/api/projects/${deck.projectId}/ai-improve-text`, {
+        text: title,
+        context: "slide title"
+      });
+      return await response.json();
+    },
+    onSuccess: (data: any, variables) => {
+      console.log('=== AI TITLE IMPROVEMENT SUCCESS ===');
+      console.log('Response data:', data);
+      console.log('Variables:', variables);
+      console.log('Editing slide before update:', editingSlide);
+      
+      if (data.improvedText && editingSlide) {
+        // Remove quotes from the improved text
+        const cleanedText = data.improvedText.replace(/^"(.*)"$/, '$1');
+        
+        console.log('Original improved text:', data.improvedText);
+        console.log('Cleaned text:', cleanedText);
+        console.log('Is main title:', variables.isMainTitle);
+        
+        if (variables.isMainTitle) {
+          // Update the main title field
+          updateEditingSlide('title', cleanedText);
+          console.log('Updated main title field');
+        } else {
+          // Update the specific title in the titles array
+          const titles = editingSlide.content?.titles || [];
+          const newTitles = [...titles];
+          newTitles[variables.index] = cleanedText;
+          
+          console.log('Original titles:', titles);
+          console.log('New titles:', newTitles);
+          console.log('Updated title at index', variables.index, ':', cleanedText);
+          
+          // Update the content.titles array
+          updateEditingSlide('content', {
+            ...editingSlide.content,
+            titles: newTitles
+          });
+          
+          // Also update the main title field to ensure display consistency
+          updateEditingSlide('title', cleanedText);
+        }
+        
+        console.log('Called updateEditingSlide with new titles and main title');
+        
+        // Force a re-render by updating the editing slide state directly
+        setTimeout(() => {
+          console.log('Force updating editing slide after AI improvement');
+          setEditingSlide(prev => {
+            if (prev) {
+              let updated;
+              if (variables.isMainTitle) {
+                updated = {
+                  ...prev,
+                  title: cleanedText
+                };
+              } else {
+                const titles = prev.content?.titles || [];
+                const newTitles = [...titles];
+                newTitles[variables.index] = cleanedText;
+                updated = {
+                  ...prev,
+                  title: cleanedText,
+                  content: {
+                    ...prev.content,
+                    titles: newTitles
+                  }
+                };
+              }
+              console.log('Force updated slide:', updated);
+              return updated;
+            }
+            return prev;
+          });
+        }, 100);
+        
+        toast({
+          title: "Title Improved",
+          description: "AI has enhanced your title to be more compelling.",
+        });
+      } else {
+        console.log('No improvedText in response or no editingSlide');
+        console.log('data.improvedText:', data.improvedText);
+        console.log('editingSlide exists:', !!editingSlide);
+      }
+    },
+    onError: (error) => {
+      console.log('=== AI TITLE IMPROVEMENT ERROR ===');
+      console.log('Error:', error);
+      console.log('Error type:', typeof error);
+      console.log('Error message:', error?.message);
+      console.log('Error response:', (error as any)?.response);
+      
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Improvement Failed",
+        description: "Failed to improve title. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const improveDescriptionMutation = useMutation({
+    mutationFn: async ({ description, index }: { description: string; index: number }) => {
+      if (!deck?.projectId) throw new Error('Project ID not found');
+      const response = await apiRequest("POST", `/api/projects/${deck.projectId}/ai-improve-text`, {
+        text: description,
+        context: "slide description"
+      });
+      return await response.json();
+    },
+    onSuccess: (data: any, variables) => {
+      if (data.improvedText && editingSlide) {
+        // Remove quotes from the improved text
+        const cleanedText = data.improvedText.replace(/^"(.*)"$/, '$1');
+        
+        // Update the specific description in the descriptions array
+        const descriptions = editingSlide.content?.descriptions || [];
+        const newDescriptions = [...descriptions];
+        newDescriptions[variables.index] = cleanedText;
+        
+        updateEditingSlide('content', {
+          ...editingSlide.content,
+          descriptions: newDescriptions
+        });
+        
+        // Also update the main description field if it exists
+        if (editingSlide.content?.description) {
+          updateEditingSlide('content', {
+            ...editingSlide.content,
+            description: cleanedText
+          });
+        }
+        
+        toast({
+          title: "Description Improved",
+          description: "AI has enhanced your description to be more compelling.",
+        });
+      }
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Improvement Failed",
+        description: "Failed to improve description. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const improveBulletMutation = useMutation({
+    mutationFn: async ({ bullet, index }: { bullet: string; index: number }) => {
+      if (!deck?.projectId) throw new Error('Project ID not found');
+      const response = await apiRequest("POST", `/api/projects/${deck.projectId}/ai-improve-text`, {
+        text: bullet,
+        context: "bullet point"
+      });
+      return await response.json();
+    },
+    onSuccess: (data: any, variables) => {
+      if (data.improvedText && editingSlide) {
+        // Remove quotes from the improved text
+        const cleanedText = data.improvedText.replace(/^"(.*)"$/, '$1');
+        
+        // Update the specific bullet point
+        const bullets = editingSlide.content?.bullets || [];
+        const newBullets = [...bullets];
+        newBullets[variables.index] = cleanedText;
+        
+        updateEditingSlide('content', {
+          ...editingSlide.content,
+          bullets: newBullets
+        });
+        
+        toast({
+          title: "Bullet Point Improved",
+          description: "AI has enhanced your bullet point to be more compelling.",
+        });
+      }
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Improvement Failed",
+        description: "Failed to improve bullet point. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Helper functions for AI improvement
+  const handleImproveTitle = (titleIndex: number = 0) => {
+    console.log('=== AI TITLE IMPROVEMENT DEBUG ===');
+    console.log('Title index:', titleIndex);
+    console.log('Editing slide:', editingSlide);
+    console.log('Editing slide content:', editingSlide?.content);
+    console.log('Titles array:', editingSlide?.content?.titles);
+    console.log('Main title field:', editingSlide?.title);
+    
+    // Check both the titles array and the main title field
+    const titles = editingSlide?.content?.titles || [];
+    let title = titles[titleIndex];
+    let isMainTitle = false;
+    
+    // If no title in the array, try the main title field
+    if (!title?.trim() && editingSlide?.title) {
+      title = editingSlide.title;
+      isMainTitle = true;
+      console.log('Using main title field:', title);
+    }
+    
+    console.log('Selected title:', title);
+    console.log('Is main title:', isMainTitle);
+    console.log('Project ID:', deck?.projectId);
+    
+    if (!title?.trim()) {
+      toast({
+        title: "No Title",
+        description: "Please add a title first before improving it.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    console.log('Calling mutation with:', { title, index: titleIndex, isMainTitle });
+    improveTitleMutation.mutate({ title, index: titleIndex, isMainTitle });
+  };
+
+  const handleImproveDescription = (descriptionIndex: number = 0) => {
+    // Check both the descriptions array and the main description field
+    const descriptions = editingSlide?.content?.descriptions || [];
+    let description = descriptions[descriptionIndex];
+    
+    // If no description in the array, try the main description field
+    if (!description?.trim() && editingSlide?.content?.description) {
+      description = editingSlide.content.description;
+    }
+    
+    if (!description?.trim()) {
+      toast({
+        title: "No Description",
+        description: "Please add a description first before improving it.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    improveDescriptionMutation.mutate({ description, index: descriptionIndex });
+  };
+
+  const handleImproveBullet = (bulletIndex: number) => {
+    const bullets = editingSlide?.content?.bullets || [];
+    const bullet = bullets[bulletIndex];
+    
+    if (!bullet?.trim()) {
+      toast({
+        title: "No Bullet Point",
+        description: "Please add a bullet point first before improving it.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    improveBulletMutation.mutate({ bullet, index: bulletIndex });
+  };
+
   useEffect(() => {
     if (error && isUnauthorizedError(error)) {
       toast({
@@ -500,6 +801,15 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
         console.log('Updated slide positionedElements:', updated.positionedElements);
         console.log('State will be updated to:', updated);
       }
+      
+      // Debug: Log title updates specifically
+      if (field === 'title' || (field === 'content' && value.titles)) {
+        console.log('=== TITLE UPDATE DEBUG ===');
+        console.log('Field updated:', field);
+        console.log('New value:', value);
+        console.log('Updated slide title:', updated.title);
+        console.log('Updated slide content.titles:', updated.content?.titles);
+      }
     }
   };
 
@@ -712,12 +1022,98 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                   });
                   // Also clear the old title field
                   updateEditingSlide('title', '');
-                  return null; // Don't render anything while converting
+                  // Return the converted title for immediate display
+                  return (
+                    <div key={`title-${editingSlide.title}-${Date.now()}`} className="flex items-center space-x-2">
+                      <input
+                        type="text"
+                        value={editingSlide.title}
+                        onChange={(e) => {
+                          updateEditingSlide('content', {
+                            ...editingSlide?.content,
+                            titles: [e.target.value]
+                          });
+                        }}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg font-semibold"
+                        placeholder="Title 1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          console.log('=== AI BUTTON CLICKED (OLD FORMAT) ===');
+                          console.log('Button clicked for index: 0');
+                          console.log('Current editingSlide:', editingSlide);
+                          handleImproveTitle(0);
+                        }}
+                        disabled={improveTitleMutation.isPending}
+                        className="px-2 py-1 text-xs"
+                        title="Improve with AI"
+                      >
+                        <Sparkles className="h-3 w-3 mr-1" />
+                        {improveTitleMutation.isPending ? '...' : 'AI'}
+                      </Button>
+                      <button
+                        onClick={() => {
+                          updateEditingSlide('content', {
+                            ...editingSlide?.content,
+                            titles: []
+                          });
+                        }}
+                        className="p-2 text-red-500 hover:text-red-700"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  );
                 }
                 
-                // Show multiple titles
+                // Show multiple titles - if no titles exist, show the main title field
+                if (titles.length === 0 && editingSlide?.title) {
+                  return (
+                    <div key={`title-main-${editingSlide.title}-${Date.now()}`} className="flex items-center space-x-2">
+                      <input
+                        type="text"
+                        value={editingSlide.title}
+                        onChange={(e) => {
+                          updateEditingSlide('title', e.target.value);
+                        }}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg font-semibold"
+                        placeholder="Title"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          console.log('=== AI BUTTON CLICKED (MAIN TITLE) ===');
+                          console.log('Button clicked for main title');
+                          console.log('Current editingSlide:', editingSlide);
+                          handleImproveTitle(0);
+                        }}
+                        disabled={improveTitleMutation.isPending}
+                        className="px-2 py-1 text-xs"
+                        title="Improve with AI"
+                      >
+                        <Sparkles className="h-3 w-3 mr-1" />
+                        {improveTitleMutation.isPending ? '...' : 'AI'}
+                      </Button>
+                      <button
+                        onClick={() => {
+                          updateEditingSlide('title', '');
+                        }}
+                        className="p-2 text-red-500 hover:text-red-700"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  );
+                }
+                
+                // Show multiple titles from the titles array
                 return titles.map((title: string, index: number) => (
-                  <div key={index} className="flex items-center space-x-2">
+                  <div key={`title-${index}-${title}-${Date.now()}`} className="flex items-center space-x-2">
                     <input
                       type="text"
                       value={title}
@@ -732,6 +1128,23 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg font-semibold"
                       placeholder={`Title ${index + 1}`}
                     />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        console.log('=== AI BUTTON CLICKED ===');
+                        console.log('Button clicked for index:', index);
+                        console.log('Current editingSlide:', editingSlide);
+                        handleImproveTitle(index);
+                      }}
+                      disabled={improveTitleMutation.isPending}
+                      className="px-2 py-1 text-xs"
+                      title="Improve with AI"
+                    >
+                      <Sparkles className="h-3 w-3 mr-1" />
+                      {improveTitleMutation.isPending ? '...' : 'AI'}
+                    </Button>
                     <button
                       onClick={() => {
                         const newTitles = titles.filter((_: string, i: number) => i !== index);
@@ -818,6 +1231,18 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                       placeholder={`Description ${index + 1}`}
                       rows={2}
                     />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleImproveDescription(index)}
+                      disabled={improveDescriptionMutation.isPending}
+                      className="px-2 py-1 text-xs"
+                      title="Improve with AI"
+                    >
+                      <Sparkles className="h-3 w-3 mr-1" />
+                      {improveDescriptionMutation.isPending ? '...' : 'AI'}
+                    </Button>
                     <button
                       onClick={() => {
                         const newDescriptions = descriptions.filter((_: string, i: number) => i !== index);
@@ -1063,6 +1488,18 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder={`Bullet point ${index + 1}`}
                   />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleImproveBullet(index)}
+                    disabled={improveBulletMutation.isPending}
+                    className="px-2 py-1 text-xs"
+                    title="Improve with AI"
+                  >
+                    <Sparkles className="h-3 w-3 mr-1" />
+                    {improveBulletMutation.isPending ? '...' : 'AI'}
+                  </Button>
                   <button
                     onClick={() => {
                       const newBullets = editingSlide?.content?.bullets?.filter((_: string, i: number) => i !== index) || [];
