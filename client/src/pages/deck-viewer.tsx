@@ -44,6 +44,7 @@ interface Slide {
     description?: { x: number; y: number; width?: number; height?: number };
     bullets?: { x: number; y: number; width?: number; height?: number };
     logo?: { x: number; y: number; width?: number; height?: number };
+    [key: string]: { x: number; y: number; width?: number; height?: number } | undefined;
   };
 }
 
@@ -104,7 +105,8 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
         title: slide.title,
         hasPositioning: !!slide.positionedElements,
         positionedElements: slide.positionedElements,
-        positionedElementsKeys: slide.positionedElements ? Object.keys(slide.positionedElements) : []
+        positionedElementsKeys: slide.positionedElements ? Object.keys(slide.positionedElements) : [],
+        logos: slide.content?.logos
       })));
     }
   }, [deck]);
@@ -130,6 +132,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
       console.log('Data returned from server:', data);
       console.log('Current editing slide data:', editingSlide);
       console.log('Positioned elements that were saved:', editingSlide?.positionedElements);
+      console.log('Logos that were saved:', editingSlide?.content?.logos);
       
       console.log('Invalidating queries for slide update...');
       queryClient.invalidateQueries({ queryKey: [`/api/decks/${deckId}`] });
@@ -307,6 +310,56 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
         return;
       }
       toast({ title: "Upload Failed", description: "Could not upload image.", variant: "destructive" });
+    }
+  });
+
+  // Upload logo image
+  const uploadLogoMutation = useMutation({
+    mutationFn: async (file: File) => {
+      // 1) Get signed upload URL
+      const res = await apiRequest("POST", "/api/objects/upload");
+      const { uploadURL, publicPath, publicUrl } = await (res as any).json();
+
+      // 2) Upload file to signed URL
+      await fetch(uploadURL, {
+        method: "PUT",
+        headers: {
+          "Content-Type": file.type || "application/octet-stream",
+        },
+        body: file,
+      });
+
+      // 3) Return both server-served path and CDN/public URL
+      return { objectPath: `/objects/${publicPath}`, publicUrl };
+    },
+    onSuccess: (data) => {
+      if (!editingSlide) return;
+      
+      // Add the new logo to the logos array
+      const currentLogos = editingSlide.content?.logos || [];
+      const newLogos = [...currentLogos, data.publicUrl || data.objectPath];
+      
+      updateEditingSlide('content', {
+        ...editingSlide.content,
+        logos: newLogos
+      });
+      
+      toast({ 
+        title: "Logo Uploaded", 
+        description: "Logo has been uploaded and added to the slide. You can now drag it to position it." 
+      });
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => { window.location.href = "/"; }, 500);
+        return;
+      }
+      toast({ title: "Upload Failed", description: "Could not upload logo.", variant: "destructive" });
     }
   });
 
@@ -947,6 +1000,8 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
         textColor: syncedSlide.textColor,
         positionedElements: syncedSlide.positionedElements
       });
+      console.log('Positioned elements being saved:', syncedSlide.positionedElements);
+      console.log('Logos in content:', syncedSlide.content?.logos);
       console.log('Full updatesToSend object:', updatesToSend);
       
       updateSlideMutation.mutate(updatesToSend);
@@ -1201,6 +1256,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     console.log('Current slide:', currentSlideData);
     console.log('Current slide positionedElements:', currentSlideData.positionedElements);
     console.log('Current slide positionedElements keys:', currentSlideData.positionedElements ? Object.keys(currentSlideData.positionedElements) : []);
+    console.log('Current slide logos:', currentSlideData.content?.logos);
   }
 
     // Render editable slide content when in editing mode
@@ -1759,19 +1815,38 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                       No logos yet. Click the button below to add your first one.
                     </div>
                   )}
-                  <button
-                    onClick={() => {
-                      const currentLogos = editingSlide?.content?.logos || [];
-                      const newLogos = [...currentLogos, 'https://example.com/logo.png'];
-                      updateEditingSlide('content', {
-                        ...editingSlide?.content,
-                        logos: newLogos
-                      });
-                    }}
-                    className="w-full px-3 py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors"
-                  >
-                    + Add Logo
-                  </button>
+                  <div className="flex gap-2">
+                    <label className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm cursor-pointer hover:bg-gray-50 text-center">
+                      Upload Logo
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) uploadLogoMutation.mutate(file);
+                        }}
+                      />
+                    </label>
+                    <button
+                      onClick={() => {
+                        const currentLogos = editingSlide?.content?.logos || [];
+                        const newLogos = [...currentLogos, 'https://example.com/logo.png'];
+                        updateEditingSlide('content', {
+                          ...editingSlide?.content,
+                          logos: newLogos
+                        });
+                      }}
+                      className="flex-1 px-3 py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors"
+                    >
+                      + Add URL
+                    </button>
+                  </div>
+                  {uploadLogoMutation.isPending && (
+                    <div className="text-xs text-gray-500 text-center py-1">
+                      Uploading logo...
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1881,27 +1956,32 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
       >
         {/* Logo - positioned absolutely (top right for non-title slides) */}
         {slide.content?.logos && slide.content.logos.length > 0 && slide.type !== 'title' && (
-          <div 
-            className="absolute cursor-move group"
-            style={{
-              left: positionedElements.logo?.x || 16,
-              top: positionedElements.logo?.y || 16,
-              zIndex: 20
-            }}
-            onMouseDown={(e) => handleMouseDown(e, 'logo')}
-          >
-            <div className="space-y-2">
-              {/* Show multiple logos from content.logos array */}
-              {slide.content.logos.map((logoUrl: string, index: number) => (
-                <img 
+          <div className="space-y-2">
+            {/* Show multiple logos from content.logos array with individual positioning */}
+            {slide.content.logos.map((logoUrl: string, index: number) => {
+              const logoKey = `logo-${index}`;
+              const logoPosition = positionedElements[logoKey as keyof typeof positionedElements];
+              
+              return (
+                <div 
                   key={index}
-                  src={logoUrl} 
-                  alt={`Company Logo ${index + 1}`} 
-                  className="h-10 w-auto object-contain opacity-95" 
-                  onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                />
-              ))}
-            </div>
+                  className="absolute cursor-move group"
+                  style={{
+                    left: logoPosition?.x || (index === 0 ? 16 : 16 + (index * 120)),
+                    top: logoPosition?.y || (index === 0 ? 16 : 16),
+                    zIndex: 20
+                  }}
+                  onMouseDown={(e) => handleMouseDown(e, logoKey)}
+                >
+                  <img 
+                    src={logoUrl} 
+                    alt={`Company Logo ${index + 1}`} 
+                    className="h-10 w-auto object-contain opacity-95" 
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                  />
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -1909,27 +1989,32 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
         <div className="p-6">
           {/* Centered logo for title slides */}
           {slide.content?.logos && slide.content.logos.length > 0 && slide.type === 'title' && (
-            <div 
-              className="text-center mb-6 cursor-move group relative"
-              style={{
-                left: positionedElements.logo?.x || 'auto',
-                top: positionedElements.logo?.y || 'auto',
-                position: positionedElements.logo ? 'absolute' : 'static'
-              }}
-              onMouseDown={(e) => handleMouseDown(e, 'logo')}
-            >
-              <div className="space-y-2">
-                {/* Show multiple logos from content.logos array */}
-                {slide.content.logos.map((logoUrl: string, index: number) => (
-                  <img 
+            <div className="space-y-2 mb-6">
+              {/* Show multiple logos from content.logos array with individual positioning */}
+              {slide.content.logos.map((logoUrl: string, index: number) => {
+                const logoKey = `logo-${index}`;
+                const logoPosition = positionedElements[logoKey as keyof typeof positionedElements];
+                
+                return (
+                  <div 
                     key={index}
-                    src={logoUrl} 
-                    alt={`Company Logo ${index + 1}`} 
-                    className="h-16 w-auto object-contain opacity-95 mx-auto" 
-                    onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                  />
-                ))}
-              </div>
+                    className="text-center cursor-move group relative"
+                    style={{
+                      left: logoPosition?.x || 'auto',
+                      top: logoPosition?.y || 'auto',
+                      position: logoPosition ? 'absolute' : 'static'
+                    }}
+                    onMouseDown={(e) => handleMouseDown(e, logoKey)}
+                  >
+                    <img 
+                      src={logoUrl} 
+                      alt={`Company Logo ${index + 1}`} 
+                      className="h-16 w-auto object-contain opacity-95 mx-auto" 
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                    />
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -2124,6 +2209,13 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     console.log('=== FINAL SLIDE DATA FOR SLIDERENDERER ===');
     console.log('Slide data being passed to SlideRenderer:', slideToRender);
     console.log('Positioned elements in final data:', slideToRender.positionedElements);
+    console.log('Logos in final data:', slideToRender.content?.logos);
+    console.log('Positioned elements keys:', Object.keys(slideToRender.positionedElements));
+    console.log('Logo positioning data:', {
+      'logo-0': slideToRender.positionedElements['logo-0'],
+      'logo-1': slideToRender.positionedElements['logo-1'],
+      'logo-2': slideToRender.positionedElements['logo-2']
+    });
     
     return (
       <SlideRenderer slide={slideToRender} isCompact={false} />
