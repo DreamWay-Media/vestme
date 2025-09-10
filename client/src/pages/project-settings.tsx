@@ -7,12 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   Settings, 
   Trash2, 
-  Download, 
-  Archive,
   AlertTriangle
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
@@ -31,19 +29,21 @@ export default function ProjectSettings() {
   }) as { data: any | undefined, isLoading: boolean };
 
   // Initialize form values when project loads
-  useState(() => {
+  useEffect(() => {
     if (project) {
       setProjectName(project.name || "");
       setAutoArchive(project.autoArchive || false);
     }
-  });
+  }, [project]);
 
   const updateProjectMutation = useMutation({
     mutationFn: async (updates: any) => {
       return await apiRequest("PUT", `/api/projects/${projectId}`, updates);
     },
     onSuccess: () => {
+      // Invalidate all project-related queries to ensure consistency
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
       toast({
         title: "Settings Updated",
         description: "Your project settings have been saved successfully.",
@@ -85,12 +85,6 @@ export default function ProjectSettings() {
     });
   };
 
-  const handleExportProject = () => {
-    toast({
-      title: "Export Started",
-      description: "Your project data export has been started. You'll receive a download link shortly.",
-    });
-  };
 
   const handleDeleteProject = () => {
     if (confirm("Are you sure you want to delete this project? This action cannot be undone.")) {
@@ -205,33 +199,6 @@ export default function ProjectSettings() {
             </CardContent>
           </Card>
 
-          {/* Data Management */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Archive className="h-5 w-5" />
-                <span>Data Management</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between p-4 border rounded-lg">
-                <div>
-                  <h4 className="font-medium">Export Project Data</h4>
-                  <p className="text-sm text-gray-500">
-                    Download all project data including pitch deck, campaigns, and analytics
-                  </p>
-                </div>
-                <Button 
-                  variant="outline" 
-                  onClick={handleExportProject}
-                  data-testid="button-export-project"
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Export
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
 
           {/* Danger Zone */}
           <Card className="border-red-200">
