@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { cn } from "@/lib/utils";
-import { ChevronLeft, ChevronRight, Trash2, Edit3, Save, X, Eye, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2, Edit3, Save, X, Eye, Sparkles, Plus, GripVertical } from "lucide-react";
+import { WysiwygEditor } from "@/components/WysiwygEditor";
 import { SlideRenderer } from "@/components/SlideRenderer";
 
 interface DeckViewerProps {
@@ -66,6 +67,11 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
   const [draggedElement, setDraggedElement] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  
+  // Slide reordering state
+  const [draggedSlideId, setDraggedSlideId] = useState<string | null>(null);
+  const [isReordering, setIsReordering] = useState(false);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -262,6 +268,167 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
       });
     },
   });
+
+  // Upload background image
+  const uploadBackgroundImageMutation = useMutation({
+    mutationFn: async (file: File) => {
+      // 1) Get signed upload URL
+      const res = await apiRequest("POST", "/api/objects/upload");
+      const { uploadURL, publicPath, publicUrl } = await (res as any).json();
+
+      // 2) Upload file to signed URL
+      await fetch(uploadURL, {
+        method: "PUT",
+        headers: {
+          "Content-Type": file.type || "application/octet-stream",
+        },
+        body: file,
+      });
+
+      // 3) Return both server-served path and CDN/public URL
+      return { objectPath: `/objects/${publicPath}`, publicUrl };
+    },
+    onSuccess: (data) => {
+      if (!editingSlide) return;
+      updateEditingSlide('styling', {
+        ...editingSlide.styling,
+        backgroundImage: data.publicUrl || data.objectPath,
+      });
+      toast({ title: "Background Image Set", description: "Image uploaded and applied." });
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => { window.location.href = "/"; }, 500);
+        return;
+      }
+      toast({ title: "Upload Failed", description: "Could not upload image.", variant: "destructive" });
+    }
+  });
+
+  // Mutation for reordering slides
+  const reorderSlidesMutation = useMutation({
+    mutationFn: async (slideOrders: { slideId: string; order: number }[]) => {
+      return await apiRequest("PUT", `/api/decks/${deckId}/slides/reorder`, { slideOrders });
+    },
+    onSuccess: () => {
+      // Invalidate and refetch deck data
+      queryClient.invalidateQueries({ queryKey: [`/api/decks/${deckId}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", deck?.projectId, "decks"] });
+      
+      // Force refetch to ensure immediate updates
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: [`/api/decks/${deckId}`] });
+        if (deck?.projectId) {
+          queryClient.refetchQueries({ queryKey: ["/api/projects", deck.projectId, "decks"] });
+        }
+      }, 100);
+      
+      toast({
+        title: "Slides Reordered",
+        description: "Slide order has been updated successfully.",
+      });
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Reorder Failed",
+        description: "Failed to reorder slides. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mutation for creating a new blank slide
+  const createSlideMutation = useMutation({
+    mutationFn: async (newSlide: Partial<Slide>) => {
+      const res = await apiRequest("POST", `/api/decks/${deckId}/slides`, newSlide);
+      return res.json();
+    },
+    onSuccess: async (created: any) => {
+      // Refresh deck
+      await queryClient.invalidateQueries({ queryKey: [`/api/decks/${deckId}`] });
+      await queryClient.refetchQueries({ queryKey: [`/api/decks/${deckId}`] });
+      toast({ title: "Slide Added", description: "A new slide was created." });
+      // Navigate to the created slide if present
+      if (created?.order) {
+        setTimeout(() => {
+          const newIndex = (created.order - 1) >= 0 ? (created.order - 1) : 0;
+          setCurrentSlide(newIndex);
+        }, 150);
+      }
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => { window.location.href = "/"; }, 500);
+        return;
+      }
+      toast({ title: "Create Failed", description: "Failed to add slide.", variant: "destructive" });
+    },
+  });
+
+  const handleAddBlankSlide = () => {
+    if (!deck) return;
+    const nextOrder = (Array.isArray(deck.slides) ? deck.slides.length : 0) + 1;
+    const blank: Partial<Slide> = {
+      id: `slide-${Date.now()}`,
+      type: 'content',
+      title: 'New Slide',
+      order: nextOrder,
+      content: {
+        titles: ['New Slide'],
+        descriptions: [''],
+        bullets: [],
+        logos: [],
+      },
+      backgroundColor: deck.slides?.[0]?.backgroundColor || '#FFFFFF',
+      textColor: deck.slides?.[0]?.textColor || '#333333',
+      styling: {
+        fontFamily: deck.slides?.[0]?.styling?.fontFamily || 'Inter',
+        fontSize: 'medium',
+        titleFontSize: '3xl',
+        descriptionFontSize: 'lg',
+        bulletFontSize: 'base',
+        primaryColor: deck.slides?.[0]?.styling?.primaryColor,
+        secondaryColor: deck.slides?.[0]?.styling?.secondaryColor,
+        accentColor: deck.slides?.[0]?.styling?.accentColor,
+        logoUrl: deck.slides?.[0]?.styling?.logoUrl,
+      },
+      positionedElements: {},
+    };
+    createSlideMutation.mutate(blank, {
+      onSuccess: async () => {
+        // After refetch, go to last slide index
+        setTimeout(() => {
+          const total = (deck.slides?.length || 0) + 1;
+          setCurrentSlide(total - 1);
+          // auto-open editing for convenience
+          const updatedDeck: any = queryClient.getQueryData([`/api/decks/${deckId}`]);
+          const lastSlide = updatedDeck?.slides?.sort((a: any,b: any)=> (a.order||0)-(b.order||0))[total-1] || null;
+          if (lastSlide) startEditing(lastSlide);
+        }, 150);
+      }
+    });
+  };
 
   // AI Improvement mutations
   const improveTitleMutation = useMutation({
@@ -644,6 +811,37 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     setCurrentSlide(index);
   };
 
+  // Helper to render plain text for sidebar titles (strip WYSIWYG HTML)
+  const getPlainTitle = (slide: Slide): string => {
+    const raw = (slide.content?.titles && Array.isArray(slide.content.titles) && slide.content.titles.length > 0)
+      ? String(slide.content.titles[0])
+      : String(slide.title || '');
+    return raw
+      .replace(/<[^>]*>/g, ' ') // strip HTML tags
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  // Helper functions for HTML rendering consistency
+  const unescapeHtml = (str: string) => {
+    if (!str) return '';
+    let s = str
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, ' ');
+    // Strip a single wrapping <p>...</p> to avoid invalid nesting (e.g., <p> inside <span>)
+    const match = s.match(/^\s*<p[^>]*>([\s\S]*?)<\/p>\s*$/i);
+    if (match) s = match[1];
+    return s;
+  };
+
   const startEditing = (slide: Slide) => {
     // Get the most current slide data from the deck to ensure we have the latest changes
     const currentSlideData = deck?.slides?.find(s => s.id === slide.id) || slide;
@@ -714,21 +912,40 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
       console.log('Background color:', editingSlide.backgroundColor);
       console.log('Text color:', editingSlide.textColor);
       
+      // Ensure title consistency: keep slide.title and content.titles[0] in sync
+      const titlesArr = Array.isArray(editingSlide.content?.titles) ? [...editingSlide.content.titles] : [];
+      const primaryTitle = (titlesArr[0] && String(titlesArr[0]).trim())
+        ? String(titlesArr[0])
+        : (editingSlide.title || '');
+      if (primaryTitle) {
+        if (titlesArr.length === 0) titlesArr.push(primaryTitle);
+        else titlesArr[0] = primaryTitle;
+      }
+
+      const syncedSlide: Slide = {
+        ...editingSlide,
+        title: primaryTitle,
+        content: {
+          ...editingSlide.content,
+          titles: titlesArr
+        }
+      } as Slide;
+
       // Log exactly what we're sending to the server
       const updatesToSend = {
-        slideId: editingSlide.id,
-        updates: editingSlide
+        slideId: syncedSlide.id,
+        updates: syncedSlide
       };
       
       console.log('=== DATA BEING SENT TO SERVER ===');
       console.log('Sending to server:', updatesToSend);
       console.log('Updates object contains:', {
-        title: editingSlide.title,
-        content: editingSlide.content,
-        styling: editingSlide.styling,
-        backgroundColor: editingSlide.backgroundColor,
-        textColor: editingSlide.textColor,
-        positionedElements: editingSlide.positionedElements
+        title: syncedSlide.title,
+        content: syncedSlide.content,
+        styling: syncedSlide.styling,
+        backgroundColor: syncedSlide.backgroundColor,
+        textColor: syncedSlide.textColor,
+        positionedElements: syncedSlide.positionedElements
       });
       console.log('Full updatesToSend object:', updatesToSend);
       
@@ -773,6 +990,26 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
           ...editingSlide,
           [field]: value
         };
+
+        // Keep title and content.titles[0] synchronized
+        if (field === 'content' && value && Array.isArray(value.titles)) {
+          const firstTitle = (value.titles[0] && String(value.titles[0]).trim()) ? String(value.titles[0]) : editingSlide.title;
+          updated = {
+            ...updated,
+            title: firstTitle || ''
+          };
+        } else if (field === 'title') {
+          const titlesArr = Array.isArray(updated.content?.titles) ? [...updated.content.titles] : [];
+          if (titlesArr.length === 0) titlesArr.push(value);
+          else titlesArr[0] = value;
+          updated = {
+            ...updated,
+            content: {
+              ...updated.content,
+              titles: titlesArr
+            }
+          };
+        }
         
         // Special logging for color updates
         if (field === 'backgroundColor' || field === 'textColor') {
@@ -892,6 +1129,70 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     });
   };
 
+  // Slide reordering handlers
+  const handleSlideDragStart = (e: React.DragEvent, slideId: string, slideIndex: number) => {
+    if (isEditing) return; // Don't allow reordering while editing
+    
+    setDraggedSlideId(slideId);
+    setIsReordering(true);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', slideId);
+  };
+
+  const handleSlideDragOver = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverIndex(targetIndex);
+  };
+
+  const handleSlideDragLeave = () => {
+    setDragOverIndex(null);
+  };
+
+  const handleSlideDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    
+    if (!draggedSlideId || !deck) return;
+    
+    const draggedIndex = sortedSlides.findIndex(slide => slide.id === draggedSlideId);
+    if (draggedIndex === -1 || draggedIndex === targetIndex) {
+      setDraggedSlideId(null);
+      setIsReordering(false);
+      setDragOverIndex(null);
+      return;
+    }
+    
+    // Create new order array
+    const newSlides = [...sortedSlides];
+    const draggedSlide = newSlides[draggedIndex];
+    
+    // Remove dragged slide from its current position
+    newSlides.splice(draggedIndex, 1);
+    
+    // Insert at new position
+    newSlides.splice(targetIndex, 0, draggedSlide);
+    
+    // Create slide orders for server
+    const slideOrders = newSlides.map((slide, index) => ({
+      slideId: slide.id,
+      order: index + 1
+    }));
+    
+    // Update server
+    reorderSlidesMutation.mutate(slideOrders);
+    
+    // Reset state
+    setDraggedSlideId(null);
+    setIsReordering(false);
+    setDragOverIndex(null);
+  };
+
+  const handleSlideDragEnd = () => {
+    setDraggedSlideId(null);
+    setIsReordering(false);
+    setDragOverIndex(null);
+  };
+
   const currentSlideData = sortedSlides[currentSlide];
 
   // Debug: Log current slide data specifically
@@ -907,100 +1208,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     return (
       <div className="w-full bg-white rounded-lg border shadow-sm">
         <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
-          {/* Logo Management */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Logos ({editingSlide?.content?.logos?.length || 0})
-            </label>
-            <div className="space-y-2">
-              {/* Handle both old single logo and new multiple logos */}
-              {(() => {
-                const logos = editingSlide?.content?.logos || [];
-                const hasOldLogo = editingSlide?.styling?.logoUrl && logos.length === 0;
-                
-                // If we have an old logo, convert it to new format automatically
-                if (hasOldLogo) {
-                  // Convert old single logo to new format
-                  updateEditingSlide('content', {
-                    ...editingSlide?.content,
-                    logos: [editingSlide.styling?.logoUrl || '']
-                  });
-                  // Also clear the old logo field
-                  updateEditingSlide('styling', {
-                    ...editingSlide?.styling,
-                    logoUrl: undefined
-                  });
-                  return null; // Don't render anything while converting
-                }
-                
-                // Show multiple logos
-                return logos.map((logoUrl: string, index: number) => (
-                  <div key={index} className="flex items-center space-x-2">
-                    <div className="flex-1 flex items-center space-x-2">
-                      <img 
-                        src={logoUrl} 
-                        alt={`Logo ${index + 1}`} 
-                        className="h-8 w-8 object-contain border rounded"
-                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                      />
-                      <input
-                        type="text"
-                        value={logoUrl}
-                        onChange={(e) => {
-                          const newLogos = [...logos];
-                          newLogos[index] = e.target.value;
-                          updateEditingSlide('content', {
-                            ...editingSlide?.content,
-                            logos: newLogos
-                          });
-                        }}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                        placeholder={`Logo URL ${index + 1}`}
-                      />
-                    </div>
-                    <button
-                      onClick={() => {
-                        const newLogos = logos.filter((_: string, i: number) => i !== index);
-                        updateEditingSlide('content', {
-                          ...editingSlide?.content,
-                          logos: newLogos
-                        });
-                      }}
-                      className="p-2 text-red-500 hover:text-red-700"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ));
-              })()}
-              
-              {/* Show message when no logos exist */}
-              {(!editingSlide?.content?.logos || editingSlide.content.logos.length === 0) && (
-                <div className="text-sm text-gray-500 text-center py-2">
-                  No logos yet. Click the button below to add your first one.
-                </div>
-              )}
-              
-              <button
-                onClick={() => {
-                  const currentLogos = editingSlide?.content?.logos || [];
-                  const newLogos = [...currentLogos, 'https://example.com/logo.png'];
-                  updateEditingSlide('content', {
-                    ...editingSlide?.content,
-                    logos: newLogos
-                  });
-                  
-                  console.log('Added logo:', {
-                    before: currentLogos,
-                    after: newLogos
-                  });
-                }}
-                className="w-full px-3 py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors"
-              >
-                + Add Logo
-              </button>
-            </div>
-          </div>
+          
 
           {/* Title Input */}
           <div>
@@ -1024,47 +1232,53 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                   updateEditingSlide('title', '');
                   // Return the converted title for immediate display
                   return (
-                    <div key={`title-${editingSlide.title}-${Date.now()}`} className="flex items-center space-x-2">
-                      <input
-                        type="text"
-                        value={editingSlide.title}
-                        onChange={(e) => {
-                          updateEditingSlide('content', {
-                            ...editingSlide?.content,
-                            titles: [e.target.value]
-                          });
-                        }}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg font-semibold"
-                        placeholder="Title 1"
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          console.log('=== AI BUTTON CLICKED (OLD FORMAT) ===');
-                          console.log('Button clicked for index: 0');
-                          console.log('Current editingSlide:', editingSlide);
-                          handleImproveTitle(0);
-                        }}
-                        disabled={improveTitleMutation.isPending}
-                        className="px-2 py-1 text-xs"
-                        title="Improve with AI"
-                      >
-                        <Sparkles className="h-3 w-3 mr-1" />
-                        {improveTitleMutation.isPending ? '...' : 'AI'}
-                      </Button>
-                      <button
-                        onClick={() => {
-                          updateEditingSlide('content', {
-                            ...editingSlide?.content,
-                            titles: []
-                          });
-                        }}
-                        className="p-2 text-red-500 hover:text-red-700"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
+                    <div key={`title-old-${slide.id}`} className="flex items-center space-x-2">
+                      <div className="flex-1">
+                        <WysiwygEditor
+                          content={editingSlide.title}
+                          onChange={(html) => {
+                            updateEditingSlide('content', {
+                              ...editingSlide?.content,
+                              titles: [html]
+                            });
+                            updateEditingSlide('title', html);
+                          }}
+                          className="bg-white"
+                          minHeight="min-h-[60px]"
+                          projectId={deck?.projectId}
+                          context="slide title"
+                          toolbarActions={(
+                            <>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleImproveTitle(0)}
+                                disabled={improveTitleMutation.isPending}
+                                className="px-2 py-1 text-xs"
+                                title="Improve with AI"
+                              >
+                                <Sparkles className="h-3 w-3 mr-1" />
+                                {improveTitleMutation.isPending ? '...' : 'AI'}
+                              </Button>
+                              <button
+                                onClick={() => {
+                                  updateEditingSlide('content', {
+                                    ...editingSlide?.content,
+                                    titles: []
+                                  });
+                                  updateEditingSlide('title', '');
+                                }}
+                                className="p-2 text-red-500 hover:text-red-700"
+                                title="Delete title"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
+                        />
+                      </div>
+                      
                     </div>
                   );
                 }
@@ -1072,91 +1286,104 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                 // Show multiple titles - if no titles exist, show the main title field
                 if (titles.length === 0 && editingSlide?.title) {
                   return (
-                    <div key={`title-main-${editingSlide.title}-${Date.now()}`} className="flex items-center space-x-2">
-                      <input
-                        type="text"
-                        value={editingSlide.title}
-                        onChange={(e) => {
-                          updateEditingSlide('title', e.target.value);
-                        }}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg font-semibold"
-                        placeholder="Title"
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          console.log('=== AI BUTTON CLICKED (MAIN TITLE) ===');
-                          console.log('Button clicked for main title');
-                          console.log('Current editingSlide:', editingSlide);
-                          handleImproveTitle(0);
-                        }}
-                        disabled={improveTitleMutation.isPending}
-                        className="px-2 py-1 text-xs"
-                        title="Improve with AI"
-                      >
-                        <Sparkles className="h-3 w-3 mr-1" />
-                        {improveTitleMutation.isPending ? '...' : 'AI'}
-                      </Button>
-                      <button
-                        onClick={() => {
-                          updateEditingSlide('title', '');
-                        }}
-                        className="p-2 text-red-500 hover:text-red-700"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
+                    <div key={`title-main-${slide.id}`} className="flex items-center space-x-2">
+                      <div className="flex-1">
+                        <WysiwygEditor
+                          content={editingSlide.title}
+                          onChange={(html) => {
+                            updateEditingSlide('title', html);
+                            const titles = Array.isArray(editingSlide?.content?.titles) ? [...editingSlide!.content!.titles] : [];
+                            if (titles.length === 0) titles.push(html); else titles[0] = html;
+                            updateEditingSlide('content', { ...editingSlide!.content, titles });
+                          }}
+                          className="bg-white"
+                          minHeight="min-h-[60px]"
+                          projectId={deck?.projectId}
+                          context="slide title"
+                          toolbarActions={(
+                            <>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleImproveTitle(0)}
+                                disabled={improveTitleMutation.isPending}
+                                className="px-2 py-1 text-xs"
+                                title="Improve with AI"
+                              >
+                                <Sparkles className="h-3 w-3 mr-1" />
+                                {improveTitleMutation.isPending ? '...' : 'AI'}
+                              </Button>
+                              <button
+                                onClick={() => {
+                                  updateEditingSlide('title', '');
+                                  updateEditingSlide('content', { ...editingSlide!.content, titles: [] });
+                                }}
+                                className="p-2 text-red-500 hover:text-red-700"
+                                title="Delete title"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
+                        />
+                      </div>
+                      
                     </div>
                   );
                 }
                 
                 // Show multiple titles from the titles array
                 return titles.map((title: string, index: number) => (
-                  <div key={`title-${index}-${title}-${Date.now()}`} className="flex items-center space-x-2">
-                    <input
-                      type="text"
-                      value={title}
-                      onChange={(e) => {
-                        const newTitles = [...titles];
-                        newTitles[index] = e.target.value;
-                        updateEditingSlide('content', {
-                          ...editingSlide?.content,
-                          titles: newTitles
-                        });
-                      }}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg font-semibold"
-                      placeholder={`Title ${index + 1}`}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        console.log('=== AI BUTTON CLICKED ===');
-                        console.log('Button clicked for index:', index);
-                        console.log('Current editingSlide:', editingSlide);
-                        handleImproveTitle(index);
-                      }}
-                      disabled={improveTitleMutation.isPending}
-                      className="px-2 py-1 text-xs"
-                      title="Improve with AI"
-                    >
-                      <Sparkles className="h-3 w-3 mr-1" />
-                      {improveTitleMutation.isPending ? '...' : 'AI'}
-                    </Button>
-                    <button
-                      onClick={() => {
-                        const newTitles = titles.filter((_: string, i: number) => i !== index);
-                        updateEditingSlide('content', {
-                          ...editingSlide?.content,
-                          titles: newTitles
-                        });
-                      }}
-                      className="p-2 text-red-500 hover:text-red-700"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                  <div key={`title-${slide.id}-${index}`} className="flex items-center space-x-2">
+                    <div className="flex-1">
+                      <WysiwygEditor
+                        content={title}
+                        onChange={(html) => {
+                          const newTitles = [...titles];
+                          newTitles[index] = html;
+                          updateEditingSlide('content', {
+                            ...editingSlide?.content,
+                            titles: newTitles
+                          });
+                          if (index === 0) updateEditingSlide('title', html);
+                        }}
+                        className="bg-white"
+                        minHeight="min-h-[60px]"
+                        projectId={deck?.projectId}
+                        context="slide title"
+                        toolbarActions={(
+                          <>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleImproveTitle(index)}
+                              disabled={improveTitleMutation.isPending}
+                              className="px-2 py-1 text-xs"
+                              title="Improve with AI"
+                            >
+                              <Sparkles className="h-3 w-3 mr-1" />
+                              {improveTitleMutation.isPending ? '...' : 'AI'}
+                            </Button>
+                            <button
+                              onClick={() => {
+                                const newTitles = titles.filter((_: string, i: number) => i !== index);
+                                updateEditingSlide('content', {
+                                  ...editingSlide?.content,
+                                  titles: newTitles
+                                });
+                              }}
+                              className="p-2 text-red-500 hover:text-red-700"
+                              title="Delete title"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </>
+                        )}
+                      />
+                    </div>
+                    
                   </div>
                 ));
               })()}
@@ -1217,44 +1444,53 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                 // Show multiple descriptions
                 return descriptions.map((description: string, index: number) => (
                   <div key={index} className="flex items-center space-x-2">
-                    <textarea
-                      value={description}
-                      onChange={(e) => {
-                        const newDescriptions = [...descriptions];
-                        newDescriptions[index] = e.target.value;
-                        updateEditingSlide('content', {
-                          ...editingSlide?.content,
-                          descriptions: newDescriptions
-                        });
-                      }}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                      placeholder={`Description ${index + 1}`}
-                      rows={2}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleImproveDescription(index)}
-                      disabled={improveDescriptionMutation.isPending}
-                      className="px-2 py-1 text-xs"
-                      title="Improve with AI"
-                    >
-                      <Sparkles className="h-3 w-3 mr-1" />
-                      {improveDescriptionMutation.isPending ? '...' : 'AI'}
-                    </Button>
-                    <button
-                      onClick={() => {
-                        const newDescriptions = descriptions.filter((_: string, i: number) => i !== index);
-                        updateEditingSlide('content', {
-                          ...editingSlide?.content,
-                          descriptions: newDescriptions
-                        });
-                      }}
-                      className="p-2 text-red-500 hover:text-red-700"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                    <div className="flex-1">
+                      <WysiwygEditor
+                        content={description}
+                        onChange={(html) => {
+                          const newDescriptions = [...descriptions];
+                          newDescriptions[index] = html;
+                          updateEditingSlide('content', {
+                            ...editingSlide?.content,
+                            descriptions: newDescriptions,
+                            description: index === 0 ? html : editingSlide?.content?.description
+                          });
+                        }}
+                        className="bg-white"
+                        minHeight="min-h-[100px]"
+                        projectId={deck?.projectId}
+                        context="slide description"
+                        toolbarActions={(
+                          <>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleImproveDescription(index)}
+                              disabled={improveDescriptionMutation.isPending}
+                              className="px-2 py-1 text-xs"
+                              title="Improve with AI"
+                            >
+                              <Sparkles className="h-3 w-3 mr-1" />
+                              {improveDescriptionMutation.isPending ? '...' : 'AI'}
+                            </Button>
+                            <button
+                              onClick={() => {
+                                const newDescriptions = descriptions.filter((_: string, i: number) => i !== index);
+                                updateEditingSlide('content', {
+                                  ...editingSlide?.content,
+                                  descriptions: newDescriptions
+                                });
+                              }}
+                              className="p-2 text-red-500 hover:text-red-700"
+                              title="Delete description"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </>
+                        )}
+                      />
+                    </div>
                   </div>
                 ));
               })()}
@@ -1290,6 +1526,86 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
 
 
 
+          {/* Bullet Points */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Bullet Points ({editingSlide?.content?.bullets?.length || 0})
+            </label>
+            <div className="space-y-2">
+              {Array.isArray(editingSlide?.content?.bullets) && editingSlide.content.bullets.map((bullet: string, index: number) => (
+                <div key={index} className="flex items-center space-x-2">
+                  <div className="flex-1">
+                    <WysiwygEditor
+                      content={bullet}
+                      onChange={(html) => {
+                        const newBullets = [...(editingSlide?.content?.bullets || [])];
+                        newBullets[index] = html;
+                        updateEditingSlide('content', {
+                          ...editingSlide?.content,
+                          bullets: newBullets
+                        });
+                      }}
+                      className="bg-white"
+                      minHeight="min-h-[60px]"
+                      projectId={deck?.projectId}
+                      context="bullet point"
+                      toolbarActions={(
+                        <>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleImproveBullet(index)}
+                            disabled={improveBulletMutation.isPending}
+                            className="px-2 py-1 text-xs"
+                            title="Improve with AI"
+                          >
+                            <Sparkles className="h-3 w-3 mr-1" />
+                            {improveBulletMutation.isPending ? '...' : 'AI'}
+                          </Button>
+                          <button
+                            onClick={() => {
+                              const newBullets = editingSlide?.content?.bullets?.filter((_: string, i: number) => i !== index) || [];
+                              updateEditingSlide('content', {
+                                ...editingSlide?.content,
+                                bullets: newBullets
+                              });
+                            }}
+                            className="p-2 text-red-500 hover:text-red-700"
+                            title="Delete bullet"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
+                    />
+                  </div>
+                </div>
+              ))}
+              
+              {/* Show message when no bullets exist */}
+              {(!editingSlide?.content?.bullets || editingSlide.content.bullets.length === 0) && (
+                <div className="text-sm text-gray-500 text-center py-2">
+                  No bullet points yet. Click the button below to add your first one.
+              </div>
+              )}
+              
+              <button
+                onClick={() => {
+                  const currentBullets = editingSlide?.content?.bullets || [];
+                  const newBullets = [...currentBullets, 'New bullet point'];
+                  updateEditingSlide('content', {
+                    ...editingSlide?.content,
+                    bullets: newBullets
+                  });
+                }}
+                className="w-full px-3 py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors"
+              >
+                + Add Bullet Point
+              </button>
+            </div>
+          </div>
+
           {/* Font Settings */}
           <div className="space-y-4">
             <div>
@@ -1319,63 +1635,8 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
               </select>
                       </div>
             
-            {/* Element-specific Font Sizes */}
-            <div className="grid grid-cols-3 gap-3">
-          <div>
-                <label className="text-xs font-medium text-gray-600 mb-1">Title Size</label>
-                <select
-                  value={editingSlide?.styling?.titleFontSize || '3xl'}
-                  onChange={(e) => updateEditingSlide('styling', {
-                    ...editingSlide?.styling,
-                    titleFontSize: e.target.value
-                  })}
-                  className="w-full px-2 py-1 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="lg">Large</option>
-                  <option value="xl">XL</option>
-                  <option value="2xl">2XL</option>
-                  <option value="3xl">3XL</option>
-                  <option value="4xl">4XL</option>
-                  <option value="5xl">5XL</option>
-                </select>
+            {/* Title editor inlined above within Titles section. Removed duplicate editor here. */}
           </div>
-
-              <div>
-                <label className="text-xs font-medium text-gray-600 mb-1">Desc Size</label>
-                <select
-                  value={editingSlide?.styling?.descriptionFontSize || 'lg'}
-                  onChange={(e) => updateEditingSlide('styling', {
-                    ...editingSlide?.styling,
-                    descriptionFontSize: e.target.value
-                  })}
-                  className="w-full px-2 py-1 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="sm">Small</option>
-                  <option value="base">Base</option>
-                  <option value="lg">Large</option>
-                  <option value="xl">XL</option>
-                  <option value="2xl">2XL</option>
-                </select>
-              </div>
-              
-              <div>
-                <label className="text-xs font-medium text-gray-600 mb-1">Bullet Size</label>
-                <select
-                  value={editingSlide?.styling?.bulletFontSize || 'base'}
-                  onChange={(e) => updateEditingSlide('styling', {
-                    ...editingSlide?.styling,
-                    bulletFontSize: e.target.value
-                  })}
-                  className="w-full px-2 py-1 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="sm">Small</option>
-                  <option value="base">Base</option>
-                  <option value="lg">Large</option>
-                  <option value="xl">XL</option>
-                </select>
-                      </div>
-                  </div>
-              </div>
 
                     {/* Color Settings */}
           <div className="space-y-4">
@@ -1434,114 +1695,124 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                 </div>
               </div>
 
-                        
-
-            {/* Reset to Brand Kit Colors */}
-            <div className="pt-2 border-t border-gray-200">
-                  <Button
-                type="button"
-                    variant="outline"
-                    size="sm"
-                onClick={() => {
-                  if (brandKits?.[0]) {
-                    updateEditingSlide('styling', {
-                      ...editingSlide?.styling,
-                      primaryColor: brandKits[0].primaryColor,
-                      secondaryColor: brandKits[0].secondaryColor,
-                      accentColor: brandKits[0].accentColor
-                    });
-                    // Also reset the backgroundColor and textColor fields
-                    updateEditingSlide('backgroundColor', brandKits[0].secondaryColor);
-                    updateEditingSlide('textColor', brandKits[0].primaryColor);
-                    toast({
-                      title: "Colors Reset",
-                      description: "Restored original brand kit colors",
-                    });
-                  }
-                }}
-                className="w-full"
-              >
-                Reset to Brand Kit Colors
-                  </Button>
-                </div>
-              </div>
-
-          {/* Bullet Points */}
-                <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Bullet Points ({editingSlide?.content?.bullets?.length || 0})
-            </label>
-            <div className="space-y-2">
-              {Array.isArray(editingSlide?.content?.bullets) && editingSlide.content.bullets.map((bullet: string, index: number) => (
-                <div key={index} className="flex items-center space-x-2">
-                  <input
-                    type="text"
-                    value={bullet}
-                    onChange={(e) => {
-                      const newBullets = [...(editingSlide?.content?.bullets || [])];
-                      newBullets[index] = e.target.value;
+              {/* Logo Management (moved here) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Logos ({editingSlide?.content?.logos?.length || 0})
+                </label>
+                <div className="space-y-2">
+                  {(() => {
+                    const logos = editingSlide?.content?.logos || [];
+                    const hasOldLogo = editingSlide?.styling?.logoUrl && logos.length === 0;
+                    if (hasOldLogo) {
                       updateEditingSlide('content', {
                         ...editingSlide?.content,
-                        bullets: newBullets
+                        logos: [editingSlide.styling?.logoUrl || '']
                       });
-                    }}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder={`Bullet point ${index + 1}`}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleImproveBullet(index)}
-                    disabled={improveBulletMutation.isPending}
-                    className="px-2 py-1 text-xs"
-                    title="Improve with AI"
-                  >
-                    <Sparkles className="h-3 w-3 mr-1" />
-                    {improveBulletMutation.isPending ? '...' : 'AI'}
-                  </Button>
+                      updateEditingSlide('styling', {
+                        ...editingSlide?.styling,
+                        logoUrl: undefined
+                      });
+                      return null;
+                    }
+                    return logos.map((logoUrl: string, index: number) => (
+                      <div key={index} className="flex items-center space-x-2">
+                        <div className="flex-1 flex items-center space-x-2">
+                          <img 
+                            src={logoUrl} 
+                            alt={`Logo ${index + 1}`} 
+                            className="h-8 w-8 object-contain border rounded"
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                          />
+                          <input
+                            type="text"
+                            value={logoUrl}
+                            onChange={(e) => {
+                              const newLogos = [...logos];
+                              newLogos[index] = e.target.value;
+                              updateEditingSlide('content', {
+                                ...editingSlide?.content,
+                                logos: newLogos
+                              });
+                            }}
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                            placeholder={`Logo URL ${index + 1}`}
+                          />
+                        </div>
+                        <button
+                          onClick={() => {
+                            const newLogos = logos.filter((_: string, i: number) => i !== index);
+                            updateEditingSlide('content', {
+                              ...editingSlide?.content,
+                              logos: newLogos
+                            });
+                          }}
+                          className="p-2 text-red-500 hover:text-red-700"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ));
+                  })()}
+                  {(!editingSlide?.content?.logos || editingSlide.content.logos.length === 0) && (
+                    <div className="text-sm text-gray-500 text-center py-2">
+                      No logos yet. Click the button below to add your first one.
+                    </div>
+                  )}
                   <button
                     onClick={() => {
-                      const newBullets = editingSlide?.content?.bullets?.filter((_: string, i: number) => i !== index) || [];
+                      const currentLogos = editingSlide?.content?.logos || [];
+                      const newLogos = [...currentLogos, 'https://example.com/logo.png'];
                       updateEditingSlide('content', {
                         ...editingSlide?.content,
-                        bullets: newBullets
+                        logos: newLogos
                       });
                     }}
-                    className="p-2 text-red-500 hover:text-red-700"
+                    className="w-full px-3 py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors"
                   >
-                    <X className="h-4 w-4" />
+                    + Add Logo
                   </button>
                 </div>
-              ))}
-              
-              {/* Show message when no bullets exist */}
-              {(!editingSlide?.content?.bullets || editingSlide.content.bullets.length === 0) && (
-                <div className="text-sm text-gray-500 text-center py-2">
-                  No bullet points yet. Click the button below to add your first one.
               </div>
-              )}
-              
-              <button
-                onClick={() => {
-                  const currentBullets = editingSlide?.content?.bullets || [];
-                  const newBullets = [...currentBullets, 'New bullet point'];
-                  updateEditingSlide('content', {
-                    ...editingSlide?.content,
-                    bullets: newBullets
-                  });
-                  
-                  console.log('Added bullet point:', {
-                    before: currentBullets,
-                    after: newBullets
-                  });
-                }}
-                className="w-full px-3 py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors"
-              >
-                + Add Bullet Point
-              </button>
-            </div>
-          </div>
+
+              {/* Background Image URL */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block">Background Image URL</label>
+                <input
+                  type="text"
+                  value={editingSlide?.styling?.backgroundImage || ''}
+                  onChange={(e) => updateEditingSlide('styling', {
+                    ...editingSlide?.styling,
+                    backgroundImage: e.target.value
+                  })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="https://example.com/image.jpg"
+                />
+                <p className="text-xs text-gray-500 mt-1">Leave empty to use solid background color.</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <label className="px-3 py-2 border border-gray-300 rounded-md text-sm cursor-pointer hover:bg-gray-50">
+                    Upload Image
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) uploadBackgroundImageMutation.mutate(file);
+                      }}
+                    />
+                  </label>
+                  {uploadBackgroundImageMutation.isPending && (
+                    <span className="text-xs text-gray-500">Uploading...</span>
+                  )}
+                </div>
+              </div>
+
+                        
+
+            
+              </div>
+
         </div>
       </div>
     );
@@ -1552,6 +1823,8 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     const slideWithStyling = {
       ...slide,
       styling: {
+        // Preserve all existing styling first
+        ...slide.styling,
         backgroundColor: slide.styling?.backgroundColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#ffffff',
         textColor: slide.styling?.textColor || slide.textColor || brandKits?.[0]?.primaryColor || '#333333',
         primaryColor: slide.styling?.primaryColor || slide.textColor || brandKits?.[0]?.primaryColor || '#3b82f6',
@@ -1563,6 +1836,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
         descriptionFontSize: slide.styling?.descriptionFontSize || 'lg',
         bulletFontSize: slide.styling?.bulletFontSize || 'base',
         logoUrl: brandKits?.[0]?.logoUrl || slide.styling?.logoUrl,
+        backgroundImage: slide.styling?.backgroundImage,
         brandColors: {
           primary: slide.styling?.primaryColor || slide.textColor || brandKits?.[0]?.primaryColor || '#3b82f6',
           secondary: slide.styling?.secondaryColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#64748b',
@@ -1584,9 +1858,18 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     const brandColors = slideWithStyling.styling.brandColors;
     
     // Background style logic - use solid colors instead of gradients for editing
-    const backgroundStyle = {
-      backgroundColor: backgroundColor
-    };
+    const backgroundImageUrl = (slideWithStyling.styling as any)?.backgroundImage as string | undefined;
+    const backgroundStyle = backgroundImageUrl && backgroundImageUrl.trim() !== ''
+      ? {
+          backgroundImage: `url(${backgroundImageUrl})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+          backgroundColor: backgroundColor
+        }
+      : {
+          backgroundColor: backgroundColor
+        };
     
     return (
       <div 
@@ -1667,38 +1950,26 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                 {slide.content?.titles && slide.content.titles.length > 0 ? (
                   // New multiple titles format
                   slide.content.titles.map((title: string, index: number) => (
-                    <h1 
+                    <div 
                       key={index}
                       className="font-bold leading-tight mb-6"
                       style={{
-                        fontSize: slideWithStyling.styling.titleFontSize === '5xl' ? '48px' :
-                                 slideWithStyling.styling.titleFontSize === '4xl' ? '36px' :
-                                 slideWithStyling.styling.titleFontSize === '3xl' ? '30px' :
-                                 slideWithStyling.styling.titleFontSize === '2xl' ? '24px' :
-                                 slideWithStyling.styling.titleFontSize === 'xl' ? '20px' : '18px',
                         color: brandColors?.primary || textColor,
                         fontFamily: fontFamily || 'Inter'
                       }}
-                    >
-                      {title}
-                    </h1>
+                      dangerouslySetInnerHTML={{ __html: title }}
+                    />
                   ))
                 ) : (
                   // Old single title format
-                  <h1 
+                  <div 
                     className="font-bold leading-tight mb-6"
                     style={{
-                      fontSize: slideWithStyling.styling.titleFontSize === '5xl' ? '48px' :
-                               slideWithStyling.styling.titleFontSize === '4xl' ? '36px' :
-                               slideWithStyling.styling.titleFontSize === '3xl' ? '30px' :
-                               slideWithStyling.styling.titleFontSize === '2xl' ? '24px' :
-                               slideWithStyling.styling.titleFontSize === 'xl' ? '20px' : '18px',
                       color: brandColors?.primary || textColor,
                       fontFamily: fontFamily || 'Inter'
                     }}
-                  >
-                    {slide.title}
-                  </h1>
+                    dangerouslySetInnerHTML={{ __html: slide.title }}
+                  />
                 )}
               </div>
             </div>
@@ -1726,31 +1997,21 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                     <div 
                       key={index}
                       style={{
-                        fontSize: slideWithStyling.styling.descriptionFontSize === '2xl' ? '24px' :
-                                 slideWithStyling.styling.descriptionFontSize === 'xl' ? '20px' :
-                                 slideWithStyling.styling.descriptionFontSize === 'lg' ? '18px' :
-                                 slideWithStyling.styling.descriptionFontSize === 'base' ? '16px' : '14px',
                         color: brandColors?.primary || textColor,
                         fontFamily: fontFamily || 'Inter'
                       }}
-                    >
-                      {description}
-                    </div>
+                      dangerouslySetInnerHTML={{ __html: description }}
+                    />
                   ))
                 ) : (
                   // Old single description format
                   <div 
                     style={{
-                      fontSize: slideWithStyling.styling.descriptionFontSize === '2xl' ? '24px' :
-                               slideWithStyling.styling.descriptionFontSize === 'xl' ? '20px' :
-                               slideWithStyling.styling.descriptionFontSize === 'lg' ? '18px' :
-                               slideWithStyling.styling.descriptionFontSize === 'base' ? '16px' : '14px',
                       color: brandColors?.primary || textColor,
                       fontFamily: fontFamily || 'Inter'
                     }}
-                  >
-                    {slide.content.description}
-                  </div>
+                    dangerouslySetInnerHTML={{ __html: slide.content.description || '' }}
+                  />
                 )}
               </div>
             </div>
@@ -1774,9 +2035,6 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                     key={index}
                     className="flex items-start"
                     style={{
-                      fontSize: slideWithStyling.styling.bulletFontSize === 'xl' ? '20px' :
-                               slideWithStyling.styling.bulletFontSize === 'lg' ? '18px' :
-                               slideWithStyling.styling.bulletFontSize === 'base' ? '16px' : '14px',
                       color: brandColors?.primary || textColor,
                       fontFamily: fontFamily || 'Inter',
                       listStyleType: 'none'
@@ -1791,7 +2049,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                     >
                       •
                     </span>
-                    <span>{bullet}</span>
+                    <span>{unescapeHtml(bullet)}</span>
                   </li>
                 ))}
               </ul>
@@ -1808,6 +2066,8 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     const slideWithStyling = {
       ...slide,
       styling: {
+        // Preserve all existing styling first
+        ...slide.styling,
         // Use saved styling colors first, then AI-generated colors, then fall back to brand kit colors
         backgroundColor: slide.styling?.backgroundColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#ffffff',
         textColor: slide.styling?.textColor || slide.textColor || brandKits?.[0]?.primaryColor || '#333333',
@@ -1824,6 +2084,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
         descriptionFontSize: slide.styling?.descriptionFontSize || 'lg', // AI default: clear readability
         bulletFontSize: slide.styling?.bulletFontSize || 'base', // AI default: comfortable reading
         logoUrl: brandKits?.[0]?.logoUrl || slide.styling?.logoUrl,
+        backgroundImage: slide.styling?.backgroundImage,
         
         // Make all brand colors available for creative use
         brandColors: {
@@ -1928,20 +2189,54 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
           {/* Slide Navigation */}
           <div className="w-full lg:w-72 flex-shrink-0">
             <div className="bg-white rounded-lg shadow-sm p-4 sticky top-8">
-              <h3 className="font-medium text-gray-900 mb-4">Slides</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-medium text-gray-900">Slides</h3>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddBlankSlide}
+                  disabled={createSlideMutation.isPending}
+                  title="Add new slide"
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  {createSlideMutation.isPending ? 'Adding...' : 'Add'}
+                </Button>
+              </div>
+              {!isEditing && (
+                <p className="text-xs text-gray-500 mb-3">
+                  Drag slides by the grip icon to reorder them
+                </p>
+              )}
               <div className="space-y-2">
                 {sortedSlides.map((slide, index) => (
                   <div
                     key={slide.id}
+                    draggable={!isEditing && !reorderSlidesMutation.isPending}
+                    onDragStart={(e) => handleSlideDragStart(e, slide.id, index)}
+                    onDragOver={(e) => handleSlideDragOver(e, index)}
+                    onDragLeave={handleSlideDragLeave}
+                    onDrop={(e) => handleSlideDrop(e, index)}
+                    onDragEnd={handleSlideDragEnd}
                     className={cn(
-                      "flex items-center justify-between group",
+                      "flex items-center justify-between group transition-all duration-200",
                       currentSlide === index
                         ? isEditing 
                           ? "bg-green-100 border-2 border-green-300 rounded-md" // Highlight editing slide
                           : "bg-blue-100 rounded-md" // Normal current slide
-                        : "hover:bg-gray-100 rounded-md"
+                        : "hover:bg-gray-100 rounded-md",
+                      // Drag and drop visual feedback
+                      draggedSlideId === slide.id && "opacity-50 scale-95",
+                      dragOverIndex === index && draggedSlideId !== slide.id && "bg-blue-50 border-2 border-blue-300 rounded-md",
+                      isReordering && draggedSlideId !== slide.id && "cursor-move"
                     )}
                   >
+                    {/* Drag handle */}
+                    {!isEditing && (
+                      <div className="p-1 text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing">
+                        <GripVertical className="h-4 w-4" />
+                      </div>
+                    )}
+                    
                     <button
                       onClick={() => !isEditing && goToSlide(index)} // Disable navigation when editing
                       disabled={isEditing} // Disable button when editing
@@ -1956,7 +2251,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                             : "text-gray-600" // Normal styling
                     )}
                   >
-                    {index + 1}. {slide.title}
+                    {index + 1}. {getPlainTitle(slide)}
                       {isEditing && currentSlide === index && (
                         <span className="ml-2 text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full">
                           Editing

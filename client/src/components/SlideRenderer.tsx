@@ -39,6 +39,20 @@ interface SlideRendererProps {
 }
 
 export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) {
+  const unescapeHtml = (str: string) => {
+    if (!str) return '';
+    let s = str
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, ' ');
+    // Strip a single wrapping <p>...</p> to avoid invalid nesting (e.g., <p> inside <span>)
+    const match = s.match(/^\s*<p[^>]*>([\s\S]*?)<\/p>\s*$/i);
+    if (match) s = match[1];
+    return s;
+  };
   const content = slide.content || {};
   const styling = slide.styling || {};
   const positionedElements = slide.positionedElements || {};
@@ -146,33 +160,29 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
           >
             <div className="space-y-2">
               {content.titles && Array.isArray(content.titles) && content.titles.length > 0 ? (
-                // New multiple titles format
+                // Render raw HTML blocks so inline font-size styles from editor apply
                 content.titles.map((title: string, index: number) => (
-                  <h1 
+                  <div 
                     key={index}
                     className="font-bold leading-tight"
                     style={{
-                      fontSize: getFontSize(titleFontSize),
                       color: brandColors?.primary || textColor,
                       fontFamily,
                       marginBottom: index < content.titles.length - 1 ? '16px' : '0'
                     }}
-                  >
-                    {title}
-                  </h1>
+                    dangerouslySetInnerHTML={{ __html: title }}
+                  />
                 ))
               ) : (
                 // Old single title format
-                <h1 
+                <div 
                   className="font-bold leading-tight"
                   style={{
-                    fontSize: getFontSize(titleFontSize),
                     color: brandColors?.primary || textColor,
                     fontFamily
                   }}
-                >
-                  {slide.title}
-                </h1>
+                  dangerouslySetInnerHTML={{ __html: slide.title }}
+                />
               )}
             </div>
           </div>
@@ -190,32 +200,28 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
           >
             <div className="space-y-2">
               {content.descriptions && Array.isArray(content.descriptions) && content.descriptions.length > 0 ? (
-                // New multiple descriptions format
+                // Render raw HTML so inline styles apply
                 content.descriptions.map((description: string, index: number) => (
                   <div 
                     key={index}
                     className="leading-relaxed"
                     style={{
-                      fontSize: getFontSize(descriptionFontSize),
                       color: brandColors?.primary || textColor,
                       fontFamily
                     }}
-                  >
-                    {description}
-                  </div>
+                    dangerouslySetInnerHTML={{ __html: description }}
+                  />
                 ))
               ) : (
                 // Old single description format
                 <div 
                   className="leading-relaxed"
                   style={{
-                    fontSize: getFontSize(descriptionFontSize),
                     color: brandColors?.primary || textColor,
                     fontFamily
                   }}
-                >
-                  {content.description}
-                </div>
+                  dangerouslySetInnerHTML={{ __html: content.description || '' }}
+                />
               )}
             </div>
           </div>
@@ -248,7 +254,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                   >
                     •
                   </span>
-                  <span>{bullet}</span>
+                  <span>{unescapeHtml(bullet)}</span>
                 </li>
               ))}
             </ul>
@@ -371,33 +377,29 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
         {((content.titles && Array.isArray(content.titles) && content.titles.length > 0) || slide.title) && (
           <div className="space-y-2">
             {content.titles && Array.isArray(content.titles) && content.titles.length > 0 ? (
-              // New multiple titles format
+              // New multiple titles format - render raw HTML so inline styles (font-size) apply
               content.titles.map((title: string, index: number) => (
-                <h1 
+                <div 
                   key={index}
                   className="font-bold leading-tight"
                   style={{
-                    fontSize: getFontSize(titleFontSize),
                     color: brandColors?.primary || textColor,
                     fontFamily,
                     marginBottom: index < content.titles.length - 1 ? '16px' : '0'
                   }}
-                >
-                  {title}
-                </h1>
+                  dangerouslySetInnerHTML={{ __html: unescapeHtml(title) }}
+                />
               ))
             ) : (
               // Old single title format
-              <h1 
+              <div 
                 className="font-bold leading-tight"
                 style={{
-                  fontSize: getFontSize(titleFontSize),
                   color: brandColors?.primary || textColor,
                   fontFamily
                 }}
-              >
-                {slide.title}
-              </h1>
+                dangerouslySetInnerHTML={{ __html: unescapeHtml(slide.title) }}
+              />
             )}
           </div>
         )}
@@ -406,7 +408,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
         {((content.descriptions && Array.isArray(content.descriptions) && content.descriptions.length > 0) || content.description) && (
           <div className="space-y-2">
             {content.descriptions && Array.isArray(content.descriptions) && content.descriptions.length > 0 ? (
-              // New multiple descriptions format
+              // New multiple descriptions format - render raw HTML
               content.descriptions.map((description: string, index: number) => (
                 <div 
                   key={index}
@@ -414,13 +416,11 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                   style={{ 
                     color: textColor, 
                     fontFamily,
-                    fontSize: isCompact ? '0.75rem' : getFontSize(descriptionFontSize),
                     borderLeft: brandColors ? `4px solid ${brandColors.accent}` : 'none',
                     paddingLeft: brandColors ? '12px' : '0'
                   }}
-                >
-                  {description}
-                </div>
+                  dangerouslySetInnerHTML={{ __html: unescapeHtml(description) }}
+                />
               ))
             ) : (
               // Old single description format
@@ -429,13 +429,11 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                 style={{ 
                   color: textColor, 
                   fontFamily,
-                  fontSize: isCompact ? '0.75rem' : getFontSize(descriptionFontSize),
                   borderLeft: brandColors ? `4px solid ${brandColors.accent}` : 'none',
                   paddingLeft: brandColors ? '12px' : '0'
                 }}
-              >
-                {content.description}
-              </div>
+                dangerouslySetInnerHTML={{ __html: unescapeHtml(content.description || '') }}
+              />
             )}
           </div>
         )}
@@ -462,7 +460,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                 >
                   •
                 </span>
-                <span>{bullet}</span>
+                <span>{unescapeHtml(bullet)}</span>
               </li>
             ))}
             {isCompact && content.bullets.length > 3 && (
@@ -511,7 +509,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                     >
                       •
                     </span>
-                    <span style={{ color: textColor, fontFamily }}>{point}</span>
+                    <span style={{ color: textColor, fontFamily }}>{unescapeHtml(point)}</span>
                   </li>
                 ))}
                 {isCompact && content.bullet_points.length > 2 && (

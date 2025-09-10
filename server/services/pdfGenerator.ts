@@ -73,6 +73,7 @@ function applyEnhancedStyling(slide: SlideContent, branding: BrandingConfig): an
     descriptionFontSize: slide.styling?.descriptionFontSize || 'lg', // AI default: clear readability
     bulletFontSize: slide.styling?.bulletFontSize || 'base', // AI default: comfortable reading
     logoUrl: branding.logoUrl || slide.styling?.logoUrl,
+    backgroundImage: slide.styling?.backgroundImage,
     
     // Make all brand colors available for creative use
     brandColors: {
@@ -150,8 +151,11 @@ function generateSlideHTML(slide: SlideContent, branding: BrandingConfig, slideN
   const positionedElements = slide.positionedElements || {};
   const usePositionedLayout = Object.keys(positionedElements).length > 0;
   
-  // Slide background: use solid color to match deck preview exactly
-  const backgroundStyle = `background: ${backgroundColor};`;
+  // Slide background: use image if provided, else solid color
+  const backgroundImage = slide.styling?.backgroundImage;
+  const backgroundStyle = backgroundImage && backgroundImage.trim() !== ''
+    ? `background: ${backgroundColor}; background-image: url('${backgroundImage}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
+    : `background: ${backgroundColor};`;
 
   console.log('PDF Generation - Background styling:', {
     slideTitle: slide.title,
@@ -186,16 +190,16 @@ function generateSlideHTML(slide: SlideContent, branding: BrandingConfig, slideN
       `;
       
       if (content.titles && Array.isArray(content.titles) && content.titles.length > 0) {
-        // New multiple titles format
+        // Render raw HTML to preserve inline font-size/styles
         content.titles.forEach((title: string, index: number) => {
           positionedContent += `
-            <h1 style="color: ${styling.brandColors?.primary || textColor}; font-size: ${titleSizePx}; font-weight: bold; margin: 0; line-height: 1.2; font-family: ${fontFamily}; margin-bottom: ${index < content.titles.length - 1 ? '16px' : '0'};">${title}</h1>
+            <div style="color: ${styling.brandColors?.primary || textColor}; font-weight: bold; margin: 0; line-height: 1.2; font-family: ${fontFamily}; margin-bottom: ${index < content.titles.length - 1 ? '16px' : '0'};">${title}</div>
           `;
         });
       } else {
         // Old single title format
         positionedContent += `
-          <h1 style="color: ${styling.brandColors?.primary || textColor}; font-size: ${titleSizePx}; font-weight: bold; margin: 0; line-height: 1.2; font-family: ${fontFamily};">${slide.title}</h1>
+          <div style="color: ${styling.brandColors?.primary || textColor}; font-weight: bold; margin: 0; line-height: 1.2; font-family: ${fontFamily};">${slide.title}</div>
         `;
       }
       
@@ -210,20 +214,16 @@ function generateSlideHTML(slide: SlideContent, branding: BrandingConfig, slideN
       `;
       
       if (content.descriptions && Array.isArray(content.descriptions) && content.descriptions.length > 0) {
-        // New multiple descriptions format
+        // Render raw HTML blocks
         content.descriptions.forEach((description: string, index: number) => {
           positionedContent += `
-            <div style="margin-bottom: ${index < content.descriptions.length - 1 ? '16px' : '0'};">
-              <p style="color: ${styling.brandColors?.primary || textColor}; font-size: ${descSizePx}; margin: 0; line-height: 1.6; font-family: ${fontFamily};">${description}</p>
-            </div>
+            <div style="margin-bottom: ${index < content.descriptions.length - 1 ? '16px' : '0'}; color: ${styling.brandColors?.primary || textColor}; line-height: 1.6; font-family: ${fontFamily};">${description}</div>
           `;
         });
       } else {
         // Old single description format
         positionedContent += `
-          <div>
-            <p style="color: ${styling.brandColors?.primary || textColor}; font-size: ${descSizePx}; margin: 0; line-height: 1.6; font-family: ${fontFamily};">${content.description}</p>
-          </div>
+          <div style="color: ${styling.brandColors?.primary || textColor}; line-height: 1.6; font-family: ${fontFamily};">${content.description}</div>
         `;
       }
       

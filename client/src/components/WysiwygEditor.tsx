@@ -6,6 +6,8 @@ import { TextAlign } from '@tiptap/extension-text-align';
 import { Underline } from '@tiptap/extension-underline';
 import { TextStyle } from '@tiptap/extension-text-style';
 import { FontFamily } from '@tiptap/extension-font-family';
+import { Extension } from '@tiptap/core';
+import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -36,6 +38,7 @@ interface WysiwygEditorProps {
   projectId?: string;
   context?: string;
   showAiImprove?: boolean;
+  toolbarActions?: React.ReactNode;
 }
 
 export function WysiwygEditor({ 
@@ -46,7 +49,8 @@ export function WysiwygEditor({
   minHeight = "min-h-[100px]",
   projectId,
   context,
-  showAiImprove = true
+  showAiImprove = true,
+  toolbarActions
 }: WysiwygEditorProps) {
   const { toast } = useToast();
   const [isImproving, setIsImproving] = useState(false);
@@ -70,6 +74,27 @@ export function WysiwygEditor({
         types: ['heading', 'paragraph'],
       }),
       Underline,
+      // Custom font size support on TextStyle
+      Extension.create({
+        name: 'fontSize',
+        addGlobalAttributes() {
+          return [
+            {
+              types: ['textStyle'],
+              attributes: {
+                fontSize: {
+                  default: null,
+                  parseHTML: element => element.style.fontSize || null,
+                  renderHTML: attributes => {
+                    if (!attributes.fontSize) return {};
+                    return { style: `font-size: ${attributes.fontSize}` };
+                  },
+                },
+              },
+            },
+          ];
+        },
+      }),
     ],
     content,
     onUpdate: ({ editor }) => {
@@ -144,13 +169,9 @@ export function WysiwygEditor({
     'Poppins'
   ];
 
-  const fontSize = [
-    { label: 'Small', value: '12px' },
-    { label: 'Normal', value: '16px' },
-    { label: 'Large', value: '20px' },
-    { label: 'Extra Large', value: '24px' },
-    { label: 'Huge', value: '32px' }
-  ];
+  // Numeric font sizes like in Word (display numbers, apply as px)
+  const fontSize = Array.from({ length: 68 }, (_, i) => i + 5) // 5..72
+    .map((n) => ({ label: String(n), value: `${n}px` }));
 
   return (
     <div className={`border border-gray-200 rounded-lg ${className}`}>
@@ -202,6 +223,29 @@ export function WysiwygEditor({
             {fontFamilies.map((font) => (
               <SelectItem key={font} value={font} style={{ fontFamily: font }}>
                 {font}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <div className="w-px h-6 bg-gray-300" />
+
+        {/* Font Size */}
+        <Select
+          value={editor.getAttributes('textStyle').fontSize || '16px'}
+          onValueChange={(value) => {
+            // Ensure value is px string
+            const px = /px$/.test(value) ? value : `${value}px`;
+            editor.chain().focus().setMark('textStyle', { fontSize: px }).run();
+          }}
+        >
+          <SelectTrigger className="w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {fontSize.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
               </SelectItem>
             ))}
           </SelectContent>
@@ -324,6 +368,11 @@ export function WysiwygEditor({
         >
           Clear
         </Button>
+
+        {/* Right-aligned custom actions */}
+        <div className="ml-auto flex items-center gap-2">
+          {toolbarActions}
+        </div>
       </div>
 
       {/* Editor Content */}

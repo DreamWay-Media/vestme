@@ -238,6 +238,11 @@ export class ObjectStorageService {
       return false;
     }
   }
+  
+  // Builds a public URL for a file stored in the bucket (expects a path like 'public/filename.ext')
+  getPublicUrl(filePath: string): string {
+    return `${supabaseUrl}/storage/v1/object/public/${this.bucketName}/${filePath}`;
+  }
 }
 
 // Create a default instance
