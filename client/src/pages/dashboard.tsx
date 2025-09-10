@@ -6,7 +6,6 @@ import { isUnauthorizedError } from "@/lib/authUtils";
 import Layout from "@/components/Layout";
 import StatsCard from "@/components/Dashboard/StatsCard";
 import RecentProjects from "@/components/Dashboard/RecentProjects";
-import QuickActions from "@/components/Dashboard/QuickActions";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import NewProjectModal from "@/components/Projects/NewProjectModal";
@@ -115,18 +114,8 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Recent Projects */}
-        <div className="lg:col-span-2">
-          <RecentProjects />
-        </div>
-
-        {/* Right Sidebar */}
-        <div className="space-y-6">
-          <QuickActions />
-        </div>
-      </div>
+      {/* Recent Projects */}
+      <RecentProjects />
 
       {/* New Project Modal */}
       <NewProjectModal 

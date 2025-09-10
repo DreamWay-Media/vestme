@@ -6,16 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/lib/supabase";
 
 export default function Settings() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const { toast } = useToast();
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [campaignNotifications, setCampaignNotifications] = useState(true);
-  const [weeklyReports, setWeeklyReports] = useState(false);
   
   // Profile form state
   const [firstName, setFirstName] = useState(user?.firstName || '');
@@ -61,12 +56,6 @@ export default function Settings() {
     }
   };
 
-  const handleExportData = () => {
-    toast({
-      title: "Export Started",
-      description: "Your data export has been started. You'll receive an email when it's ready.",
-    });
-  };
 
   const handleDeleteAccount = () => {
     toast({
@@ -223,132 +212,8 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        {/* Notification Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <i className="fas fa-bell mr-2 text-primary-600"></i>
-              Notification Preferences
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="font-medium text-gray-900">Email Notifications</h4>
-                <p className="text-sm text-gray-600">Receive notifications via email</p>
-              </div>
-              <Switch 
-                checked={emailNotifications}
-                onCheckedChange={setEmailNotifications}
-              />
-            </div>
 
-            <Separator />
 
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="font-medium text-gray-900">Campaign Updates</h4>
-                <p className="text-sm text-gray-600">Get notified when campaigns are opened or clicked</p>
-              </div>
-              <Switch 
-                checked={campaignNotifications}
-                onCheckedChange={setCampaignNotifications}
-              />
-            </div>
-
-            <Separator />
-
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="font-medium text-gray-900">Weekly Reports</h4>
-                <p className="text-sm text-gray-600">Receive weekly analytics summaries</p>
-              </div>
-              <Switch 
-                checked={weeklyReports}
-                onCheckedChange={setWeeklyReports}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Security Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <i className="fas fa-shield-alt mr-2 text-primary-600"></i>
-              Security & Privacy
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="font-medium text-gray-900">Password</h4>
-                <p className="text-sm text-gray-600">Managed through your authentication provider</p>
-              </div>
-              <Button variant="outline" disabled>
-                Cannot Change
-              </Button>
-            </div>
-
-            <Separator />
-
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="font-medium text-gray-900">Two-Factor Authentication</h4>
-                <p className="text-sm text-gray-600">Add an extra layer of security to your account</p>
-              </div>
-              <Button variant="outline">
-                Enable 2FA
-              </Button>
-            </div>
-
-            <Separator />
-
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="font-medium text-gray-900">Login Sessions</h4>
-                <p className="text-sm text-gray-600">Manage your active login sessions</p>
-              </div>
-              <Button variant="outline">
-                View Sessions
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Data & Privacy */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <i className="fas fa-database mr-2 text-primary-600"></i>
-              Data & Privacy
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="font-medium text-gray-900">Export Data</h4>
-                <p className="text-sm text-gray-600">Download a copy of your data</p>
-              </div>
-              <Button variant="outline" onClick={handleExportData}>
-                <i className="fas fa-download mr-2"></i>
-                Export
-              </Button>
-            </div>
-
-            <Separator />
-
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="font-medium text-gray-900">Data Retention</h4>
-                <p className="text-sm text-gray-600">How long we keep your data</p>
-              </div>
-              <Button variant="outline">
-                Learn More
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
 
         {/* Account Actions */}
         <Card>
@@ -369,8 +234,6 @@ export default function Settings() {
                 Sign Out
               </Button>
             </div>
-
-            <Separator />
 
             <div className="flex items-center justify-between">
               <div>
