@@ -1,0 +1,56 @@
+name: pitch-perfect
+services:
+  - name: web
+    source_dir: /
+    github:
+      repo: your-username/your-repo-name
+      branch: main
+    run_command: npm start
+  build_command: npm run build:prod
+    environment_slug: node-js
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DATABASE_URL
+        scope: RUN_AND_BUILD_TIME
+        value: ${DATABASE_URL}
+      - key: SUPABASE_URL
+        scope: RUN_AND_BUILD_TIME
+        value: ${SUPABASE_URL}
+      - key: SUPABASE_ANON_KEY
+        scope: RUN_AND_BUILD_TIME
+        value: ${SUPABASE_ANON_KEY}
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        scope: RUN_AND_BUILD_TIME
+        value: ${SUPABASE_SERVICE_ROLE_KEY}
+      - key: SUPABASE_STORAGE_BUCKET
+        scope: RUN_AND_BUILD_TIME
+        value: ${SUPABASE_STORAGE_BUCKET}
+      - key: OPENAI_API_KEY
+        scope: RUN_AND_BUILD_TIME
+        value: ${OPENAI_API_KEY}
+      - key: SESSION_SECRET
+        scope: RUN_AND_BUILD_TIME
+        value: ${SESSION_SECRET}
+      - key: DEFAULT_OBJECT_STORAGE_BUCKET_ID
+        scope: RUN_AND_BUILD_TIME
+        value: ${DEFAULT_OBJECT_STORAGE_BUCKET_ID}
+      - key: PUBLIC_OBJECT_SEARCH_PATHS
+        scope: RUN_AND_BUILD_TIME
+        value: ${PUBLIC_OBJECT_SEARCH_PATHS}
+      - key: PRIVATE_OBJECT_DIR
+        scope: RUN_AND_BUILD_TIME
+        value: ${PRIVATE_OBJECT_DIR}
+    health_check:
+      http_path: /health
+    routes:
+      - path: /
+      - path: /api
+      - path: /assets
+      - path: /favicon.ico
+      - path: /robots.txt
+      - path: /sitemap.xml

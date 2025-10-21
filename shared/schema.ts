@@ -199,6 +199,27 @@ export const insertProjectSchema = createInsertSchema(projects).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  name: z.string().min(1, "Project name is required"),
+  description: z.string().optional(),
+  industry: z.string().optional(),
+  websiteUrl: z.string().optional().refine((url) => {
+    if (!url || url.trim() === '') return true; // Allow empty/optional
+    const trimmedUrl = url.trim();
+    // Check if URL starts with http:// or https://
+    if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
+      return false;
+    }
+    // Validate URL format
+    try {
+      new URL(trimmedUrl);
+      return true;
+    } catch {
+      return false;
+    }
+  }, {
+    message: "Website URL must start with http:// or https:// and be a valid URL format"
+  })
 });
 
 export const insertBrandKitSchema = createInsertSchema(brandKits).omit({

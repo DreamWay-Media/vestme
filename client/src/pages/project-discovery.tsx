@@ -475,15 +475,41 @@ export default function ProjectDiscovery() {
                     <Label htmlFor="websiteUrl">Website URL</Label>
                     <Input
                       id="websiteUrl"
+                      type="url"
                       value={editValues.websiteUrl || ''}
                       onChange={(e) => setEditValues({...editValues, websiteUrl: e.target.value})}
                       placeholder="https://your-website.com"
                     />
+                    <p className="text-xs text-gray-500 mt-1">
+                      <span className="text-red-500 font-medium">Must include http:// or https://</span>
+                    </p>
                   </div>
                 </div>
                 <div className="flex gap-2">
                   <Button 
                     onClick={() => {
+                      // Validate websiteUrl before submitting
+                      if (editValues.websiteUrl && editValues.websiteUrl.trim() !== '') {
+                        const trimmedUrl = editValues.websiteUrl.trim();
+                        if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
+                          toast({
+                            title: "Invalid Website URL",
+                            description: "Website URL must start with http:// or https://",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+                        try {
+                          new URL(trimmedUrl);
+                        } catch {
+                          toast({
+                            title: "Invalid Website URL",
+                            description: "Please enter a valid URL format",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+                      }
                       updateProjectMutation.mutate(editValues);
                     }}
                     disabled={updateProjectMutation.isPending}
