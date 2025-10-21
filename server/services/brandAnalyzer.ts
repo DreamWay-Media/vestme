@@ -30,19 +30,42 @@ export interface BrandExtraction {
 
 export class BrandAnalyzer {
   private ensureProtocol(url: string): string {
-    // Check if URL already has a protocol
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      return url;
+    if (!url || typeof url !== 'string') {
+      throw new Error('Invalid URL provided: URL must be a non-empty string');
     }
+    
+    // Trim whitespace
+    const trimmedUrl = url.trim();
+    
+    if (!trimmedUrl) {
+      throw new Error('Invalid URL provided: URL cannot be empty');
+    }
+    
+    // Check if URL already has a protocol
+    if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
+      return trimmedUrl;
+    }
+    
     // Add https:// by default
-    return `https://${url}`;
+    const urlWithProtocol = `https://${trimmedUrl}`;
+    
+    // Validate that the resulting URL is valid
+    try {
+      new URL(urlWithProtocol);
+      return urlWithProtocol;
+    } catch (error) {
+      throw new Error(`Invalid URL format: "${url}" - ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   async extractBrandFromWebsite(websiteUrl: string): Promise<BrandExtraction> {
     try {
+      console.log(`Starting brand extraction for URL: "${websiteUrl}"`);
+      
       // Ensure URL has a protocol
       const fullUrl = this.ensureProtocol(websiteUrl);
       console.log(`Analyzing brand elements from: ${fullUrl}`);
+      
       const websiteContent = await this.crawlWebsiteForBrandElements(fullUrl);
       const brandAnalysis = await this.analyzeBrandElements(websiteContent, fullUrl);
       return brandAnalysis;
@@ -64,14 +87,18 @@ export class BrandAnalyzer {
     metaDescription: string;
   }> {
     try {
-      const response = await fetch(url, {
+      // Ensure URL has a protocol before proceeding
+      const fullUrl = this.ensureProtocol(url);
+      console.log(`Crawling website: ${fullUrl}`);
+      
+      const response = await fetch(fullUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch ${url}: ${response.status}`);
+        throw new Error(`Failed to fetch ${fullUrl}: ${response.status}`);
       }
 
       const html = await response.text();
@@ -79,7 +106,7 @@ export class BrandAnalyzer {
       const document = dom.window.document;
       
       // Look for lazy loading patterns and extract real image URLs
-      const realImageUrls = this.extractRealImageUrls(html, url);
+      const realImageUrls = this.extractRealImageUrls(html, fullUrl);
       console.log(`Found ${realImageUrls.length} potential real image URLs from lazy loading patterns`);
 
       // Extract comprehensive CSS and style information
@@ -128,13 +155,13 @@ export class BrandAnalyzer {
         const href = link.getAttribute('href');
         if (href) {
           try {
-            const fullUrl = href.startsWith('http') ? href : new URL(href, url).href;
-            const cssResponse = await fetch(fullUrl, {
+            const cssUrl = href.startsWith('http') ? href : new URL(href, fullUrl).href;
+            const cssResponse = await fetch(cssUrl, {
               headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
             });
             if (cssResponse.ok) {
               const cssContent = await cssResponse.text();
-              styles.push(`/* External CSS: ${fullUrl} */\n${cssContent.substring(0, 10000)}`); // Limit size
+              styles.push(`/* External CSS: ${cssUrl} */\n${cssContent.substring(0, 10000)}`); // Limit size
               
               const colors = this.extractColorsFromCSS(cssContent);
               extractedColors.push(...colors);
@@ -189,7 +216,7 @@ export class BrandAnalyzer {
         
         if (src) {
           try {
-            const fullSrc = new URL(src, url).href;
+            const fullSrc = new URL(src, fullUrl).href;
             const isLogo = this.isLikelyLogo(img, src, alt, className, id);
             const isPlaceholder = this.isPlaceholderImage(src);
             
@@ -502,9 +529,9 @@ export class BrandAnalyzer {
         const imageUrl = match[1];
         if (imageUrl && !this.isPlaceholderImage(imageUrl)) {
           try {
-            const fullUrl = imageUrl.startsWith('http') ? imageUrl : new URL(imageUrl, baseUrl).href;
-            if (!realImageUrls.includes(fullUrl)) {
-              realImageUrls.push(fullUrl);
+            const fullImageUrl = imageUrl.startsWith('http') ? imageUrl : new URL(imageUrl, baseUrl).href;
+            if (!realImageUrls.includes(fullImageUrl)) {
+              realImageUrls.push(fullImageUrl);
             }
           } catch (e) {
             // Skip invalid URLs
