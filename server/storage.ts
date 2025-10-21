@@ -169,10 +169,32 @@ export class DatabaseStorage implements IStorage {
 
   async deleteProject(id: string): Promise<void> {
     // Delete related records first to avoid foreign key constraints
-    await db.delete(activityLog).where(eq(activityLog.projectId, id));
+    // Order is important: delete child records before parent records
+    
+    // 1. Get all campaigns for this project
+    const projectCampaigns = await db.select().from(campaigns).where(eq(campaigns.projectId, id));
+    const campaignIds = projectCampaigns.map(c => c.id);
+    
+    // 2. Delete campaign recipients first (they reference campaigns)
+    if (campaignIds.length > 0) {
+      for (const campaignId of campaignIds) {
+        await db.delete(campaignRecipients).where(eq(campaignRecipients.campaignId, campaignId));
+      }
+    }
+    
+    // 3. Delete campaigns (they reference projects and decks)
     await db.delete(campaigns).where(eq(campaigns.projectId, id));
+    
+    // 4. Delete activity logs (they reference projects)
+    await db.delete(activityLog).where(eq(activityLog.projectId, id));
+    
+    // 5. Delete decks (they reference projects and brand kits)
     await db.delete(decks).where(eq(decks.projectId, id));
+    
+    // 6. Delete brand kits (they reference projects)
     await db.delete(brandKits).where(eq(brandKits.projectId, id));
+    
+    // 7. Finally, delete the project itself
     await db.delete(projects).where(eq(projects.id, id));
   }
 

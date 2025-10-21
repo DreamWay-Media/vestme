@@ -17,6 +17,47 @@ import { generateBrandKitSuggestions, extractBrandLogos } from "./services/brand
 import { BrandAnalyzer } from "./services/brandAnalyzer";
 import { insertProjectSchema, insertBrandKitSchema, insertDeckSchema, insertCrmContactSchema, insertCampaignSchema, insertAudienceSchema } from "@shared/schema";
 
+// Helper function to extract string value from potential object or string
+const extractStringValueUtil = (value: any): string => {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object') {
+    // Handle cases where OpenAI returns {estimate, methodology} or similar nested objects
+    return value.estimate || value.value || value.description || JSON.stringify(value);
+  }
+  return String(value);
+};
+
+// Recursively sanitize nested objects to prevent React rendering errors
+const sanitizeBusinessProfile = (obj: any): any => {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+  
+  if (Array.isArray(obj)) {
+    return obj.map(item => sanitizeBusinessProfile(item));
+  }
+  
+  if (typeof obj === 'object') {
+    // Check if this looks like a nested object that should be a string
+    // (has estimate, methodology, value, description keys)
+    if (obj.estimate !== undefined || obj.methodology !== undefined) {
+      return extractStringValueUtil(obj);
+    }
+    
+    // Otherwise recursively sanitize all properties
+    const sanitized: any = {};
+    for (const key in obj) {
+      if (obj.hasOwnProperty(key)) {
+        sanitized[key] = sanitizeBusinessProfile(obj[key]);
+      }
+    }
+    return sanitized;
+  }
+  
+  return obj;
+};
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
@@ -230,6 +271,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!project || project.userId !== req.user.id) {
         return res.status(404).json({ message: "Project not found" });
       }
+      
+      // Sanitize business profile to handle any existing nested objects
+      if (project.businessProfile) {
+        project.businessProfile = sanitizeBusinessProfile(project.businessProfile);
+      }
+      
       res.json(project);
     } catch (error) {
       console.error("Error fetching project:", error);
@@ -1978,7 +2025,7 @@ async function analyzeProjectWithEnhancedResearch(project: any) {
       businessDescription: businessInsights?.businessDescription || websiteData?.keyData?.companyInfo || description || 'Innovative technology company',
       problemStatement: businessInsights?.problemStatement || 'Solving key market challenges through innovative technology',
       businessModel: businessInsights?.businessModel?.revenueStreams?.[0] || businessResearch?.businessModel?.revenueStreams?.[0] || 'SaaS/Subscription',
-      targetMarket: businessInsights?.goToMarketStrategy?.customerSegments?.[0] || marketAnalysis?.targetCustomers?.primarySegment || 'Technology companies',
+      targetMarket: extractStringValueUtil(businessInsights?.goToMarketStrategy?.customerSegments?.[0] || marketAnalysis?.targetCustomers?.primarySegment) || 'Technology companies',
       valueProposition: businessInsights?.valueProposition || 'Innovative solution for market needs',
       keyFeatures: websiteData?.keyData?.products?.slice(0, 5) || ['Innovative features', 'User-friendly interface'],
       teamSize: 'Startup (5-20 employees)',
@@ -1986,7 +2033,7 @@ async function analyzeProjectWithEnhancedResearch(project: any) {
       fundingGoal: '$1M - $5M Series A',
       
       // Additional insights
-      marketOpportunity: marketAnalysis?.marketSize?.totalAddressableMarket || 'Large addressable market',
+      marketOpportunity: extractStringValueUtil(marketAnalysis?.marketSize?.totalAddressableMarket) || 'Large addressable market',
       competitiveAdvantage: businessInsights?.competitiveAdvantages || competitorAnalysis?.competitiveAdvantages || ['Unique technology', 'Strong team'],
       revenueModel: businessResearch?.businessModel?.revenueStreams || ['Subscription', 'Usage-based'],
       customerSegments: marketAnalysis?.targetCustomers?.secondarySegments || ['SMBs', 'Enterprise'],
@@ -2020,7 +2067,10 @@ async function analyzeProjectWithEnhancedResearch(project: any) {
       ].filter(Boolean)
     };
     
-    return businessProfile;
+    // Sanitize the entire business profile to convert nested objects to strings
+    const sanitizedProfile = sanitizeBusinessProfile(businessProfile);
+    
+    return sanitizedProfile;
   } catch (error) {
     console.error("Enhanced analysis error:", error);
     throw new Error("Failed to conduct enhanced business analysis");
