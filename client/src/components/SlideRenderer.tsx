@@ -33,12 +33,27 @@ interface SlideRendererProps {
       description?: { x: number; y: number; width?: number; height?: number };
       bullets?: { x: number; y: number; width?: number; height?: number };
       logo?: { x: number; y: number; width?: number; height?: number };
+      [key: string]: { x: number; y: number; width?: number; height?: number } | undefined;
     };
   };
   isCompact?: boolean;
 }
 
 export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) {
+  const unescapeHtml = (str: string) => {
+    if (!str) return '';
+    let s = str
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, ' ');
+    // Strip a single wrapping <p>...</p> to avoid invalid nesting (e.g., <p> inside <span>)
+    const match = s.match(/^\s*<p[^>]*>([\s\S]*?)<\/p>\s*$/i);
+    if (match) s = match[1];
+    return s;
+  };
   const content = slide.content || {};
   const styling = slide.styling || {};
   const positionedElements = slide.positionedElements || {};
@@ -105,6 +120,8 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
   console.log('SlideRenderer - Background style:', backgroundStyle);
   console.log('SlideRenderer - Final slide style:', slideStyle);
   console.log('SlideRenderer - Positioned elements:', positionedElements);
+  console.log('SlideRenderer - Content logos:', content.logos);
+  console.log('SlideRenderer - Positioned elements keys:', Object.keys(positionedElements));
 
   // Check if we should use positioned layout
   const usePositionedLayout = Object.keys(positionedElements).length > 0;
@@ -116,22 +133,58 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
         className={`relative overflow-hidden rounded border ${isCompact ? 'h-24' : 'aspect-video'}`}
         style={slideStyle}
       >
-        {/* Logo - positioned absolutely */}
-        {logoUrl && slide.type !== 'title' && (
-          <div 
-            className={`absolute ${isCompact ? 'z-10' : 'z-20'}`}
-            style={{
-              left: positionedElements.logo?.x || 16,
-              top: positionedElements.logo?.y || 16
-            }}
-          >
-            <img 
-              src={logoUrl} 
-              alt="Company Logo" 
-              className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
-              onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-            />
-          </div>
+        {/* Logo - positioned absolutely with individual positioning */}
+        {((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || logoUrl) && slide.type !== 'title' && (
+          <>
+            {content.logos && Array.isArray(content.logos) && content.logos.length > 0 ? (
+              // New multiple logos format - use all logos from content.logos with individual positioning
+              content.logos.map((logoUrl: string, index: number) => {
+                const logoKey = `logo-${index}`;
+                const logoPosition = positionedElements[logoKey];
+                
+                console.log(`SlideRenderer - Logo ${index} positioning:`, {
+                  logoKey,
+                  logoPosition,
+                  logoUrl,
+                  hasPosition: !!logoPosition
+                });
+                
+                return (
+                  <div 
+                    key={index}
+                    className={`absolute ${isCompact ? 'z-10' : 'z-20'}`}
+                    style={{
+                      left: logoPosition?.x || (index === 0 ? 16 : 16 + (index * 120)),
+                      top: logoPosition?.y || (index === 0 ? 16 : 16)
+                    }}
+                  >
+                    <img 
+                      src={logoUrl} 
+                      alt={`Logo ${index + 1}`} 
+                      className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                    />
+                  </div>
+                );
+              })
+            ) : (
+              // Fallback to old single logo format
+              <div 
+                className={`absolute ${isCompact ? 'z-10' : 'z-20'}`}
+                style={{
+                  left: positionedElements.logo?.x || 16,
+                  top: positionedElements.logo?.y || 16
+                }}
+              >
+                <img 
+                  src={logoUrl} 
+                  alt="Company Logo" 
+                  className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                />
+              </div>
+            )}
+          </>
         )}
 
         {/* Title - positioned absolutely */}
@@ -146,33 +199,29 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
           >
             <div className="space-y-2">
               {content.titles && Array.isArray(content.titles) && content.titles.length > 0 ? (
-                // New multiple titles format
+                // Render raw HTML blocks so inline font-size styles from editor apply
                 content.titles.map((title: string, index: number) => (
-                  <h1 
+                  <div 
                     key={index}
                     className="font-bold leading-tight"
                     style={{
-                      fontSize: getFontSize(titleFontSize),
                       color: brandColors?.primary || textColor,
                       fontFamily,
                       marginBottom: index < content.titles.length - 1 ? '16px' : '0'
                     }}
-                  >
-                    {title}
-                  </h1>
+                    dangerouslySetInnerHTML={{ __html: title }}
+                  />
                 ))
               ) : (
                 // Old single title format
-                <h1 
+                <div 
                   className="font-bold leading-tight"
                   style={{
-                    fontSize: getFontSize(titleFontSize),
                     color: brandColors?.primary || textColor,
                     fontFamily
                   }}
-                >
-                  {slide.title}
-                </h1>
+                  dangerouslySetInnerHTML={{ __html: slide.title }}
+                />
               )}
             </div>
           </div>
@@ -190,32 +239,28 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
           >
             <div className="space-y-2">
               {content.descriptions && Array.isArray(content.descriptions) && content.descriptions.length > 0 ? (
-                // New multiple descriptions format
+                // Render raw HTML so inline styles apply
                 content.descriptions.map((description: string, index: number) => (
                   <div 
                     key={index}
                     className="leading-relaxed"
                     style={{
-                      fontSize: getFontSize(descriptionFontSize),
                       color: brandColors?.primary || textColor,
                       fontFamily
                     }}
-                  >
-                    {description}
-                  </div>
+                    dangerouslySetInnerHTML={{ __html: description }}
+                  />
                 ))
               ) : (
                 // Old single description format
                 <div 
                   className="leading-relaxed"
                   style={{
-                    fontSize: getFontSize(descriptionFontSize),
                     color: brandColors?.primary || textColor,
                     fontFamily
                   }}
-                >
-                  {content.description}
-                </div>
+                  dangerouslySetInnerHTML={{ __html: content.description || '' }}
+                />
               )}
             </div>
           </div>
@@ -248,30 +293,67 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                   >
                     •
                   </span>
-                  <span>{bullet}</span>
+                  <span>{unescapeHtml(bullet)}</span>
                 </li>
               ))}
             </ul>
           </div>
         )}
 
-        {/* Centered logo for title slides */}
-        {logoUrl && slide.type === 'title' && (
-          <div 
-            className="absolute"
-            style={{
-              left: positionedElements.logo?.x || '50%',
-              top: positionedElements.logo?.y || 48,
-              transform: positionedElements.logo ? 'none' : 'translateX(-50%)'
-            }}
-          >
-            <img 
-              src={logoUrl} 
-              alt="Company Logo" 
-              className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95`} 
-              onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-            />
-          </div>
+        {/* Centered logo for title slides with individual positioning */}
+        {((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || logoUrl) && slide.type === 'title' && (
+          <>
+            {content.logos && Array.isArray(content.logos) && content.logos.length > 0 ? (
+              // New multiple logos format - use all logos from content.logos with individual positioning
+              content.logos.map((logoUrl: string, index: number) => {
+                const logoKey = `logo-${index}`;
+                const logoPosition = positionedElements[logoKey];
+                
+                console.log(`SlideRenderer - Title Logo ${index} positioning:`, {
+                  logoKey,
+                  logoPosition,
+                  logoUrl,
+                  hasPosition: !!logoPosition
+                });
+                
+                return (
+                  <div 
+                    key={index}
+                    className="absolute"
+                    style={{
+                      left: logoPosition?.x || '50%',
+                      top: logoPosition?.y || 48,
+                      transform: logoPosition ? 'none' : 'translateX(-50%)'
+                    }}
+                  >
+                    <img 
+                      src={logoUrl} 
+                      alt={`Logo ${index + 1}`} 
+                      className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95`} 
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                    />
+                  </div>
+                );
+              })
+            ) : (
+              // Fallback to old single logo format
+              <div 
+                className="absolute"
+                style={{
+                  left: positionedElements.logo?.x || '50%',
+                  top: positionedElements.logo?.y || 48,
+                  transform: positionedElements.logo ? 'none' : 'translateX(-50%)'
+                }}
+              >
+                <img 
+                  src={logoUrl} 
+                  alt="Company Logo" 
+                  className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95`} 
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                />
+              </div>
+            )}
+          </>
         )}
       </div>
     );
@@ -283,45 +365,75 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
       className={`relative overflow-hidden rounded border ${isCompact ? 'h-24' : 'aspect-video'}`}
       style={slideStyle}
     >
-      {/* Logo block - top right for non-title slides */}
+      {/* Logo block - positioned individually for non-title slides */}
       {((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || slide.styling?.allLogos || logoUrl) && slide.type !== 'title' && (
-        <div className={`absolute top-2 right-2 ${isCompact ? 'z-10' : 'z-20'}`}>
+        <>
           {content.logos && Array.isArray(content.logos) && content.logos.length > 0 ? (
-            // New multiple logos format - use all logos from content.logos
-            <div className="space-y-1">
-              {content.logos.map((logoUrl: string, index: number) => (
-                <img 
+            // New multiple logos format - use all logos from content.logos with individual positioning
+            content.logos.map((logoUrl: string, index: number) => {
+              const logoKey = `logo-${index}`;
+              const logoPosition = positionedElements[logoKey];
+              
+              return (
+                <div 
                   key={index}
-                  src={logoUrl} 
-                  alt={`Logo ${index + 1}`} 
-                  className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
-                  onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                />
-              ))}
-            </div>
+                  className={`absolute ${isCompact ? 'z-10' : 'z-20'}`}
+                  style={{
+                    left: logoPosition?.x || (index === 0 ? 16 : 16 + (index * 120)),
+                    top: logoPosition?.y || (index === 0 ? 16 : 16)
+                  }}
+                >
+                  <img 
+                    src={logoUrl} 
+                    alt={`Logo ${index + 1}`} 
+                    className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                  />
+                </div>
+              );
+            })
           ) : slide.styling?.allLogos && Array.isArray(slide.styling.allLogos) && slide.styling.allLogos.length > 0 ? (
-            // Use all logos from brand kit styling
-            <div className="space-y-1">
-              {slide.styling.allLogos.map((logoUrl: string, index: number) => (
-                <img 
+            // Use all logos from brand kit styling with individual positioning
+            slide.styling.allLogos.map((logoUrl: string, index: number) => {
+              const logoKey = `logo-${index}`;
+              const logoPosition = positionedElements[logoKey];
+              
+              return (
+                <div 
                   key={index}
-                  src={logoUrl} 
-                  alt={`Logo ${index + 1}`} 
-                  className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
-                  onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                />
-              ))}
-            </div>
+                  className={`absolute ${isCompact ? 'z-10' : 'z-20'}`}
+                  style={{
+                    left: logoPosition?.x || (index === 0 ? 16 : 16 + (index * 120)),
+                    top: logoPosition?.y || (index === 0 ? 16 : 16)
+                  }}
+                >
+                  <img 
+                    src={logoUrl} 
+                    alt={`Logo ${index + 1}`} 
+                    className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                  />
+                </div>
+              );
+            })
           ) : (
             // Fallback to old single logo format
-            <img 
-              src={logoUrl} 
-              alt="Company Logo" 
-              className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
-              onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-            />
+            <div 
+              className={`absolute ${isCompact ? 'z-10' : 'z-20'}`}
+              style={{
+                left: positionedElements.logo?.x || 16,
+                top: positionedElements.logo?.y || 16
+              }}
+            >
+              <img 
+                src={logoUrl} 
+                alt="Company Logo" 
+                className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
+                onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+              />
+            </div>
           )}
-        </div>
+        </>
       )}
 
       {/* Main content container */}
@@ -330,39 +442,72 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
         {((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || slide.styling?.allLogos || logoUrl) && slide.type === 'title' && (
           <div className="text-center mb-6">
             {content.logos && Array.isArray(content.logos) && content.logos.length > 0 ? (
-              // New multiple logos format - use all logos from content.logos
-              <div className="space-y-2">
-                {content.logos.map((logoUrl: string, index: number) => (
-                  <img 
+              // New multiple logos format - use all logos from content.logos with individual positioning
+              content.logos.map((logoUrl: string, index: number) => {
+                const logoKey = `logo-${index}`;
+                const logoPosition = positionedElements[logoKey];
+                
+                return (
+                  <div 
                     key={index}
-                    src={logoUrl} 
-                    alt={`Logo ${index + 1}`} 
-                    className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95`} 
-                    onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                  />
-                ))}
-              </div>
+                    className="relative"
+                    style={{
+                      left: logoPosition?.x || 'auto',
+                      top: logoPosition?.y || 'auto',
+                      position: logoPosition ? 'absolute' : 'static'
+                    }}
+                  >
+                    <img 
+                      src={logoUrl} 
+                      alt={`Logo ${index + 1}`} 
+                      className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95 mx-auto`} 
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                    />
+                  </div>
+                );
+              })
             ) : slide.styling?.allLogos && Array.isArray(slide.styling.allLogos) && slide.styling.allLogos.length > 0 ? (
-              // Use all logos from brand kit styling
-              <div className="space-y-2">
-                {slide.styling.allLogos.map((logoUrl: string, index: number) => (
-                  <img 
+              // Use all logos from brand kit styling with individual positioning
+              slide.styling.allLogos.map((logoUrl: string, index: number) => {
+                const logoKey = `logo-${index}`;
+                const logoPosition = positionedElements[logoKey];
+                
+                return (
+                  <div 
                     key={index}
-                    src={logoUrl} 
-                    alt={`Logo ${index + 1}`} 
-                    className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95`} 
-                    onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                  />
-                ))}
-              </div>
+                    className="relative"
+                    style={{
+                      left: logoPosition?.x || 'auto',
+                      top: logoPosition?.y || 'auto',
+                      position: logoPosition ? 'absolute' : 'static'
+                    }}
+                  >
+                    <img 
+                      src={logoUrl} 
+                      alt={`Logo ${index + 1}`} 
+                      className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95 mx-auto`} 
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                    />
+                  </div>
+                );
+              })
             ) : (
               // Fallback to old single logo format
-              <img 
-                src={logoUrl} 
-                alt="Company Logo" 
-                className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95`} 
-                onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-              />
+              <div 
+                className="relative"
+                style={{
+                  left: positionedElements.logo?.x || 'auto',
+                  top: positionedElements.logo?.y || 'auto',
+                  position: positionedElements.logo ? 'absolute' : 'static'
+                }}
+              >
+                <img 
+                  src={logoUrl} 
+                  alt="Company Logo" 
+                  className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95 mx-auto`} 
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                />
+              </div>
             )}
           </div>
         )}
@@ -371,33 +516,29 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
         {((content.titles && Array.isArray(content.titles) && content.titles.length > 0) || slide.title) && (
           <div className="space-y-2">
             {content.titles && Array.isArray(content.titles) && content.titles.length > 0 ? (
-              // New multiple titles format
+              // New multiple titles format - render raw HTML so inline styles (font-size) apply
               content.titles.map((title: string, index: number) => (
-                <h1 
+                <div 
                   key={index}
                   className="font-bold leading-tight"
                   style={{
-                    fontSize: getFontSize(titleFontSize),
                     color: brandColors?.primary || textColor,
                     fontFamily,
                     marginBottom: index < content.titles.length - 1 ? '16px' : '0'
                   }}
-                >
-                  {title}
-                </h1>
+                  dangerouslySetInnerHTML={{ __html: unescapeHtml(title) }}
+                />
               ))
             ) : (
               // Old single title format
-              <h1 
+              <div 
                 className="font-bold leading-tight"
                 style={{
-                  fontSize: getFontSize(titleFontSize),
                   color: brandColors?.primary || textColor,
                   fontFamily
                 }}
-              >
-                {slide.title}
-              </h1>
+                dangerouslySetInnerHTML={{ __html: unescapeHtml(slide.title) }}
+              />
             )}
           </div>
         )}
@@ -406,7 +547,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
         {((content.descriptions && Array.isArray(content.descriptions) && content.descriptions.length > 0) || content.description) && (
           <div className="space-y-2">
             {content.descriptions && Array.isArray(content.descriptions) && content.descriptions.length > 0 ? (
-              // New multiple descriptions format
+              // New multiple descriptions format - render raw HTML
               content.descriptions.map((description: string, index: number) => (
                 <div 
                   key={index}
@@ -414,13 +555,11 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                   style={{ 
                     color: textColor, 
                     fontFamily,
-                    fontSize: isCompact ? '0.75rem' : getFontSize(descriptionFontSize),
                     borderLeft: brandColors ? `4px solid ${brandColors.accent}` : 'none',
                     paddingLeft: brandColors ? '12px' : '0'
                   }}
-                >
-                  {description}
-                </div>
+                  dangerouslySetInnerHTML={{ __html: unescapeHtml(description) }}
+                />
               ))
             ) : (
               // Old single description format
@@ -429,13 +568,11 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                 style={{ 
                   color: textColor, 
                   fontFamily,
-                  fontSize: isCompact ? '0.75rem' : getFontSize(descriptionFontSize),
                   borderLeft: brandColors ? `4px solid ${brandColors.accent}` : 'none',
                   paddingLeft: brandColors ? '12px' : '0'
                 }}
-              >
-                {content.description}
-              </div>
+                dangerouslySetInnerHTML={{ __html: unescapeHtml(content.description || '') }}
+              />
             )}
           </div>
         )}
@@ -462,7 +599,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                 >
                   •
                 </span>
-                <span>{bullet}</span>
+                <span>{unescapeHtml(bullet)}</span>
               </li>
             ))}
             {isCompact && content.bullets.length > 3 && (
@@ -511,7 +648,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                     >
                       •
                     </span>
-                    <span style={{ color: textColor, fontFamily }}>{point}</span>
+                    <span style={{ color: textColor, fontFamily }}>{unescapeHtml(point)}</span>
                   </li>
                 ))}
                 {isCompact && content.bullet_points.length > 2 && (

@@ -193,29 +193,26 @@ export default function ProjectGenerateDeck() {
     const slideWithStyling = {
       ...slide,
       styling: {
-        // Use saved styling colors first, then AI-generated colors, then fall back to brand kit colors
+        // Preserve existing slide styling first
+        ...(slide.styling || {}),
+        // Use saved styling colors first, then brand kit defaults
         backgroundColor: slide.styling?.backgroundColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#ffffff',
         textColor: slide.styling?.textColor || slide.textColor || brandKits?.[0]?.primaryColor || '#333333',
-        
-        // Brand kit colors (available for creative use) - prioritize saved styling over AI colors
         primaryColor: slide.styling?.primaryColor || slide.textColor || brandKits?.[0]?.primaryColor || '#3b82f6',
         secondaryColor: slide.styling?.secondaryColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#64748b',
         accentColor: slide.styling?.accentColor || brandKits?.[0]?.accentColor || '#10b981',
-        
-        // Additional styling - prioritize slide styling over brand kit defaults
         fontFamily: slide.styling?.fontFamily || brandKits?.[0]?.fontFamily || 'Inter',
         fontSize: slide.styling?.fontSize || 'medium',
-        titleFontSize: slide.styling?.titleFontSize || '3xl', // AI default: large impact
-        descriptionFontSize: slide.styling?.descriptionFontSize || 'lg', // AI default: clear readability
-        bulletFontSize: slide.styling?.bulletFontSize || 'base', // AI default: comfortable reading
+        titleFontSize: slide.styling?.titleFontSize || '3xl',
+        descriptionFontSize: slide.styling?.descriptionFontSize || 'lg',
+        bulletFontSize: slide.styling?.bulletFontSize || 'base',
         logoUrl: brandKits?.[0]?.logoUrl || slide.styling?.logoUrl,
+        backgroundImage: slide.styling?.backgroundImage,
         // Store all logos from brand kit for comprehensive logo usage
         allLogos: [
           ...(brandKits?.[0]?.logoUrl ? [brandKits[0].logoUrl] : []),
           ...(brandKits?.[0]?.brandAssets ? brandKits[0].brandAssets.map((asset: any) => asset.url) : [])
         ].filter(Boolean),
-        
-        // Make all brand colors available for creative use
         brandColors: {
           primary: slide.styling?.primaryColor || slide.textColor || brandKits?.[0]?.primaryColor || '#3b82f6',
           secondary: slide.styling?.secondaryColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#64748b',

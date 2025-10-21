@@ -38,42 +38,48 @@ const sidebarItems = [
     label: "Discovery",
     icon: Search,
     path: "/discovery",
-    description: "Business analysis and research"
+    description: "Business analysis and research",
+    comingSoon: false
   },
   {
     id: "brand-kit",
     label: "Brand Kit",
     icon: Palette,
     path: "/brand-kit",
-    description: "Brand colors, fonts, and style"
+    description: "Brand colors, fonts, and style",
+    comingSoon: false
   },
   {
     id: "deck-generator",
     label: "Generate Deck",
     icon: FileText,
     path: "/generate-deck",
-    description: "Create and customize pitch deck"
+    description: "Create and customize pitch deck",
+    comingSoon: false
   },
   {
     id: "campaign",
     label: "Campaign",
     icon: Send,
     path: "/campaign",
-    description: "Investor outreach and campaigns"
+    description: "Investor outreach and campaigns",
+    comingSoon: true
   },
   {
     id: "analytics",
     label: "Analytics",
     icon: BarChart3,
     path: "/analytics",
-    description: "Performance metrics and insights"
+    description: "Performance metrics and insights",
+    comingSoon: true
   },
   {
     id: "settings",
     label: "Settings",
     icon: Settings,
     path: "/settings",
-    description: "Project configuration"
+    description: "Project configuration",
+    comingSoon: false
   }
 ];
 
@@ -189,42 +195,54 @@ export default function ProjectLayoutWithHeader({ children }: ProjectLayoutWithH
             {sidebarItems.map((item) => {
               const isActive = currentPath === item.path;
               const status = getStepStatus(item.id, project?.status || "draft", project?.businessProfile);
-              const isDisabled = status === "pending";
+              const isDisabled = status === "pending" || item.comingSoon;
               const Icon = item.icon;
 
               return (
-                <Link
-                  key={item.id}
-                  to={`/projects/${projectId}${item.path}`}
-                  className={cn(
-                    "block w-full",
-                    isDisabled && "pointer-events-none"
-                  )}
-                >
-                  <div
+                <div key={item.id} className="relative">
+                  <Link
+                    to={item.comingSoon ? "#" : `/projects/${projectId}${item.path}`}
                     className={cn(
-                      "flex items-center space-x-3 px-3 py-3 rounded-lg transition-all duration-200",
-                      isActive
-                        ? "bg-primary-50 text-primary-700 border border-primary-200"
-                        : isDisabled
-                        ? "text-gray-400 cursor-not-allowed"
-                        : "text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+                      "block w-full",
+                      isDisabled && "pointer-events-none"
                     )}
                   >
-                    <div className="flex items-center space-x-3 flex-1">
-                      <Icon className="h-5 w-5 flex-shrink-0" />
-                      <div className="flex-1">
-                        <div className="font-medium">{item.label}</div>
-                        <div className="text-xs text-gray-500 mt-0.5">
-                          {item.description}
+                    <div
+                      className={cn(
+                        "flex items-center space-x-3 px-3 py-3 rounded-lg transition-all duration-200",
+                        isActive
+                          ? "bg-primary-50 text-primary-700 border border-primary-200"
+                          : isDisabled
+                          ? "text-gray-400 cursor-not-allowed"
+                          : "text-gray-700 hover:bg-gray-50 hover:text-gray-900",
+                        item.comingSoon && "opacity-60"
+                      )}
+                    >
+                      <div className="flex items-center space-x-3 flex-1">
+                        <Icon className="h-5 w-5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <div className="font-medium">{item.label}</div>
+                          <div className="text-xs text-gray-500 mt-0.5">
+                            {item.description}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex-shrink-0">
+                        {!item.comingSoon && getStatusIcon(status)}
+                      </div>
+                    </div>
+                  </Link>
+                  
+                  {item.comingSoon && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-white/60 rounded-lg">
+                      <div className="text-center">
+                        <div className="text-xs font-semibold text-gray-700 bg-white/90 px-2 py-1 rounded-full shadow-sm">
+                          Coming Soon
                         </div>
                       </div>
                     </div>
-                    <div className="flex-shrink-0">
-                      {getStatusIcon(status)}
-                    </div>
-                  </div>
-                </Link>
+                  )}
+                </div>
               );
             })}
           </nav>

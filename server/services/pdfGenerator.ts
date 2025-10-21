@@ -30,6 +30,7 @@ interface SlideContent {
     description?: { x: number; y: number; width?: number; height?: number };
     bullets?: { x: number; y: number; width?: number; height?: number };
     logo?: { x: number; y: number; width?: number; height?: number };
+    [key: string]: { x: number; y: number; width?: number; height?: number } | undefined;
   };
 }
 
@@ -73,6 +74,7 @@ function applyEnhancedStyling(slide: SlideContent, branding: BrandingConfig): an
     descriptionFontSize: slide.styling?.descriptionFontSize || 'lg', // AI default: clear readability
     bulletFontSize: slide.styling?.bulletFontSize || 'base', // AI default: comfortable reading
     logoUrl: branding.logoUrl || slide.styling?.logoUrl,
+    backgroundImage: slide.styling?.backgroundImage,
     
     // Make all brand colors available for creative use
     brandColors: {
@@ -86,7 +88,9 @@ function applyEnhancedStyling(slide: SlideContent, branding: BrandingConfig): an
     slideTitle: slide.title,
     originalStyling: slide.styling,
     enhancedStyling: enhancedStyling,
-    branding: branding
+    branding: branding,
+    positionedElements: slide.positionedElements,
+    logos: slide.content?.logos
   });
 
   // Additional detailed color logging
@@ -150,8 +154,11 @@ function generateSlideHTML(slide: SlideContent, branding: BrandingConfig, slideN
   const positionedElements = slide.positionedElements || {};
   const usePositionedLayout = Object.keys(positionedElements).length > 0;
   
-  // Slide background: use solid color to match deck preview exactly
-  const backgroundStyle = `background: ${backgroundColor};`;
+  // Slide background: use image if provided, else solid color
+  const backgroundImage = slide.styling?.backgroundImage;
+  const backgroundStyle = backgroundImage && backgroundImage.trim() !== ''
+    ? `background: ${backgroundColor}; background-image: url('${backgroundImage}'); background-size: cover; background-position: center; background-repeat: no-repeat;`
+    : `background: ${backgroundColor};`;
 
   console.log('PDF Generation - Background styling:', {
     slideTitle: slide.title,
@@ -186,16 +193,16 @@ function generateSlideHTML(slide: SlideContent, branding: BrandingConfig, slideN
       `;
       
       if (content.titles && Array.isArray(content.titles) && content.titles.length > 0) {
-        // New multiple titles format
+        // Render raw HTML to preserve inline font-size/styles
         content.titles.forEach((title: string, index: number) => {
           positionedContent += `
-            <h1 style="color: ${styling.brandColors?.primary || textColor}; font-size: ${titleSizePx}; font-weight: bold; margin: 0; line-height: 1.2; font-family: ${fontFamily}; margin-bottom: ${index < content.titles.length - 1 ? '16px' : '0'};">${title}</h1>
+            <div style="color: ${styling.brandColors?.primary || textColor}; font-weight: bold; margin: 0; line-height: 1.2; font-family: ${fontFamily}; margin-bottom: ${index < content.titles.length - 1 ? '16px' : '0'};">${title}</div>
           `;
         });
       } else {
         // Old single title format
         positionedContent += `
-          <h1 style="color: ${styling.brandColors?.primary || textColor}; font-size: ${titleSizePx}; font-weight: bold; margin: 0; line-height: 1.2; font-family: ${fontFamily};">${slide.title}</h1>
+          <div style="color: ${styling.brandColors?.primary || textColor}; font-weight: bold; margin: 0; line-height: 1.2; font-family: ${fontFamily};">${slide.title}</div>
         `;
       }
       
@@ -210,20 +217,16 @@ function generateSlideHTML(slide: SlideContent, branding: BrandingConfig, slideN
       `;
       
       if (content.descriptions && Array.isArray(content.descriptions) && content.descriptions.length > 0) {
-        // New multiple descriptions format
+        // Render raw HTML blocks
         content.descriptions.forEach((description: string, index: number) => {
           positionedContent += `
-            <div style="margin-bottom: ${index < content.descriptions.length - 1 ? '16px' : '0'};">
-              <p style="color: ${styling.brandColors?.primary || textColor}; font-size: ${descSizePx}; margin: 0; line-height: 1.6; font-family: ${fontFamily};">${description}</p>
-            </div>
+            <div style="margin-bottom: ${index < content.descriptions.length - 1 ? '16px' : '0'}; color: ${styling.brandColors?.primary || textColor}; line-height: 1.6; font-family: ${fontFamily};">${description}</div>
           `;
         });
       } else {
         // Old single description format
         positionedContent += `
-          <div>
-            <p style="color: ${styling.brandColors?.primary || textColor}; font-size: ${descSizePx}; margin: 0; line-height: 1.6; font-family: ${fontFamily};">${content.description}</p>
-          </div>
+          <div style="color: ${styling.brandColors?.primary || textColor}; line-height: 1.6; font-family: ${fontFamily};">${content.description}</div>
         `;
       }
       
@@ -247,29 +250,73 @@ function generateSlideHTML(slide: SlideContent, branding: BrandingConfig, slideN
       positionedContent += '</div>';
     }
     
-    // Centered logo for title slides
-    if (((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || logoUrl) && slide.type === 'title') {
-      const logoPos = positionedElements.logo || { x: '50%', y: 48 };
-      const transform = positionedElements.logo ? 'none' : 'translateX(-50%)';
-      positionedContent += `
-        <div style="position: absolute; left: ${logoPos.x}px; top: ${logoPos.y}px; transform: ${transform};">
-      `;
-      
+    // Logo - positioned absolutely for non-title slides
+    if (((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || logoUrl) && slide.type !== 'title') {
       if (content.logos && Array.isArray(content.logos) && content.logos.length > 0) {
-        // New multiple logos format - use all logos from content.logos
+        // New multiple logos format - use all logos from content.logos with individual positioning
         content.logos.forEach((logoUrl: string, index: number) => {
+          const logoKey = `logo-${index}`;
+          const logoPosition = positionedElements[logoKey];
+          const logoPos = logoPosition || { x: 16 + (index * 120), y: 16 };
+          
+          console.log(`PDF Generation - Non-title Logo ${index} positioning:`, {
+            logoKey,
+            logoPosition,
+            logoPos,
+            logoUrl
+          });
+          
           positionedContent += `
-            <img src="${logoUrl}" alt="Logo ${index + 1}" style="height: 64px; width: auto; opacity: 0.95; margin-bottom: ${index < content.logos.length - 1 ? '16px' : '0'};" />
+            <div style="position: absolute; left: ${logoPos.x}px; top: ${logoPos.y}px; z-index: 20;">
+              <img src="${logoUrl}" alt="Logo ${index + 1}" style="height: 40px; width: auto; opacity: 0.95;" />
+            </div>
           `;
         });
       } else {
         // Fallback to old single logo format
+        const logoPos = positionedElements.logo || { x: 16, y: 16 };
         positionedContent += `
-          <img src="${logoUrl}" alt="Logo" style="height: 64px; width: auto; opacity: 0.95;" />
+          <div style="position: absolute; left: ${logoPos.x}px; top: ${logoPos.y}px; z-index: 20;">
+            <img src="${logoUrl}" alt="Logo" style="height: 40px; width: auto; opacity: 0.95;" />
+          </div>
         `;
       }
-      
-      positionedContent += '</div>';
+    }
+    
+    // Centered logo for title slides with individual positioning
+    if (((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || logoUrl) && slide.type === 'title') {
+      if (content.logos && Array.isArray(content.logos) && content.logos.length > 0) {
+        // New multiple logos format - use all logos from content.logos with individual positioning
+        content.logos.forEach((logoUrl: string, index: number) => {
+          const logoKey = `logo-${index}`;
+          const logoPosition = positionedElements[logoKey];
+          const logoPos = logoPosition || { x: '50%', y: 48 };
+          const transform = logoPosition ? 'none' : 'translateX(-50%)';
+          
+          console.log(`PDF Generation - Title Logo ${index} positioning:`, {
+            logoKey,
+            logoPosition,
+            logoPos,
+            transform,
+            logoUrl
+          });
+          
+          positionedContent += `
+            <div style="position: absolute; left: ${logoPos.x}px; top: ${logoPos.y}px; transform: ${transform};">
+              <img src="${logoUrl}" alt="Logo ${index + 1}" style="height: 64px; width: auto; opacity: 0.95;" />
+            </div>
+          `;
+        });
+      } else {
+        // Fallback to old single logo format
+        const logoPos = positionedElements.logo || { x: '50%', y: 48 };
+        const transform = positionedElements.logo ? 'none' : 'translateX(-50%)';
+        positionedContent += `
+          <div style="position: absolute; left: ${logoPos.x}px; top: ${logoPos.y}px; transform: ${transform};">
+            <img src="${logoUrl}" alt="Logo" style="height: 64px; width: auto; opacity: 0.95;" />
+          </div>
+        `;
+      }
     }
     
     return `
@@ -298,22 +345,49 @@ function generateSlideHTML(slide: SlideContent, branding: BrandingConfig, slideN
   // Original layout when no positioning is specified
   let slideContent = '';
   
-  // Logo for title slides (centered, larger) - only on title slides
+  // Logo for title slides with individual positioning - only on title slides
   if (((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || logoUrl) && slide.type === 'title') {
     if (content.logos && Array.isArray(content.logos) && content.logos.length > 0) {
-      // New multiple logos format - use all logos from content.logos
-      slideContent += '<div style="text-align: center; margin-bottom: 24px;">';
+      // New multiple logos format - use all logos from content.logos with individual positioning
       content.logos.forEach((logoUrl: string, index: number) => {
-        slideContent += `<img src="${logoUrl}" alt="Logo ${index + 1}" style="height: 64px; width: auto; opacity: 0.95; margin-bottom: ${index < content.logos.length - 1 ? '16px' : '0'};" />`;
+        const logoKey = `logo-${index}`;
+        const logoPosition = positionedElements[logoKey];
+        
+        if (logoPosition) {
+          // Use positioned layout
+          slideContent += `
+            <div style="position: absolute; left: ${logoPosition.x}px; top: ${logoPosition.y}px;">
+              <img src="${logoUrl}" alt="Logo ${index + 1}" style="height: 64px; width: auto; opacity: 0.95;" />
+            </div>
+          `;
+        } else {
+          // Use centered layout
+          slideContent += `
+            <div style="text-align: center; margin-bottom: 24px;">
+              <img src="${logoUrl}" alt="Logo ${index + 1}" style="height: 64px; width: auto; opacity: 0.95;" />
+            </div>
+          `;
+        }
       });
-      slideContent += '</div>';
     } else {
       // Fallback to old single logo format
-      slideContent += `
-        <div style="text-align: center; margin-bottom: 24px;">
-          <img src="${logoUrl}" alt="Logo" style="height: 64px; width: auto; opacity: 0.95;" />
-        </div>
-      `;
+      const logoPosition = positionedElements.logo;
+      
+      if (logoPosition) {
+        // Use positioned layout
+        slideContent += `
+          <div style="position: absolute; left: ${logoPosition.x}px; top: ${logoPosition.y}px;">
+            <img src="${logoUrl}" alt="Logo" style="height: 64px; width: auto; opacity: 0.95;" />
+          </div>
+        `;
+      } else {
+        // Use centered layout
+        slideContent += `
+          <div style="text-align: center; margin-bottom: 24px;">
+            <img src="${logoUrl}" alt="Logo" style="height: 64px; width: auto; opacity: 0.95;" />
+          </div>
+        `;
+      }
     }
   }
   
@@ -383,19 +457,26 @@ function generateSlideHTML(slide: SlideContent, branding: BrandingConfig, slideN
     slideContent += `<p style="color: ${textColor}; font-size: 24px; margin-bottom: 32px; line-height: 1.6; font-family: ${fontFamily}; padding-right: 64px;">${content.main_text}</p>`;
   }
 
-    // Logo block - top right for non-title slides
+    // Logo block - positioned individually for non-title slides
     if (((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || logoUrl) && slide.type !== 'title') {
       if (content.logos && Array.isArray(content.logos) && content.logos.length > 0) {
-        // New multiple logos format - use all logos from content.logos
-        slideContent += '<div style="position: absolute; top: 16px; right: 16px; z-index: 20;">';
+        // New multiple logos format - use all logos from content.logos with individual positioning
         content.logos.forEach((logoUrl: string, index: number) => {
-          slideContent += `<img src="${logoUrl}" alt="Logo ${index + 1}" style="height: 40px; width: auto; opacity: 0.95; margin-bottom: ${index < content.logos.length - 1 ? '8px' : '0'};" />`;
+          const logoKey = `logo-${index}`;
+          const logoPosition = positionedElements[logoKey];
+          const logoPos = logoPosition || { x: 16 + (index * 120), y: 16 };
+          
+          slideContent += `
+            <div style="position: absolute; left: ${logoPos.x}px; top: ${logoPos.y}px; z-index: 20;">
+              <img src="${logoUrl}" alt="Logo ${index + 1}" style="height: 40px; width: auto; opacity: 0.95;" />
+            </div>
+          `;
         });
-        slideContent += '</div>';
       } else {
         // Fallback to old single logo format
+        const logoPos = positionedElements.logo || { x: 16, y: 16 };
         slideContent += `
-          <div style="position: absolute; top: 16px; right: 16px; z-index: 20;">
+          <div style="position: absolute; left: ${logoPos.x}px; top: ${logoPos.y}px; z-index: 20;">
             <img src="${logoUrl}" alt="Logo" style="height: 40px; width: auto; opacity: 0.95;" />
           </div>
         `;

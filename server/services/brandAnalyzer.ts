@@ -29,11 +29,22 @@ export interface BrandExtraction {
 }
 
 export class BrandAnalyzer {
+  private ensureProtocol(url: string): string {
+    // Check if URL already has a protocol
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    // Add https:// by default
+    return `https://${url}`;
+  }
+
   async extractBrandFromWebsite(websiteUrl: string): Promise<BrandExtraction> {
     try {
-      console.log(`Analyzing brand elements from: ${websiteUrl}`);
-      const websiteContent = await this.crawlWebsiteForBrandElements(websiteUrl);
-      const brandAnalysis = await this.analyzeBrandElements(websiteContent, websiteUrl);
+      // Ensure URL has a protocol
+      const fullUrl = this.ensureProtocol(websiteUrl);
+      console.log(`Analyzing brand elements from: ${fullUrl}`);
+      const websiteContent = await this.crawlWebsiteForBrandElements(fullUrl);
+      const brandAnalysis = await this.analyzeBrandElements(websiteContent, fullUrl);
       return brandAnalysis;
     } catch (error) {
       console.error('Brand extraction error:', error);

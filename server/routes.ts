@@ -17,6 +17,47 @@ import { generateBrandKitSuggestions, extractBrandLogos } from "./services/brand
 import { BrandAnalyzer } from "./services/brandAnalyzer";
 import { insertProjectSchema, insertBrandKitSchema, insertDeckSchema, insertCrmContactSchema, insertCampaignSchema, insertAudienceSchema } from "@shared/schema";
 
+// Helper function to extract string value from potential object or string
+const extractStringValueUtil = (value: any): string => {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object') {
+    // Handle cases where OpenAI returns {estimate, methodology} or similar nested objects
+    return value.estimate || value.value || value.description || JSON.stringify(value);
+  }
+  return String(value);
+};
+
+// Recursively sanitize nested objects to prevent React rendering errors
+const sanitizeBusinessProfile = (obj: any): any => {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+  
+  if (Array.isArray(obj)) {
+    return obj.map(item => sanitizeBusinessProfile(item));
+  }
+  
+  if (typeof obj === 'object') {
+    // Check if this looks like a nested object that should be a string
+    // (has estimate, methodology, value, description keys)
+    if (obj.estimate !== undefined || obj.methodology !== undefined) {
+      return extractStringValueUtil(obj);
+    }
+    
+    // Otherwise recursively sanitize all properties
+    const sanitized: any = {};
+    for (const key in obj) {
+      if (obj.hasOwnProperty(key)) {
+        sanitized[key] = sanitizeBusinessProfile(obj[key]);
+      }
+    }
+    return sanitized;
+  }
+  
+  return obj;
+};
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint for DigitalOcean
   app.get('/health', (req, res) => {
@@ -129,16 +170,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Object Storage routes
+  // Public must be registered BEFORE the authenticated catch-all route below
+  app.get("/objects/public/:objectPath(*)", async (req: any, res) => {
+    const objectStorageService = new ObjectStorageService();
+    try {
+      const filePath = `public/${req.params.objectPath}`;
+      await objectStorageService.downloadObject(filePath, res);
+    } catch (error) {
+      console.error("Error downloading public object:", error);
+      if (error instanceof ObjectNotFoundError) {
+        return res.sendStatus(404);
+      }
+      return res.sendStatus(500);
+    }
+  });
+
   app.get("/objects/:objectPath(*)", isAuthenticated, async (req: any, res) => {
     const userId = req.user.id;
     const objectStorageService = new ObjectStorageService();
     try {
       // For Supabase, we'll use the file path directly
       const filePath = req.params.objectPath;
-      
-      // Check if user can access this file (basic check - you might want to enhance this)
-      // For now, we'll allow access to authenticated users
-      
       await objectStorageService.downloadObject(filePath, res);
     } catch (error) {
       console.error("Error downloading object:", error);
@@ -154,7 +206,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const objectStorageService = new ObjectStorageService();
       const fileName = `${randomUUID()}-${Date.now()}`;
       const uploadURL = await objectStorageService.getSignedUploadURL(fileName, 'application/octet-stream');
-      res.json({ uploadURL, fileName });
+      const publicPath = `public/${fileName}`;
+      const publicUrl = objectStorageService.getPublicUrl(publicPath);
+      res.json({ uploadURL, fileName, publicPath, publicUrl });
     } catch (error) {
       console.error("Error creating upload URL:", error);
       res.status(500).json({ error: "Failed to create upload URL" });
@@ -226,6 +280,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!project || project.userId !== req.user.id) {
         return res.status(404).json({ message: "Project not found" });
       }
+      
+      // Sanitize business profile to handle any existing nested objects
+      if (project.businessProfile) {
+        project.businessProfile = sanitizeBusinessProfile(project.businessProfile);
+      }
+      
       res.json(project);
     } catch (error) {
       console.error("Error fetching project:", error);
@@ -671,6 +731,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching decks:", error);
       res.status(500).json({ message: "Failed to fetch decks" });
+    }
+  });
+
+  // Reorder slides in deck (MUST come before the general slide update route)
+  app.put(`/api/decks/:deckId/slides/reorder`, isAuthenticated, async (req, res) => {
+    console.log('=== REORDER SLIDES ENDPOINT HIT ===');
+    console.log('Deck ID:', req.params.deckId);
+    console.log('Request body:', req.body);
+    try {
+      const userId = (req as any).user.id;
+      const deckId = req.params.deckId;
+      const { slideOrders } = req.body;
+      
+      // Get the deck first to verify ownership
+      const deck = await storage.getDeck(deckId);
+      if (!deck) {
+        return res.status(404).json({ error: 'Deck not found' });
+      }
+      
+      // Get the project to verify user ownership
+      const project = await storage.getProject(deck.projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(403).json({ error: 'Not authorized to edit this deck' });
+      }
+
+      // Get current slides
+      const slides = Array.isArray(deck.slides) ? [...deck.slides] : [];
+      
+      // Create a map of slideId to new order for quick lookup
+      const orderMap = new Map();
+      slideOrders.forEach(({ slideId, order }: { slideId: string; order: number }) => {
+        orderMap.set(slideId, order);
+      });
+      
+      // Update the order property for each slide
+      const updatedSlides = slides.map(slide => {
+        const newOrder = orderMap.get(slide.id);
+        if (newOrder !== undefined) {
+          return { ...slide, order: newOrder };
+        }
+        return slide;
+      });
+      
+      // Sort slides by the new order
+      updatedSlides.sort((a, b) => (a.order || 0) - (b.order || 0));
+      
+      // Update the deck with the reordered slides
+      await storage.updateDeck(deckId, { slides: updatedSlides });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error reordering slides:', error);
+      res.status(500).json({ error: 'Failed to reorder slides' });
     }
   });
 
@@ -1620,19 +1733,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { text, context } = req.body;
       const userId = req.user.id;
       
+      console.log('=== AI IMPROVE TEXT REQUEST ===');
+      console.log('Project ID:', projectId);
+      console.log('Text:', text);
+      console.log('Context:', context);
+      console.log('User ID:', userId);
+      
       // Verify project belongs to user
       const project = await storage.getProject(projectId);
       if (!project || project.userId !== userId) {
+        console.log('Project not found or unauthorized');
         return res.status(404).json({ message: "Project not found" });
       }
       
+      console.log('Project found:', project.id);
+      console.log('Business profile exists:', !!project.businessProfile);
+      
       const { improveSlideText } = await import('./services/openai');
-      const improvedText = await improveSlideText({
+      const result = await improveSlideText({
         text,
         context,
         businessProfile: project.businessProfile
       });
-      res.json({ improvedText });
+      
+      console.log('AI improvement result:', result);
+      console.log('Result type:', typeof result);
+      console.log('Result keys:', Object.keys(result));
+      
+      // Ensure we return the result in the expected format
+      res.json({ improvedText: result.improvedText });
     } catch (error) {
       console.error("Error improving text with AI:", error);
       res.status(500).json({ message: "Failed to improve text" });
@@ -1721,17 +1850,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post(`/api/decks/:deckId/slides`, isAuthenticated, async (req, res) => {
     try {
       const deckId = req.params.deckId;
-      const slideData = req.body;
+      const slideData = req.body || {};
       
       const deck = await storage.getDeck(deckId);
       if (!deck) {
         return res.status(404).json({ error: 'Deck not found' });
       }
 
-      const newSlide = await storage.createSlide({
-        deckId,
-        ...slideData,
-      });
+      const existingSlides = Array.isArray((deck as any).slides) ? [...(deck as any).slides] : [];
+      const nextOrder = existingSlides.length > 0
+        ? Math.max(...existingSlides.map((s: any) => s.order || 0)) + 1
+        : 1;
+
+      const newSlide = {
+        id: slideData.id || `slide-${Date.now()}`,
+        type: slideData.type || 'content',
+        title: slideData.title || 'New Slide',
+        content: slideData.content || { titles: ['New Slide'], descriptions: [''], bullets: [], logos: [] },
+        order: slideData.order || nextOrder,
+        backgroundColor: slideData.backgroundColor || (deck as any).slides?.[0]?.backgroundColor || '#FFFFFF',
+        textColor: slideData.textColor || (deck as any).slides?.[0]?.textColor || '#333333',
+        styling: slideData.styling || (deck as any).slides?.[0]?.styling || {
+          fontFamily: 'Inter',
+          fontSize: 'medium',
+          titleFontSize: '3xl',
+          descriptionFontSize: 'lg',
+          bulletFontSize: 'base',
+        },
+        positionedElements: slideData.positionedElements || {},
+        layout: slideData.layout || 'standard',
+        visualElements: slideData.visualElements || [],
+      };
+
+      const updatedSlides = [...existingSlides, newSlide];
+
+      await storage.updateDeck(deckId, { slides: updatedSlides });
       
       res.json(newSlide);
     } catch (error) {
@@ -1773,27 +1926,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Reorder slides in deck
-  app.put(`/api/decks/:deckId/slides/reorder`, isAuthenticated, async (req, res) => {
-    try {
-      const deckId = req.params.deckId;
-      const { slideOrders } = req.body;
-      
-      const deck = await storage.getDeck(deckId);
-      if (!deck) {
-        return res.status(404).json({ error: 'Deck not found' });
-      }
-
-      for (const { slideId, order } of slideOrders) {
-        await storage.updateSlide(slideId, { order });
-      }
-      
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Error reordering slides:', error);
-      res.status(500).json({ error: 'Failed to reorder slides' });
-    }
-  });
 
   const httpServer = createServer(app);
   return httpServer;
@@ -1902,7 +2034,7 @@ async function analyzeProjectWithEnhancedResearch(project: any) {
       businessDescription: businessInsights?.businessDescription || websiteData?.keyData?.companyInfo || description || 'Innovative technology company',
       problemStatement: businessInsights?.problemStatement || 'Solving key market challenges through innovative technology',
       businessModel: businessInsights?.businessModel?.revenueStreams?.[0] || businessResearch?.businessModel?.revenueStreams?.[0] || 'SaaS/Subscription',
-      targetMarket: businessInsights?.goToMarketStrategy?.customerSegments?.[0] || marketAnalysis?.targetCustomers?.primarySegment || 'Technology companies',
+      targetMarket: extractStringValueUtil(businessInsights?.goToMarketStrategy?.customerSegments?.[0] || marketAnalysis?.targetCustomers?.primarySegment) || 'Technology companies',
       valueProposition: businessInsights?.valueProposition || 'Innovative solution for market needs',
       keyFeatures: websiteData?.keyData?.products?.slice(0, 5) || ['Innovative features', 'User-friendly interface'],
       teamSize: 'Startup (5-20 employees)',
@@ -1910,7 +2042,7 @@ async function analyzeProjectWithEnhancedResearch(project: any) {
       fundingGoal: '$1M - $5M Series A',
       
       // Additional insights
-      marketOpportunity: marketAnalysis?.marketSize?.totalAddressableMarket || 'Large addressable market',
+      marketOpportunity: extractStringValueUtil(marketAnalysis?.marketSize?.totalAddressableMarket) || 'Large addressable market',
       competitiveAdvantage: businessInsights?.competitiveAdvantages || competitorAnalysis?.competitiveAdvantages || ['Unique technology', 'Strong team'],
       revenueModel: businessResearch?.businessModel?.revenueStreams || ['Subscription', 'Usage-based'],
       customerSegments: marketAnalysis?.targetCustomers?.secondarySegments || ['SMBs', 'Enterprise'],
@@ -1944,7 +2076,10 @@ async function analyzeProjectWithEnhancedResearch(project: any) {
       ].filter(Boolean)
     };
     
-    return businessProfile;
+    // Sanitize the entire business profile to convert nested objects to strings
+    const sanitizedProfile = sanitizeBusinessProfile(businessProfile);
+    
+    return sanitizedProfile;
   } catch (error) {
     console.error("Enhanced analysis error:", error);
     throw new Error("Failed to conduct enhanced business analysis");
