@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
     "build": "mkdir -p dist/public/assets && cp client/index.html dist/public/ && cp client/src/index.css dist/public/assets/ && cp -r migrations dist/ && cp -r shared dist/ && cp drizzle.config.ts dist/ && cp tsconfig.json dist/ && esbuild client/src/main.tsx --bundle --format=esm --outdir=dist/public/assets --minify --target=es2020 --external:react --external:react-dom && esbuild server/index.ts --platform=node --external:./node_modules/* --bundle --format=esm --outdir=dist --minify --target=node20 --alias:@shared=./shared",
@@ -53,7 +57,6 @@
     "@radix-ui/react-tooltip": "^1.2.0",
     "@replit/vite-plugin-cartographer": "^0.3.2",
     "@replit/vite-plugin-runtime-error-modal": "^0.0.3",
-    "@rollup/rollup-darwin-arm64": "^4.52.5",
     "@sendgrid/mail": "^8.1.5",
     "@supabase/storage-js": "^2.11.0",
     "@supabase/supabase-js": "^2.56.0",
