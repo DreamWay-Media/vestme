@@ -18,7 +18,23 @@ const discoverySchema = z.object({
   name: z.string().min(1, "Project name is required"),
   description: z.string().min(10, "Description must be at least 10 characters"),
   industry: z.string().optional(),
-  websiteUrl: z.string().url("Please enter a valid URL").optional().or(z.literal("")),
+  websiteUrl: z.string().optional().refine((url) => {
+    if (!url || url.trim() === '') return true; // Allow empty/optional
+    const trimmedUrl = url.trim();
+    // Check if URL starts with http:// or https://
+    if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
+      return false;
+    }
+    // Validate URL format
+    try {
+      new URL(trimmedUrl);
+      return true;
+    } catch {
+      return false;
+    }
+  }, {
+    message: "Website URL must start with http:// or https:// and be a valid URL format"
+  }),
 });
 
 interface DiscoveryFormProps {
@@ -266,7 +282,10 @@ export default function DiscoveryForm({ onProjectCreated, onClose }: DiscoveryFo
                   {...field} 
                 />
               </FormControl>
-              <p className="text-xs text-gray-500 mt-1">Our AI will analyze your website for additional context</p>
+              <p className="text-xs text-gray-500 mt-1">
+                Our AI will analyze your website for additional context. 
+                <span className="text-red-500 font-medium"> Must include http:// or https://</span>
+              </p>
               <FormMessage />
             </FormItem>
           )}

@@ -30,7 +30,7 @@ const projectSchema = insertProjectSchema.pick({
   name: insertProjectSchema.shape.name.min(1, "Project name is required"),
   description: insertProjectSchema.shape.description.optional(),
   industry: insertProjectSchema.shape.industry.optional(),
-  websiteUrl: insertProjectSchema.shape.websiteUrl.optional(),
+  websiteUrl: insertProjectSchema.shape.websiteUrl,
 });
 
 export default function CreateProject() {

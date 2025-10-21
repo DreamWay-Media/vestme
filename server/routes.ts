@@ -300,10 +300,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Project not found" });
       }
 
-      const updatedProject = await storage.updateProject(req.params.id, req.body);
+      // Validate the update data using the schema
+      const updateData = insertProjectSchema.partial().parse(req.body);
+      
+      const updatedProject = await storage.updateProject(req.params.id, updateData);
       res.json(updatedProject);
     } catch (error) {
       console.error("Error updating project:", error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid data provided", details: error.message });
+      }
       res.status(500).json({ message: "Failed to update project" });
     }
   });
