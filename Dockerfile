@@ -1,6 +1,10 @@
 # Use Node.js 20 LTS for better performance and compatibility
 FROM node:20-alpine AS builder
 
+# Build arguments for Vite environment variables
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+
 # Set working directory
 WORKDIR /app
 
@@ -18,6 +22,10 @@ RUN npm ci && npm cache clean --force
 
 # Copy source code
 COPY . .
+
+# Set Vite environment variables for build
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 
 # Ensure build script is executable and has correct line endings
 RUN chmod +x scripts/docker-build.sh && \

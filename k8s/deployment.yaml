@@ -29,6 +29,7 @@ spec:
                 secretKeyRef:
                   name: pitch-perfect-secrets
                   key: database-url
+            # Server-side Supabase credentials
             - name: SUPABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -39,6 +40,8 @@ spec:
                 secretKeyRef:
                   name: pitch-perfect-secrets
                   key: supabase-anon-key
+            # Note: VITE_* variables must be embedded at build time via Docker build args
+            # They cannot be injected at runtime for the frontend
             - name: SUPABASE_SERVICE_ROLE_KEY
               valueFrom:
                 secretKeyRef:
