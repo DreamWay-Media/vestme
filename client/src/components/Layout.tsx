@@ -2,13 +2,23 @@ import { useAuth } from "@/hooks/useAuth";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { LogOut, Settings, User } from "lucide-react";
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
 export default function Layout({ children }: LayoutProps) {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const [location] = useLocation();
 
   const navigation = [
@@ -18,6 +28,25 @@ export default function Layout({ children }: LayoutProps) {
     { name: "Settings", href: "/settings", icon: "fas fa-cog", current: location === "/settings" },
   ];
 
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      window.location.href = "/";
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
+  };
+
+  const getUserInitials = () => {
+    if (user?.firstName && user?.lastName) {
+      return `${user.firstName[0]}${user.lastName[0]}`.toUpperCase();
+    }
+    if (user?.email) {
+      return user.email.substring(0, 2).toUpperCase();
+    }
+    return "U";
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -25,12 +54,14 @@ export default function Layout({ children }: LayoutProps) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center">
-                  <i className="fas fa-chart-line text-white text-sm"></i>
+              <Link href="/">
+                <div className="flex items-center space-x-3 cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <img src="/vestme-icon.svg" alt="VestMe.ai" className="w-8 h-8" />
+                    <span className="text-xl font-bold text-[#2D1B4E]">vestme.ai</span>
+                  </div>
                 </div>
-                <h1 className="text-xl font-bold text-gray-900">PitchPerfect</h1>
-              </div>
+              </Link>
             </div>
             
             <nav className="hidden md:flex items-center space-x-8">
@@ -52,17 +83,50 @@ export default function Layout({ children }: LayoutProps) {
               <button className="p-2 text-gray-400 hover:text-gray-600">
                 <i className="fas fa-bell text-lg"></i>
               </button>
-              <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
-                {(user as any)?.profileImageUrl ? (
-                  <img 
-                    src={(user as any).profileImageUrl} 
-                    alt="Profile" 
-                    className="w-8 h-8 rounded-full object-cover"
-                  />
-                ) : (
-                  <i className="fas fa-user text-gray-600 text-sm"></i>
-                )}
-              </div>
+              
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="relative h-10 w-10 rounded-full">
+                    <Avatar className="h-10 w-10">
+                      <AvatarImage 
+                        src={user?.profileImageUrl} 
+                        alt={user?.email || "User"} 
+                      />
+                      <AvatarFallback className="bg-primary-500 text-white">
+                        {getUserInitials()}
+                      </AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-56" align="end" forceMount>
+                  <DropdownMenuLabel className="font-normal">
+                    <div className="flex flex-col space-y-1">
+                      <p className="text-sm font-medium leading-none">
+                        {user?.firstName && user?.lastName 
+                          ? `${user.firstName} ${user.lastName}`
+                          : user?.email}
+                      </p>
+                      <p className="text-xs leading-none text-muted-foreground">
+                        {user?.email}
+                      </p>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/settings">
+                      <div className="flex items-center w-full cursor-pointer">
+                        <Settings className="mr-2 h-4 w-4" />
+                        <span>Settings</span>
+                      </div>
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-red-600">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    <span>Log out</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </div>
