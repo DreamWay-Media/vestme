@@ -64,7 +64,7 @@ const sidebarItems = [
     icon: Send,
     path: "/campaign",
     description: "Investor outreach and campaigns",
-    comingSoon: true
+    comingSoon: false
   },
   {
     id: "analytics",
@@ -72,7 +72,7 @@ const sidebarItems = [
     icon: BarChart3,
     path: "/analytics",
     description: "Performance metrics and insights",
-    comingSoon: true
+    comingSoon: false
   },
   {
     id: "settings",
