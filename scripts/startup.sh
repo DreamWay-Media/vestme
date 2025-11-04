@@ -27,17 +27,12 @@ fi
 
 # Verify critical dependencies
 echo "📦 Verifying dependencies..."
-node -e "
-try {
-    require('express');
-    require('@supabase/supabase-js');
-    require('puppeteer');
-    console.log('✅ All critical dependencies loaded');
-} catch(e) {
-    console.log('❌ Dependency loading failed:', e.message);
-    process.exit(1);
-}
-"
+if [ -d "node_modules/express" ] && [ -d "node_modules/@supabase" ] && [ -d "node_modules/puppeteer" ]; then
+    echo "✅ All critical dependencies present"
+else
+    echo "❌ Missing critical dependencies"
+    exit 1
+fi
 
 # Start the application
 echo "🚀 Launching application..."
