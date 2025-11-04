@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
-    "build": "mkdir -p dist/public/assets && cp -r migrations dist/ && cp -r shared dist/ && cp drizzle.config.ts dist/ && cp tsconfig.json dist/ && esbuild client/src/main.tsx --bundle --format=esm --outdir=dist/public/assets --minify --target=es2020 --external:react --external:react-dom && esbuild server/index.ts --platform=node --external:./node_modules/* --bundle --format=esm --outdir=dist --minify --target=node20 --alias:@shared=./shared && sed 's|src=\"/src/main.tsx\"|src=\"/assets/main.js\"|g' client/index.html > dist/public/index.html && cp -r client/public/* dist/public/ 2>/dev/null || true",
+    "build": "vite build && mkdir -p dist && cp -r migrations dist/ && cp -r shared dist/ && cp drizzle.config.ts dist/ && cp tsconfig.json dist/ && esbuild server/index.ts --platform=node --external:./node_modules/* --bundle --format=esm --outdir=dist --minify --target=node20 --alias:@shared=./shared",
     "build:prod": "./scripts/build-prod.sh",
     "build:docker": "./scripts/docker-build.sh",
     "test:build": "./scripts/test-build.sh",
