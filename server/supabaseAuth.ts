@@ -65,6 +65,38 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     
     console.log('Token verified successfully for user:', user.id);
     
+    // Ensure user exists in local database
+    try {
+      const { storage } = await import('./storage');
+      
+      // Check if user exists in database
+      const dbUser = await storage.getUser(user.id);
+      
+      if (!dbUser) {
+        console.log('User not found in database, creating record for:', user.id);
+        
+        // Extract user data from Supabase user metadata
+        const fullName = user.user_metadata?.full_name || '';
+        const firstName = fullName.split(' ')[0] || '';
+        const lastName = fullName.split(' ').slice(1).join(' ') || '';
+        
+        // Create user in database
+        await storage.upsertUser({
+          id: user.id,
+          email: user.email || '',
+          firstName,
+          lastName,
+          profileImageUrl: user.user_metadata?.avatar_url || '',
+        });
+        
+        console.log('User record created in database for:', user.id);
+      }
+    } catch (dbError) {
+      console.error('Error ensuring user exists in database:', dbError);
+      // Continue anyway - the user is authenticated via Supabase
+      // This will cause issues downstream, but better to log and continue
+    }
+    
     // Add user to request object
     (req as any).user = user;
     next();
