@@ -61,6 +61,9 @@ Please provide only the improved text, without any additional explanations or fo
   }
 }
 
+/**
+ * Generate content for a specific template/slide type based on business profile
+ */
 // Additional functions for compatibility with existing routes
 export async function analyzeBusinessFromData(data: any) {
   // This function was already implemented elsewhere
@@ -68,19 +71,269 @@ export async function analyzeBusinessFromData(data: any) {
   throw new Error('Function not implemented in this service');
 }
 
+/**
+ * Generate pitch deck slides using available templates
+ */
+async function generateTemplateBasedSlides(
+  businessProfile: any,
+  brandingInfo: any,
+  templateManager: any
+) {
+  console.log('🎨 Starting template-based slide generation');
+  
+  // Fetch all available templates
+  const allTemplates = await templateManager.getAllTemplates();
+  console.log(`Found ${allTemplates.length} templates`);
+  
+  // Define the pitch deck structure - what slides we want to create
+  const deckStructure = [
+    { slideType: 'title', templateCategory: 'title', title: 'Company Overview' },
+    { slideType: 'problem', templateCategory: 'content', title: 'The Problem' },
+    { slideType: 'solution', templateCategory: 'content', title: 'Our Solution' },
+    { slideType: 'market', templateCategory: 'content', title: 'Market Opportunity' },
+    { slideType: 'business-model', templateCategory: 'content', title: 'Business Model' },
+    { slideType: 'competitive-advantage', templateCategory: 'content', title: 'Competitive Advantage' },
+    { slideType: 'financials', templateCategory: 'data', title: 'Financial Projections' },
+    { slideType: 'team', templateCategory: 'content', title: 'Our Team' },
+    { slideType: 'roadmap', templateCategory: 'content', title: 'Product Roadmap' },
+    { slideType: 'closing', templateCategory: 'closing', title: 'Investment Opportunity' },
+  ];
+  
+  // Group templates by category
+  const templatesByCategory: Record<string, any[]> = {};
+  for (const template of allTemplates) {
+    if (!templatesByCategory[template.category]) {
+      templatesByCategory[template.category] = [];
+    }
+    templatesByCategory[template.category].push(template);
+  }
+  
+  console.log('Templates by category:', Object.keys(templatesByCategory).map(cat => `${cat}: ${templatesByCategory[cat].length}`));
+  
+  // Generate content for each slide using AI
+  const slides = [];
+  for (let i = 0; i < deckStructure.length; i++) {
+    const slideSpec = deckStructure[i];
+    const availableTemplates = templatesByCategory[slideSpec.templateCategory] || [];
+    
+    if (availableTemplates.length === 0) {
+      console.warn(`⚠️ No templates found for category: ${slideSpec.templateCategory}, skipping slide: ${slideSpec.title}`);
+      continue;
+    }
+    
+    // Select the most appropriate template (for now, use the first one or default)
+    const selectedTemplate = availableTemplates.find(t => t.isDefault) || availableTemplates[0];
+    
+    console.log(`📄 Generating slide ${i + 1}/${deckStructure.length}: "${slideSpec.title}" using template "${selectedTemplate.name}"`);
+    
+    // Generate content for this slide using AI
+    const slideContent = await generateSlideContentForTemplate({
+      templateCategory: selectedTemplate.category,
+      templateName: selectedTemplate.name,
+      businessProfile,
+      slideType: slideSpec.slideType,
+      slideTitle: slideSpec.title,
+      existingContent: null,
+    });
+    
+    // Apply the template to create the slide
+    const appliedSlide = await templateManager.applyTemplate(
+      selectedTemplate.id,
+      'system', // userId
+      slideContent,
+      brandingInfo,
+      {} // no overrides
+    );
+    
+    // Add order and ensure proper structure
+    appliedSlide.order = i + 1;
+    appliedSlide.title = slideContent.title || slideSpec.title;
+    
+    slides.push(appliedSlide);
+  }
+  
+  console.log(`✅ Generated ${slides.length} slides using templates`);
+  return slides;
+}
+
+/**
+ * Generate slide content for a specific template using AI
+ */
+export async function generateSlideContentForTemplate(params: {
+  templateCategory: string;
+  templateName: string;
+  businessProfile: any;
+  slideType?: string;
+  slideTitle?: string;
+  existingContent?: any;
+}) {
+  const { templateCategory, templateName, businessProfile, slideType, slideTitle, existingContent } = params;
+  
+  // Build contextual prompt based on slide type
+  let specificGuidance = '';
+  
+  switch (slideType) {
+    case 'title':
+      specificGuidance = `This is the TITLE SLIDE. Generate:
+- title: Company name
+- tagline: Compelling one-liner value proposition
+- description: Brief description of what the company does (1-2 sentences)`;
+      break;
+      
+    case 'problem':
+      specificGuidance = `This is the PROBLEM slide. Generate:
+- title: Clear problem statement
+- description: Explain the problem in 2-3 sentences
+- bullets: 3-4 specific pain points or challenges that customers face`;
+      break;
+      
+    case 'solution':
+      specificGuidance = `This is the SOLUTION slide. Generate:
+- title: Your solution name or headline
+- description: How your solution solves the problem (2-3 sentences)
+- bullets: 3-4 key features or benefits of your solution`;
+      break;
+      
+    case 'market':
+      specificGuidance = `This is the MARKET OPPORTUNITY slide. Generate:
+- title: Market opportunity headline
+- description: Market size and growth potential (2-3 sentences)
+- bullets: 3-4 market statistics, TAM/SAM/SOM, or growth trends`;
+      break;
+      
+    case 'business-model':
+      specificGuidance = `This is the BUSINESS MODEL slide. Generate:
+- title: Business model headline
+- description: How you make money (2-3 sentences)
+- bullets: 3-4 revenue streams, pricing strategy, or unit economics`;
+      break;
+      
+    case 'competitive-advantage':
+      specificGuidance = `This is the COMPETITIVE ADVANTAGE slide. Generate:
+- title: Competitive positioning headline
+- description: What makes you unique (2-3 sentences)
+- bullets: 3-4 key differentiators or competitive advantages`;
+      break;
+      
+    case 'financials':
+      specificGuidance = `This is the FINANCIAL PROJECTIONS slide. Generate:
+- title: Financial projections headline
+- description: Revenue model and projections summary (2-3 sentences)
+- bullets: 3-4 key financial metrics, revenue projections, or milestones`;
+      break;
+      
+    case 'team':
+      specificGuidance = `This is the TEAM slide. Generate:
+- title: Team headline
+- description: Team overview and expertise (2-3 sentences)
+- bullets: 3-4 key team members with their roles and backgrounds`;
+      break;
+      
+    case 'roadmap':
+      specificGuidance = `This is the ROADMAP slide. Generate:
+- title: Product roadmap headline
+- description: Growth strategy overview (2-3 sentences)
+- bullets: 3-4 key milestones, product features, or strategic initiatives`;
+      break;
+      
+    case 'closing':
+      specificGuidance = `This is the CLOSING/CALL TO ACTION slide. Generate:
+- title: Investment opportunity headline
+- description: The ask and what investors get (2-3 sentences)
+- bullets: 3-4 reasons to invest, funding ask, or next steps`;
+      break;
+      
+    default:
+      specificGuidance = `Generate appropriate content for this slide`;
+  }
+  
+  const prompt = `You are generating content for a pitch deck slide.
+
+Business Information:
+${JSON.stringify(businessProfile, null, 2)}
+
+Slide Type: ${slideType || templateCategory}
+Slide Title: ${slideTitle || 'Slide Content'}
+Template: ${templateName}
+
+${specificGuidance}
+
+IMPORTANT GUIDELINES:
+1. Use REAL information from the businessProfile
+2. Be specific and concrete - no generic placeholders
+3. Keep descriptions concise (2-3 sentences max)
+4. Provide 3-4 bullet points that are meaningful and specific
+5. Extract and use actual business data, numbers, and facts
+6. Make it compelling and investor-ready
+
+Return a JSON object with this structure:
+{
+  "title": "Specific slide title",
+  "tagline": "Optional tagline (for title slides)",
+  "description": "2-3 sentence description",
+  "bullets": [
+    "Specific bullet point 1",
+    "Specific bullet point 2",
+    "Specific bullet point 3"
+  ]
+}
+
+Use ONLY information from the businessProfile. Be specific and meaningful.`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "You are a pitch deck content generator. Create specific, compelling content based on real business information. Never use generic placeholders."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.7,
+    });
+
+    const content = JSON.parse(response.choices[0].message.content || '{}');
+    console.log(`Generated content for "${slideType}" slide:`, content);
+    
+    return content;
+  } catch (error) {
+    console.error('Error generating slide content:', error);
+    // Return fallback content
+    return {
+      title: slideTitle || templateName,
+      description: existingContent?.description || `Content for ${templateName}`,
+      bullets: existingContent?.bullets || []
+    };
+  }
+}
+
 export async function generatePitchDeckSlides(data: any) {
-  const { businessProfile, brandingInfo } = data;
+  const { businessProfile, brandingInfo, templateManager } = data;
   
   console.log('generatePitchDeckSlides called with:', {
     hasBusinessProfile: !!businessProfile,
     businessProfileKeys: businessProfile ? Object.keys(businessProfile) : [],
     hasBrandingInfo: !!brandingInfo,
-    brandingInfoKeys: brandingInfo ? Object.keys(brandingInfo) : []
+    brandingInfoKeys: brandingInfo ? Object.keys(brandingInfo) : [],
+    hasTemplateManager: !!templateManager
   });
   
   if (!businessProfile) {
     throw new Error('Business profile is required to generate pitch deck slides');
   }
+  
+  // If templateManager is provided, use template-based generation
+  if (templateManager) {
+    return await generateTemplateBasedSlides(businessProfile, brandingInfo, templateManager);
+  }
+  
+  // Otherwise fall back to legacy generation
+  console.warn('⚠️ No templateManager provided, using legacy slide generation');
 
   const prompt = `You are a creative and talented pitch deck designer. Your mission is to create BEAUTIFUL, VISUALLY STUNNING slides that showcase the brand's identity while ensuring perfect readability and visual appeal.
 

@@ -40,6 +40,17 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
+  // SPA fallback - catch any non-API 404s and serve index.html
+  // This prevents the brief 404 flash when refreshing on client-side routes
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    // Only handle GET requests for non-API routes
+    if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/objects')) {
+      // Let the Vite middleware or static file server handle it
+      return next();
+    }
+    next();
+  });
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

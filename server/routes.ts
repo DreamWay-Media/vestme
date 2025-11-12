@@ -8,7 +8,8 @@ import {
   ObjectNotFoundError,
 } from "./objectStorage";
 
-import { analyzeBusinessFromData, generatePitchDeckSlides, enhanceBusinessDescription } from "./services/openai";
+import { analyzeBusinessFromData, generatePitchDeckSlides, enhanceBusinessDescription, generateSlideContentForTemplate } from "./services/openai";
+import * as openai from "./services/openai";
 import { FinancialAnalyzer } from "./services/financialAnalyzer";
 import { generatePitchDeckPDF, validateSlideContent } from "./services/pdfGenerator";
 import { WebsiteCrawler } from "./services/websiteCrawler";
@@ -16,6 +17,8 @@ import { BusinessResearcher } from "./services/businessResearcher";
 import { generateBrandKitSuggestions, extractBrandLogos } from "./services/brandKit";
 import { BrandAnalyzer } from "./services/brandAnalyzer";
 import { insertProjectSchema, insertBrandKitSchema, insertDeckSchema, insertCrmContactSchema, insertCampaignSchema, insertAudienceSchema } from "@shared/schema";
+import { templateManager } from "./templates/templateManager";
+import { subscriptionService } from "./services/subscriptionService";
 
 // Helper function to extract string value from potential object or string
 const extractStringValueUtil = (value: any): string => {
@@ -66,6 +69,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       timestamp: new Date().toISOString(),
       uptime: process.uptime()
     });
+  });
+
+  // Serve template thumbnail placeholders
+  app.get('/templates/thumbnails/:filename', (req, res) => {
+    const { filename } = req.params;
+    const templateName = filename.replace('.png', '').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    
+    // Generate SVG placeholder
+    const svg = `
+      <svg width="400" height="225" xmlns="http://www.w3.org/2000/svg">
+        <rect width="400" height="225" fill="#f3f4f6"/>
+        <rect x="20" y="20" width="360" height="185" fill="white" rx="8"/>
+        <circle cx="200" cy="90" r="30" fill="#e5e7eb"/>
+        <rect x="150" y="135" width="100" height="10" fill="#d1d5db" rx="5"/>
+        <rect x="130" y="155" width="140" height="8" fill="#e5e7eb" rx="4"/>
+        <text x="200" y="200" font-family="Arial, sans-serif" font-size="14" fill="#6b7280" text-anchor="middle">${templateName}</text>
+      </svg>
+    `;
+    
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+    res.send(svg);
   });
 
   // Auth middleware
@@ -687,7 +712,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const slides = await generatePitchDeckSlides({
         businessProfile: project.businessProfile as any,
-        brandingInfo
+        brandingInfo,
+        templateManager // Pass template manager for template-based generation
       });
 
       const deckData = insertDeckSchema.parse({
@@ -1932,6 +1958,712 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============================================================================
+  // TEMPLATE ROUTES
+  // ============================================================================
+
+  // Get all templates for current user (with access control)
+  app.get('/api/templates', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { category, tags, search } = req.query;
+      
+      const templates = await templateManager.getTemplatesForUser(userId, {
+        category: category as string,
+        tags: tags ? (tags as string).split(',') : undefined,
+        searchTerm: search as string,
+      });
+      
+      res.json(templates);
+    } catch (error) {
+      console.error('Error fetching templates:', error);
+      res.status(500).json({ error: 'Failed to fetch templates' });
+    }
+  });
+
+  // Get single template by ID
+  app.get('/api/templates/:templateId', isAuthenticated, async (req: any, res) => {
+    try {
+      const template = await templateManager.getTemplate(req.params.templateId);
+      
+      if (!template) {
+        return res.status(404).json({ error: 'Template not found' });
+      }
+      
+      // Check access control
+      const userTier = await subscriptionService.getUserTier(req.user.id);
+      const isLocked = templateManager.isTemplateLocked(template, userTier);
+      
+      res.json({
+        ...template,
+        isLocked,
+        requiresUpgrade: template.accessTier === 'premium' && userTier === 'free',
+      });
+    } catch (error) {
+      console.error('Error fetching template:', error);
+      res.status(500).json({ error: 'Failed to fetch template' });
+    }
+  });
+
+  // Get default template
+  app.get('/api/templates/default/get', isAuthenticated, async (req: any, res) => {
+    try {
+      const template = await templateManager.getDefaultTemplate();
+      res.json(template);
+    } catch (error) {
+      console.error('Error fetching default template:', error);
+      res.status(500).json({ error: 'Failed to fetch default template' });
+    }
+  });
+
+  // Apply template to create a new slide
+  app.post('/api/decks/:deckId/slides/from-template', isAuthenticated, async (req: any, res) => {
+    try {
+      const { templateId, content, overrides } = req.body;
+      const deckId = req.params.deckId;
+      const userId = req.user.id;
+      
+      if (!templateId) {
+        return res.status(400).json({ error: 'Template ID is required' });
+      }
+      
+      const deck = await storage.getDeck(deckId);
+      if (!deck) {
+        return res.status(404).json({ error: 'Deck not found' });
+      }
+      
+      // Get project for business profile
+      const project = await storage.getProject(deck.projectId);
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+      
+      // Get brand kit
+      const brandKit = deck.brandKitId ? await storage.getBrandKit(deck.brandKitId) : null;
+      
+      // Get template information
+      const template = await templateManager.getTemplate(templateId);
+      if (!template) {
+        return res.status(404).json({ error: 'Template not found' });
+      }
+      
+      // Helper to check if content is meaningful
+      const hasContent = (obj: any): boolean => {
+        if (!obj || typeof obj !== 'object') return false;
+        return Object.values(obj).some(val => {
+          if (Array.isArray(val)) return val.length > 0 && val.some(v => v && String(v).trim());
+          return val !== null && val !== undefined && String(val).trim() !== '';
+        });
+      };
+      
+      // Generate AI content if no meaningful content provided
+      let slideContent = content;
+      if (!hasContent(content)) {
+        console.log('No meaningful content provided, generating AI content for new slide...');
+        try {
+          const aiContent = await openai.generateSlideContentForTemplate({
+            templateCategory: template.category,
+            templateName: template.name,
+            businessProfile: project.businessProfile,
+            existingContent: null
+          });
+          
+          console.log('AI generated content for new slide:', aiContent);
+          slideContent = aiContent;
+        } catch (aiError) {
+          console.error('Error generating AI content:', aiError);
+          // Use template name as fallback
+          slideContent = { title: template.name };
+        }
+      }
+      
+      // Apply template
+      const newSlide = await templateManager.applyTemplate(
+        templateId,
+        userId,
+        slideContent,
+        brandKit,
+        overrides
+      );
+      
+      // Add to deck
+      const existingSlides = Array.isArray(deck.slides) ? [...deck.slides] : [];
+      const nextOrder = existingSlides.length > 0
+        ? Math.max(...existingSlides.map((s: any) => s.order || 0)) + 1
+        : 1;
+      
+      newSlide.order = nextOrder;
+      const updatedSlides = [...existingSlides, newSlide];
+      
+      await storage.updateDeck(deckId, { slides: updatedSlides });
+      
+      res.json(newSlide);
+    } catch (error: any) {
+      console.error('Error applying template:', error);
+      
+      if (error.message.includes('premium subscription')) {
+        return res.status(403).json({ 
+          error: error.message,
+          upgradeRequired: true 
+        });
+      }
+      
+      res.status(500).json({ error: 'Failed to apply template' });
+    }
+  });
+
+  // Apply template to an existing slide
+  app.put('/api/decks/:deckId/slides/:slideId/apply-template', isAuthenticated, async (req: any, res) => {
+    try {
+      const { templateId, content, overrides } = req.body;
+      const { deckId, slideId } = req.params;
+      const userId = req.user.id;
+      
+      console.log('=== APPLY TEMPLATE TO SLIDE ===');
+      console.log('Template ID:', templateId);
+      console.log('Deck ID:', deckId);
+      console.log('Slide ID:', slideId);
+      console.log('User ID:', userId);
+      
+      if (!templateId) {
+        console.error('Missing template ID');
+        return res.status(400).json({ error: 'Template ID is required' });
+      }
+      
+      const deck = await storage.getDeck(deckId);
+      if (!deck) {
+        console.error('Deck not found:', deckId);
+        return res.status(404).json({ error: 'Deck not found' });
+      }
+      
+      // Verify ownership
+      const project = await storage.getProject(deck.projectId);
+      if (!project || project.userId !== userId) {
+        console.error('Not authorized. Project userId:', project?.userId, 'Request userId:', userId);
+        return res.status(403).json({ error: 'Not authorized to edit this deck' });
+      }
+      
+      // Find the slide
+      const existingSlides = Array.isArray(deck.slides) ? [...deck.slides] : [];
+      console.log('Total slides in deck:', existingSlides.length);
+      console.log('Looking for slide ID:', slideId);
+      console.log('Available slide IDs:', existingSlides.map((s: any) => s.id));
+      
+      const slideIndex = existingSlides.findIndex((s: any) => s.id === slideId);
+      
+      if (slideIndex === -1) {
+        console.error('Slide not found. Available IDs:', existingSlides.map((s: any) => s.id));
+        return res.status(404).json({ error: 'Slide not found' });
+      }
+      
+      const existingSlide = existingSlides[slideIndex];
+      console.log('Found slide at index:', slideIndex);
+      
+      // Get brand kit
+      const brandKit = deck.brandKitId ? await storage.getBrandKit(deck.brandKitId) : null;
+      console.log('Brand kit ID:', deck.brandKitId);
+      
+      // Get template information
+      const template = await templateManager.getTemplate(templateId);
+      if (!template) {
+        console.error('Template not found:', templateId);
+        return res.status(404).json({ error: 'Template not found' });
+      }
+      
+      console.log('Template info:', { 
+        name: template.name, 
+        category: template.category 
+      });
+      console.log('Content received from frontend:', JSON.stringify(content, null, 2));
+      console.log('Project has businessProfile:', !!project.businessProfile);
+      if (project.businessProfile) {
+        console.log('Business profile keys:', Object.keys(project.businessProfile));
+        console.log('Company name:', project.businessProfile.companyName || project.businessProfile.businessName);
+      }
+      
+      // Helper to check if content is meaningful
+      const hasContent = (obj: any): boolean => {
+        if (!obj || typeof obj !== 'object') return false;
+        return Object.values(obj).some(val => {
+          if (Array.isArray(val)) return val.length > 0 && val.some(v => v && String(v).trim());
+          return val !== null && val !== undefined && String(val).trim() !== '';
+        });
+      };
+      
+      // Generate AI content if no meaningful content provided
+      let slideContent = content;
+      if (!hasContent(content)) {
+        console.log('No meaningful content provided, generating with AI...');
+        try {
+          const aiContent = await openai.generateSlideContentForTemplate({
+            templateCategory: template.category,
+            templateName: template.name,
+            businessProfile: project.businessProfile,
+            existingContent: existingSlide.content
+          });
+          
+          console.log('AI generated content:', aiContent);
+          slideContent = aiContent;
+        } catch (aiError) {
+          console.error('Error generating AI content:', aiError);
+          // Use existing content as fallback
+          slideContent = existingSlide.content || { title: template.name };
+        }
+      }
+      
+      console.log('Applying template with content:', JSON.stringify(slideContent, null, 2));
+      
+      const updatedSlide = await templateManager.applyTemplate(
+        templateId,
+        userId,
+        slideContent,
+        brandKit,
+        overrides
+      );
+      
+      console.log('Template applied successfully');
+      console.log('Updated slide preview:', JSON.stringify({
+        id: updatedSlide.id,
+        type: updatedSlide.type,
+        title: updatedSlide.title,
+        hasStyling: !!updatedSlide.styling,
+        stylingKeys: updatedSlide.styling ? Object.keys(updatedSlide.styling) : [],
+        hasContent: !!updatedSlide.content,
+        contentKeys: updatedSlide.content ? Object.keys(updatedSlide.content) : []
+      }, null, 2));
+      
+      // Preserve slide ID and order
+      updatedSlide.id = slideId;
+      updatedSlide.order = existingSlide.order;
+      
+      // Replace the slide
+      existingSlides[slideIndex] = updatedSlide;
+      
+      console.log('Updating deck with modified slides...');
+      await storage.updateDeck(deckId, { slides: existingSlides });
+      
+      console.log('✓ Template applied to slide successfully');
+      res.json(updatedSlide);
+    } catch (error: any) {
+      console.error('=== ERROR APPLYING TEMPLATE TO SLIDE ===');
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+      
+      if (error.message && error.message.includes('premium subscription')) {
+        return res.status(403).json({ 
+          error: error.message,
+          upgradeRequired: true 
+        });
+      }
+      
+      res.status(500).json({ 
+        error: error.message || 'Failed to apply template to slide',
+        details: error.toString()
+      });
+    }
+  });
+
+  // Create custom template from existing slide
+  app.post('/api/templates/from-slide', isAuthenticated, async (req: any, res) => {
+    try {
+      const { slideId, deckId, name, description } = req.body;
+      const userId = req.user.id;
+      
+      if (!slideId || !deckId || !name) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      const deck = await storage.getDeck(deckId);
+      if (!deck) {
+        return res.status(404).json({ error: 'Deck not found' });
+      }
+      
+      const slide = Array.isArray(deck.slides) 
+        ? deck.slides.find((s: any) => s.id === slideId)
+        : null;
+      
+      if (!slide) {
+        return res.status(404).json({ error: 'Slide not found' });
+      }
+      
+      const template = await templateManager.createCustomTemplate(
+        userId,
+        slide,
+        name,
+        description
+      );
+      
+      res.json(template);
+    } catch (error) {
+      console.error('Error creating template from slide:', error);
+      res.status(500).json({ error: 'Failed to create template' });
+    }
+  });
+
+  // Get user's subscription status
+  app.get('/api/user/subscription', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const tier = await subscriptionService.getUserTier(userId);
+      const subscription = await subscriptionService.getActiveSubscription(userId);
+      
+      res.json({
+        tier,
+        subscription,
+        isPremium: tier !== 'free',
+      });
+    } catch (error) {
+      console.error('Error fetching subscription:', error);
+      res.status(500).json({ error: 'Failed to fetch subscription' });
+    }
+  });
+
+  // ============================================================================
+  // ADMIN TEMPLATE ROUTES (require admin role)
+  // ============================================================================
+
+  // Helper to check if user is admin (you may want to implement proper role checking)
+  const isAdmin = (req: any, res: any, next: any) => {
+    // TODO: Implement proper admin role checking
+    // For now, just pass through
+    next();
+  };
+
+  // Get all templates (admin view, no access control filtering)
+  app.get('/api/admin/templates', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { category, tags, search, isEnabled } = req.query;
+      
+      const templates = await templateManager.getAllTemplates({
+        category: category as string,
+        tags: tags ? (tags as string).split(',') : undefined,
+        searchTerm: search as string,
+        isEnabled: isEnabled !== undefined ? isEnabled === 'true' : undefined,
+      });
+      
+      res.json(templates);
+    } catch (error) {
+      console.error('Error fetching all templates:', error);
+      res.status(500).json({ error: 'Failed to fetch templates' });
+    }
+  });
+
+  // Get single template by ID (admin view with full details)
+  app.get('/api/admin/templates/:templateId', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { templateId } = req.params;
+      const template = await templateManager.getTemplate(templateId);
+      
+      if (!template) {
+        return res.status(404).json({ error: 'Template not found' });
+      }
+      
+      res.json(template);
+    } catch (error) {
+      console.error('Error fetching template:', error);
+      res.status(500).json({ error: 'Failed to fetch template' });
+    }
+  });
+
+  // Create new template from scratch (admin only)
+  app.post('/api/admin/templates', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const templateData = req.body;
+      
+      // Validate required fields
+      if (!templateData.name || !templateData.category) {
+        return res.status(400).json({ 
+          error: 'Missing required fields: name and category are required' 
+        });
+      }
+      
+      const newTemplate = await templateManager.createCustomTemplate(userId, templateData);
+      
+      res.json(newTemplate);
+    } catch (error: any) {
+      console.error('Error creating template:', error);
+      res.status(500).json({ error: error.message || 'Failed to create template' });
+    }
+  });
+
+  // Update template settings
+  // Full template edit endpoint - allows editing all template properties
+  app.put('/api/admin/templates/:templateId', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { templateId } = req.params;
+      const updates = req.body;
+      
+      // Validate template ID
+      if (!templateId) {
+        return res.status(400).json({ error: 'Template ID is required' });
+      }
+      
+      // Update template with all provided fields
+      await templateManager.updateTemplate(templateId, updates);
+      
+      res.json({ success: true, message: 'Template updated successfully' });
+    } catch (error: any) {
+      console.error('Error updating template:', error);
+      res.status(error.message === 'Template not found' ? 404 : 500).json({ 
+        error: error.message || 'Failed to update template' 
+      });
+    }
+  });
+
+  // Set template as default
+  app.post('/api/admin/templates/:templateId/set-default', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { templateId } = req.params;
+      await templateManager.setDefaultTemplate(templateId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error setting default template:', error);
+      res.status(500).json({ error: 'Failed to set default template' });
+    }
+  });
+
+  // Update template access tier
+  app.put('/api/admin/templates/:templateId/access', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { templateId } = req.params;
+      const { accessTier, isEnabled } = req.body;
+      
+      if (!accessTier || isEnabled === undefined) {
+        return res.status(400).json({ error: 'accessTier and isEnabled are required' });
+      }
+      
+      await templateManager.updateTemplateAccess(templateId, accessTier, isEnabled);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error updating template access:', error);
+      res.status(500).json({ error: 'Failed to update template access' });
+    }
+  });
+
+  // Reload templates from filesystem
+  app.post('/api/admin/templates/reload', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      await templateManager.initialize();
+      res.json({ success: true, message: 'Templates reloaded successfully' });
+    } catch (error) {
+      console.error('Error reloading templates:', error);
+      res.status(500).json({ error: 'Failed to reload templates' });
+    }
+  });
+
+  // Delete custom template
+  app.delete('/api/admin/templates/:templateId', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { templateId } = req.params;
+      await templateManager.deleteTemplate(templateId, req.user.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Error deleting template:', error);
+      res.status(error.message.includes('Cannot delete') ? 403 : 500).json({ 
+        error: error.message || 'Failed to delete template' 
+      });
+    }
+  });
+
+  // Generate AI content for template preview
+  app.post('/api/generate-template-content', isAuthenticated, async (req: any, res) => {
+    try {
+      const { templateCategory, templateName, businessProfile } = req.body;
+      
+      if (!businessProfile) {
+        return res.status(400).json({ error: 'Business profile is required' });
+      }
+      
+      if (!templateCategory || !templateName) {
+        return res.status(400).json({ error: 'Template category and name are required' });
+      }
+      
+      console.log(`Generating AI content for template: ${templateName} (${templateCategory})`);
+      
+      // Call OpenAI to generate content
+      const generatedContent = await openai.generateSlideContentForTemplate({
+        templateCategory,
+        templateName,
+        businessProfile,
+        existingContent: null,
+      });
+      
+      console.log('Generated content:', generatedContent);
+      
+      res.json(generatedContent);
+    } catch (error: any) {
+      console.error('Error generating template content:', error);
+      res.status(500).json({ error: error.message || 'Failed to generate content' });
+    }
+  });
+
+  // Initialize template system on server start
+  templateManager.initialize().catch(error => {
+    console.error('Failed to initialize template system:', error);
+  });
+
+  // ==================== Media Management Endpoints ====================
+  
+  /**
+   * Get all media assets for a project
+   */
+  app.get('/api/projects/:projectId/media', isAuthenticated, async (req: any, res) => {
+    try {
+      const { projectId } = req.params;
+      const userId = req.user.id;
+      
+      // Verify user has access to project
+      const project = await storage.getProject(projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+      
+      const { mediaManager } = await import('./services/mediaManager');
+      const assets = await mediaManager.getProjectMedia(projectId);
+      
+      // Get storage quota info
+      const quotaInfo = await mediaManager.checkStorageQuota(projectId, 0);
+      
+      res.json({
+        assets,
+        quota: quotaInfo
+      });
+    } catch (error: any) {
+      console.error('Error fetching project media:', error);
+      res.status(500).json({ error: error.message || 'Failed to fetch media assets' });
+    }
+  });
+  
+  /**
+   * Upload media to project
+   */
+  app.post('/api/projects/:projectId/media/upload', isAuthenticated, async (req: any, res) => {
+    try {
+      const { projectId } = req.params;
+      const userId = req.user.id;
+      const { file, filename, fileType, tags, description, altText } = req.body;
+      
+      if (!file || !filename || !fileType) {
+        return res.status(400).json({ error: 'Missing required fields: file, filename, fileType' });
+      }
+      
+      // Verify user has access to project
+      const project = await storage.getProject(projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+      
+      // Convert base64 to buffer
+      const base64Data = file.replace(/^data:image\/\w+;base64,/, '');
+      const buffer = Buffer.from(base64Data, 'base64');
+      
+      const { mediaManager } = await import('./services/mediaManager');
+      const asset = await mediaManager.uploadMedia({
+        projectId,
+        userId,
+        file: buffer,
+        filename,
+        fileType,
+        source: 'upload',
+        tags: tags || [],
+        description,
+        altText
+      });
+      
+      res.json(asset);
+    } catch (error: any) {
+      console.error('Error uploading media:', error);
+      res.status(500).json({ error: error.message || 'Failed to upload media' });
+    }
+  });
+  
+  /**
+   * Extract images from website
+   */
+  app.post('/api/projects/:projectId/media/extract', isAuthenticated, async (req: any, res) => {
+    try {
+      const { projectId } = req.params;
+      const userId = req.user.id;
+      const { websiteUrl, maxImages = 20 } = req.body;
+      
+      if (!websiteUrl) {
+        return res.status(400).json({ error: 'Website URL is required' });
+      }
+      
+      // Verify user has access to project
+      const project = await storage.getProject(projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+      
+      const { mediaManager } = await import('./services/mediaManager');
+      
+      // Extract images
+      console.log(`🔍 Extracting images from ${websiteUrl} for project ${projectId}`);
+      const extractedImages = await mediaManager.extractImagesFromWebsite(websiteUrl);
+      
+      // Save extracted images
+      console.log(`💾 Saving ${Math.min(extractedImages.length, maxImages)} images to project`);
+      const result = await mediaManager.saveExtractedImages(
+        projectId,
+        userId,
+        extractedImages,
+        maxImages
+      );
+      
+      res.json({
+        message: `Successfully extracted ${result.saved.length} images`,
+        saved: result.saved,
+        errors: result.errors,
+        totalFound: extractedImages.length
+      });
+    } catch (error: any) {
+      console.error('Error extracting images:', error);
+      res.status(500).json({ error: error.message || 'Failed to extract images' });
+    }
+  });
+  
+  /**
+   * Update media asset metadata
+   */
+  app.patch('/api/projects/:projectId/media/:assetId', isAuthenticated, async (req: any, res) => {
+    try {
+      const { assetId } = req.params;
+      const userId = req.user.id;
+      const { tags, description, altText } = req.body;
+      
+      const { mediaManager } = await import('./services/mediaManager');
+      const updated = await mediaManager.updateMediaMetadata(assetId, userId, {
+        tags,
+        description,
+        altText
+      });
+      
+      res.json(updated);
+    } catch (error: any) {
+      console.error('Error updating media metadata:', error);
+      res.status(500).json({ error: error.message || 'Failed to update media' });
+    }
+  });
+  
+  /**
+   * Delete media asset
+   */
+  app.delete('/api/projects/:projectId/media/:assetId', isAuthenticated, async (req: any, res) => {
+    try {
+      const { assetId } = req.params;
+      const userId = req.user.id;
+      
+      const { mediaManager } = await import('./services/mediaManager');
+      await mediaManager.deleteMedia(assetId, userId);
+      
+      res.json({ success: true, message: 'Media deleted successfully' });
+    } catch (error: any) {
+      console.error('Error deleting media:', error);
+      res.status(500).json({ error: error.message || 'Failed to delete media' });
+    }
+  });
 
   const httpServer = createServer(app);
   return httpServer;

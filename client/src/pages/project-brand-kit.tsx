@@ -212,7 +212,7 @@ export default function ProjectBrandKit() {
   };
 
   const handleContinue = () => {
-    navigate(`/projects/${projectId}/generate-deck`);
+    navigate(`/projects/${projectId}/media-library`);
   };
 
   if (projectLoading || !project) {
@@ -886,7 +886,7 @@ export default function ProjectBrandKit() {
           {hasBrandKit && (
             <div className="mt-6">
               <Button onClick={handleContinue} className="w-full">
-                Continue to Pitch Deck Generation
+                Continue to Media Library
                 <ArrowRight className="h-4 w-4 ml-2" />
               </Button>
             </div>

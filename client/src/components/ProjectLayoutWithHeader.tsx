@@ -10,6 +10,7 @@ import {
   ChevronLeft, 
   Search, 
   Palette, 
+  Image,
   FileText, 
   Send, 
   BarChart3,
@@ -47,6 +48,14 @@ const sidebarItems = [
     icon: Palette,
     path: "/brand-kit",
     description: "Brand colors, fonts, and style",
+    comingSoon: false
+  },
+  {
+    id: "media-library",
+    label: "Media Library",
+    icon: Image,
+    path: "/media-library",
+    description: "Upload and manage images",
     comingSoon: false
   },
   {
@@ -90,11 +99,14 @@ const getStepStatus = (stepId: string, projectStatus: string, businessProfile?: 
     case "brand-kit":
       return ["draft"].includes(projectStatus) ? "pending" : 
              ["discovery"].includes(projectStatus) ? "current" : "completed";
-    case "deck-generator":
+    case "media-library":
       return ["draft", "discovery"].includes(projectStatus) ? "pending" :
              ["brand_kit"].includes(projectStatus) ? "current" : "completed";
-    case "campaign":
+    case "deck-generator":
       return ["draft", "discovery", "brand_kit"].includes(projectStatus) ? "pending" :
+             ["media_library"].includes(projectStatus) ? "current" : "completed";
+    case "campaign":
+      return ["draft", "discovery", "brand_kit", "media_library"].includes(projectStatus) ? "pending" :
              ["deck_ready"].includes(projectStatus) ? "current" : "completed";
     case "analytics":
       return "available";

@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { cn } from "@/lib/utils";
-import { ChevronLeft, ChevronRight, Trash2, Edit3, Save, X, Eye, Sparkles, Plus, GripVertical } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2, Edit3, Save, X, Eye, Sparkles, Plus, GripVertical, Layout } from "lucide-react";
 import { WysiwygEditor } from "@/components/WysiwygEditor";
 import { SlideRenderer } from "@/components/SlideRenderer";
+import { TemplateGallery, TemplatePreviewModal } from "@/components/Templates";
+import { useApplyTemplateToSlide } from "@/hooks/useTemplates";
 
 interface DeckViewerProps {
   deckId: string;
@@ -73,6 +75,12 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
   const [draggedSlideId, setDraggedSlideId] = useState<string | null>(null);
   const [isReordering, setIsReordering] = useState(false);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  
+  // Template gallery state
+  const [showTemplateGallery, setShowTemplateGallery] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
+  const [applyingToSlideId, setApplyingToSlideId] = useState<string | null>(null);
+  const [isApplyingTemplate, setIsApplyingTemplate] = useState(false);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -117,9 +125,17 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     enabled: !!deck && !!deck.projectId && isAuthenticated,
   }) as { data: any[] };
 
-  // Debug: Log brand kits and deck data
+  // Fetch project for business profile (needed for AI template content generation)
+  const { data: project } = useQuery({
+    queryKey: [`/api/projects/${deck?.projectId}`],
+    enabled: !!deck && !!deck.projectId && isAuthenticated,
+  }) as { data: any };
+
+  // Debug: Log brand kits, deck data, and project data
   console.log('DeckViewer - Brand kits fetched:', brandKits);
   console.log('DeckViewer - Deck data:', deck);
+  console.log('DeckViewer - Project data:', project);
+  console.log('DeckViewer - Business Profile:', project?.businessProfile);
 
   // Mutation for updating slides
   const updateSlideMutation = useMutation({
@@ -481,6 +497,94 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
         }, 150);
       }
     });
+  };
+
+  // Mutation for creating a slide from template
+  const createSlideFromTemplateMutation = useMutation({
+    mutationFn: async (data: { templateId: string; content?: any }) => {
+      const res = await apiRequest("POST", `/api/decks/${deckId}/slides/from-template`, data);
+      return res.json();
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: [`/api/decks/${deckId}`] });
+      setShowTemplateGallery(false);
+      setSelectedTemplate(null);
+      setApplyingToSlideId(null);
+      setIsApplyingTemplate(false);  // Reset flag
+      toast({ title: "Slide Created", description: "Slide created from template successfully." });
+      // Navigate to the new slide
+      setTimeout(() => {
+        const updatedDeck: any = queryClient.getQueryData([`/api/decks/${deckId}`]);
+        if (updatedDeck?.slides) {
+          setCurrentSlide(updatedDeck.slides.length - 1);
+        }
+      }, 150);
+    },
+    onError: (error: any) => {
+      console.error("Create from template failed:", error);
+      toast({ title: "Create Failed", description: "Failed to create slide from template.", variant: "destructive" });
+    },
+  });
+
+  // Mutation for applying template to existing slide
+  const applyTemplateToSlideMutation = useApplyTemplateToSlide(deckId);
+
+  const handleApplyTemplate = (content?: any) => {
+    if (!selectedTemplate) return;
+    
+    console.log('=== handleApplyTemplate called ===');
+    console.log('Selected template:', selectedTemplate.name, selectedTemplate.id);
+    console.log('Content received:', content);
+    console.log('Applying to slide ID:', applyingToSlideId);
+    
+    // If applying to an existing slide
+    if (applyingToSlideId) {
+      console.log('Mutating with:', {
+        slideId: applyingToSlideId,
+        templateId: selectedTemplate.id,
+        content,
+      });
+      
+      applyTemplateToSlideMutation.mutate(
+        {
+          slideId: applyingToSlideId,
+          templateId: selectedTemplate.id,
+          content,
+        },
+        {
+          onSuccess: () => {
+            setShowTemplateGallery(false);
+            setSelectedTemplate(null);
+            setApplyingToSlideId(null);
+            setIsApplyingTemplate(false);  // Reset flag
+            toast({ 
+              title: "Template Applied", 
+              description: "Template applied to slide successfully." 
+            });
+          },
+          onError: (error: any) => {
+            console.error("Apply template failed:", error);
+            setIsApplyingTemplate(false);  // Reset flag on error
+            toast({ 
+              title: "Apply Failed", 
+              description: error.error || "Failed to apply template to slide.", 
+              variant: "destructive" 
+            });
+          },
+        }
+      );
+    } else {
+      // Create new slide from template
+      createSlideFromTemplateMutation.mutate({
+        templateId: selectedTemplate.id,
+        content,
+      });
+    }
+  };
+  
+  const handleChangeTemplateClick = (slideId: string) => {
+    setApplyingToSlideId(slideId);
+    setShowTemplateGallery(true);
   };
 
   // AI Improvement mutations
@@ -2147,28 +2251,24 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
 
   // Use shared slide renderer for exact consistency with generate deck preview
   const renderSlideContent = (slide: Slide, isEditingMode: boolean = false) => {
-    // Apply the same styling enhancement as SlidePreview in generate deck
+    // Template styling takes absolute priority - don't override with old slide properties
     const slideWithStyling = {
       ...slide,
       styling: {
-        // Preserve all existing styling first
+        // Use template styling as the source of truth
         ...slide.styling,
-        // Use saved styling colors first, then AI-generated colors, then fall back to brand kit colors
-        backgroundColor: slide.styling?.backgroundColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#ffffff',
-        textColor: slide.styling?.textColor || slide.textColor || brandKits?.[0]?.primaryColor || '#333333',
-        
-        // Brand kit colors (available for creative use) - prioritize saved styling over AI colors
-        primaryColor: slide.styling?.primaryColor || slide.textColor || brandKits?.[0]?.primaryColor || '#3b82f6',
-        secondaryColor: slide.styling?.secondaryColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#64748b',
-        accentColor: slide.styling?.accentColor || brandKits?.[0]?.accentColor || '#10b981',
-        
-        // Additional styling - prioritize slide styling over brand kit defaults
-        fontFamily: slide.styling?.fontFamily || brandKits?.[0]?.fontFamily || 'Inter',
-        fontSize: slide.styling?.fontSize || 'medium',
-        titleFontSize: slide.styling?.titleFontSize || '3xl', // AI default: large impact
-        descriptionFontSize: slide.styling?.descriptionFontSize || 'lg', // AI default: clear readability
-        bulletFontSize: slide.styling?.bulletFontSize || 'base', // AI default: comfortable reading
-        logoUrl: brandKits?.[0]?.logoUrl || slide.styling?.logoUrl,
+        // Only use fallbacks if styling is completely missing (not when it's explicitly set)
+        backgroundColor: slide.styling?.backgroundColor ?? '#ffffff',
+        textColor: slide.styling?.textColor ?? '#333333',
+        primaryColor: slide.styling?.primaryColor ?? (brandKits?.[0]?.primaryColor || '#3b82f6'),
+        secondaryColor: slide.styling?.secondaryColor ?? (brandKits?.[0]?.secondaryColor || '#64748b'),
+        accentColor: slide.styling?.accentColor ?? (brandKits?.[0]?.accentColor || '#10b981'),
+        fontFamily: slide.styling?.fontFamily ?? (brandKits?.[0]?.fontFamily || 'Inter'),
+        fontSize: slide.styling?.fontSize ?? 'medium',
+        titleFontSize: slide.styling?.titleFontSize ?? '3xl',
+        descriptionFontSize: slide.styling?.descriptionFontSize ?? 'lg',
+        bulletFontSize: slide.styling?.bulletFontSize ?? 'base',
+        logoUrl: slide.styling?.logoUrl ?? brandKits?.[0]?.logoUrl,
         backgroundImage: slide.styling?.backgroundImage,
         
         // Make all brand colors available for creative use
@@ -2283,16 +2383,27 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
             <div className="bg-white rounded-lg shadow-sm p-4 sticky top-8">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-medium text-gray-900">Slides</h3>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleAddBlankSlide}
-                  disabled={createSlideMutation.isPending}
-                  title="Add new slide"
-                >
-                  <Plus className="h-4 w-4 mr-1" />
-                  {createSlideMutation.isPending ? 'Adding...' : 'Add'}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAddBlankSlide}
+                    disabled={createSlideMutation.isPending}
+                    title="Add new blank slide"
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    {createSlideMutation.isPending ? 'Adding...' : 'Add'}
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => setShowTemplateGallery(true)}
+                    title="Add slide from template"
+                  >
+                    <Layout className="h-4 w-4 mr-1" />
+                    Templates
+                  </Button>
+                </div>
               </div>
               {!isEditing && (
                 <p className="text-xs text-gray-500 mb-3">
@@ -2350,6 +2461,20 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                         </span>
                       )}
                   </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleChangeTemplateClick(slide.id);
+                      }}
+                      className={cn(
+                        "p-2 text-gray-400 hover:text-blue-500 transition-colors opacity-0 group-hover:opacity-100",
+                        currentSlide === index ? "opacity-100" : ""
+                      )}
+                      title="Change template"
+                      disabled={isEditing}
+                    >
+                      <Layout className="h-4 w-4" />
+                    </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -2452,6 +2577,63 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
           </div>
         </div>
       </div>
+
+      {/* Template Gallery Modal */}
+      {showTemplateGallery && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden">
+            <div className="p-6 border-b flex items-center justify-between">
+              <h2 className="text-2xl font-bold">
+                {applyingToSlideId ? 'Change Slide Template' : 'Choose a Template'}
+              </h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setShowTemplateGallery(false);
+                  setApplyingToSlideId(null);
+                }}
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
+              <TemplateGallery
+                onSelectTemplate={(template) => setSelectedTemplate(template)}
+                brandKit={brandKits?.[0]}
+                businessProfile={project?.businessProfile}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Template Preview Modal */}
+      {selectedTemplate && (
+        <TemplatePreviewModal
+          template={selectedTemplate}
+          brandKit={brandKits?.[0]}
+          deckId={deckId}
+          businessProfile={project?.businessProfile}
+          onClose={() => {
+            setSelectedTemplate(null);
+            // Only reopen gallery if NOT applying a template
+            if (!isApplyingTemplate) {
+              setShowTemplateGallery(true);
+            }
+          }}
+          onApply={(content) => {
+            console.log('🎯 onApply callback in deck-viewer');
+            // Set flag to prevent onClose from reopening gallery
+            setIsApplyingTemplate(true);
+            // Close BOTH modals immediately when applying
+            setSelectedTemplate(null);
+            setShowTemplateGallery(false);
+            // Call the apply handler
+            handleApplyTemplate(content);
+          }}
+        />
+      )}
     </div>
   );
 }

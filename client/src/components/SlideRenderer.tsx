@@ -20,6 +20,9 @@ interface SlideRendererProps {
       textColor?: string;
       backgroundColor?: string;
       backgroundImage?: string;
+      background?: {
+        gradient?: string; // Added for template-defined gradients
+      };
       brandColors?: {
         primary: string;
         secondary: string;
@@ -73,7 +76,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
   const backgroundImage = styling.backgroundImage;
   const brandColors = styling.brandColors;
 
-  // Background style logic - use all brand colors creatively
+  // Background style logic - use solid colors only (no gradients)
   const backgroundStyle = backgroundImage 
     ? { 
         backgroundImage: `url(${backgroundImage})`,
@@ -83,10 +86,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
         backgroundColor
       }
     : {
-        // Create beautiful gradient backgrounds using all brand colors
-        background: brandColors ? 
-          `linear-gradient(135deg, ${backgroundColor} 0%, ${brandColors.primary}20 50%, ${brandColors.secondary}20 100%)` :
-          backgroundColor,
+        // Use solid background color
         backgroundColor: backgroundColor
       };
 
@@ -117,6 +117,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
 
   // Debug: Log the styling being applied
   console.log('SlideRenderer - Styling received:', styling);
+  console.log('SlideRenderer - Background color:', backgroundColor);
   console.log('SlideRenderer - Background style:', backgroundStyle);
   console.log('SlideRenderer - Final slide style:', slideStyle);
   console.log('SlideRenderer - Positioned elements:', positionedElements);
@@ -126,6 +127,10 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
   // Check if we should use positioned layout
   const usePositionedLayout = Object.keys(positionedElements).length > 0;
 
+  // Check if template defines logo elements (only render logos if template includes them)
+  const templateHasLogo = positionedElements.logo || 
+                          Object.keys(positionedElements).some(key => key.startsWith('logo-'));
+  
   // If using positioned layout, render with absolute positioning
   if (usePositionedLayout) {
     return (
@@ -133,47 +138,52 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
         className={`relative overflow-hidden rounded border ${isCompact ? 'h-24' : 'aspect-video'}`}
         style={slideStyle}
       >
-        {/* Logo - positioned absolutely with individual positioning */}
-        {((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || logoUrl) && slide.type !== 'title' && (
+        {/* Logo - positioned absolutely - ONLY if template defines logos */}
+        {templateHasLogo && ((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || logoUrl) && slide.type !== 'title' && (
           <>
             {content.logos && Array.isArray(content.logos) && content.logos.length > 0 ? (
-              // New multiple logos format - use all logos from content.logos with individual positioning
-              content.logos.map((logoUrl: string, index: number) => {
-                const logoKey = `logo-${index}`;
-                const logoPosition = positionedElements[logoKey];
-                
-                console.log(`SlideRenderer - Logo ${index} positioning:`, {
-                  logoKey,
-                  logoPosition,
-                  logoUrl,
-                  hasPosition: !!logoPosition
-                });
-                
-                return (
-                  <div 
-                    key={index}
-                    className={`absolute ${isCompact ? 'z-10' : 'z-20'}`}
-                    style={{
-                      left: logoPosition?.x || (index === 0 ? 16 : 16 + (index * 120)),
-                      top: logoPosition?.y || (index === 0 ? 16 : 16)
-                    }}
-                  >
-                    <img 
-                      src={logoUrl} 
-                      alt={`Logo ${index + 1}`} 
-                      className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                    />
-                  </div>
-                );
-              })
-            ) : (
-              // Fallback to old single logo format
+              // Multiple logos format - filter out empty/null values and use template positioning
+              content.logos
+                .filter((url: string) => url && url.trim()) // Filter out empty/null URLs
+                .map((logoUrl: string, index: number) => {
+                  const logoKey = index === 0 ? 'logo' : `logo-${index}`;
+                  const logoPosition = positionedElements[logoKey];
+                  
+                  // Only render if template has positioning for this logo
+                  if (!logoPosition && index > 0) return null;
+                  
+                  console.log(`SlideRenderer - Logo ${index} positioning:`, {
+                    logoKey,
+                    logoPosition,
+                    logoUrl,
+                    hasPosition: !!logoPosition
+                  });
+                  
+                  return (
+                    <div 
+                      key={index}
+                      className={`absolute ${isCompact ? 'z-10' : 'z-20'}`}
+                      style={{
+                        left: logoPosition?.x || 16,
+                        top: logoPosition?.y || 16
+                      }}
+                    >
+                      <img 
+                        src={logoUrl} 
+                        alt={`Logo ${index + 1}`} 
+                        className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                      />
+                    </div>
+                  );
+                })
+            ) : logoUrl && positionedElements.logo ? (
+              // Single logo format - only if template defines logo position
               <div 
                 className={`absolute ${isCompact ? 'z-10' : 'z-20'}`}
                 style={{
-                  left: positionedElements.logo?.x || 16,
-                  top: positionedElements.logo?.y || 16
+                  left: positionedElements.logo.x,
+                  top: positionedElements.logo.y
                 }}
               >
                 <img 
@@ -183,7 +193,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                   onError={(e) => { e.currentTarget.style.display = 'none'; }} 
                 />
               </div>
-            )}
+            ) : null}
           </>
         )}
 
@@ -300,49 +310,54 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
           </div>
         )}
 
-        {/* Centered logo for title slides with individual positioning */}
-        {((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || logoUrl) && slide.type === 'title' && (
+        {/* Centered logo for title slides - ONLY if template defines logos */}
+        {templateHasLogo && ((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || logoUrl) && slide.type === 'title' && (
           <>
             {content.logos && Array.isArray(content.logos) && content.logos.length > 0 ? (
-              // New multiple logos format - use all logos from content.logos with individual positioning
-              content.logos.map((logoUrl: string, index: number) => {
-                const logoKey = `logo-${index}`;
-                const logoPosition = positionedElements[logoKey];
-                
-                console.log(`SlideRenderer - Title Logo ${index} positioning:`, {
-                  logoKey,
-                  logoPosition,
-                  logoUrl,
-                  hasPosition: !!logoPosition
-                });
-                
-                return (
-                  <div 
-                    key={index}
-                    className="absolute"
-                    style={{
-                      left: logoPosition?.x || '50%',
-                      top: logoPosition?.y || 48,
-                      transform: logoPosition ? 'none' : 'translateX(-50%)'
-                    }}
-                  >
-                    <img 
-                      src={logoUrl} 
-                      alt={`Logo ${index + 1}`} 
-                      className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95`} 
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                    />
-                  </div>
-                );
-              })
-            ) : (
-              // Fallback to old single logo format
+              // Multiple logos format - filter out empty/null values and use template positioning
+              content.logos
+                .filter((url: string) => url && url.trim()) // Filter out empty/null URLs
+                .map((logoUrl: string, index: number) => {
+                  const logoKey = index === 0 ? 'logo' : `logo-${index}`;
+                  const logoPosition = positionedElements[logoKey];
+                  
+                  // Only render if template has positioning for this logo
+                  if (!logoPosition && index > 0) return null;
+                  
+                  console.log(`SlideRenderer - Title Logo ${index} positioning:`, {
+                    logoKey,
+                    logoPosition,
+                    logoUrl,
+                    hasPosition: !!logoPosition
+                  });
+                  
+                  return (
+                    <div 
+                      key={index}
+                      className="absolute"
+                      style={{
+                        left: logoPosition?.x || '50%',
+                        top: logoPosition?.y || 48,
+                        transform: logoPosition ? 'none' : 'translateX(-50%)'
+                      }}
+                    >
+                      <img 
+                        src={logoUrl} 
+                        alt={`Logo ${index + 1}`} 
+                        className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95`} 
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                      />
+                    </div>
+                  );
+                })
+            ) : logoUrl && positionedElements.logo ? (
+              // Single logo format - only if template defines logo position
               <div 
                 className="absolute"
                 style={{
-                  left: positionedElements.logo?.x || '50%',
-                  top: positionedElements.logo?.y || 48,
-                  transform: positionedElements.logo ? 'none' : 'translateX(-50%)'
+                  left: positionedElements.logo.x || '50%',
+                  top: positionedElements.logo.y || 48,
+                  transform: positionedElements.logo.x ? 'none' : 'translateX(-50%)'
                 }}
               >
                 <img 
@@ -352,77 +367,58 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                   onError={(e) => { e.currentTarget.style.display = 'none'; }} 
                 />
               </div>
-            )}
+            ) : null}
           </>
         )}
       </div>
     );
   }
 
-  // Original layout when no positioning is specified
+  // Original layout when no positioning is specified (templateHasLogo already defined above)
   return (
     <div 
       className={`relative overflow-hidden rounded border ${isCompact ? 'h-24' : 'aspect-video'}`}
       style={slideStyle}
     >
-      {/* Logo block - positioned individually for non-title slides */}
-      {((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || slide.styling?.allLogos || logoUrl) && slide.type !== 'title' && (
+      {/* Logo block - ONLY render if template explicitly defines logo elements */}
+      {templateHasLogo && ((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || logoUrl) && (
         <>
           {content.logos && Array.isArray(content.logos) && content.logos.length > 0 ? (
-            // New multiple logos format - use all logos from content.logos with individual positioning
-            content.logos.map((logoUrl: string, index: number) => {
-              const logoKey = `logo-${index}`;
-              const logoPosition = positionedElements[logoKey];
-              
-              return (
-                <div 
-                  key={index}
-                  className={`absolute ${isCompact ? 'z-10' : 'z-20'}`}
-                  style={{
-                    left: logoPosition?.x || (index === 0 ? 16 : 16 + (index * 120)),
-                    top: logoPosition?.y || (index === 0 ? 16 : 16)
-                  }}
-                >
-                  <img 
-                    src={logoUrl} 
-                    alt={`Logo ${index + 1}`} 
-                    className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
-                    onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                  />
-                </div>
-              );
-            })
-          ) : slide.styling?.allLogos && Array.isArray(slide.styling.allLogos) && slide.styling.allLogos.length > 0 ? (
-            // Use all logos from brand kit styling with individual positioning
-            slide.styling.allLogos.map((logoUrl: string, index: number) => {
-              const logoKey = `logo-${index}`;
-              const logoPosition = positionedElements[logoKey];
-              
-              return (
-                <div 
-                  key={index}
-                  className={`absolute ${isCompact ? 'z-10' : 'z-20'}`}
-                  style={{
-                    left: logoPosition?.x || (index === 0 ? 16 : 16 + (index * 120)),
-                    top: logoPosition?.y || (index === 0 ? 16 : 16)
-                  }}
-                >
-                  <img 
-                    src={logoUrl} 
-                    alt={`Logo ${index + 1}`} 
-                    className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
-                    onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                  />
-                </div>
-              );
-            })
-          ) : (
-            // Fallback to old single logo format
+            // Multiple logos format - filter out empty/null values and use template positioning
+            content.logos
+              .filter((url: string) => url && url.trim()) // Filter out empty/null URLs
+              .map((logoUrl: string, index: number) => {
+                const logoKey = index === 0 ? 'logo' : `logo-${index}`;
+                const logoPosition = positionedElements[logoKey];
+                
+                // Only render if template has positioning for this logo
+                if (!logoPosition && index > 0) return null;
+                
+                return (
+                  <div 
+                    key={index}
+                    className={`absolute ${isCompact ? 'z-10' : 'z-20'}`}
+                    style={{
+                      left: logoPosition?.x || 16,
+                      top: logoPosition?.y || 16
+                    }}
+                  >
+                    <img 
+                      src={logoUrl} 
+                      alt={`Logo ${index + 1}`} 
+                      className={`${isCompact ? 'h-6' : 'h-10'} w-auto object-contain opacity-95`} 
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                    />
+                  </div>
+                );
+              })
+          ) : logoUrl && positionedElements.logo ? (
+            // Single logo format - only if template defines logo position
             <div 
               className={`absolute ${isCompact ? 'z-10' : 'z-20'}`}
               style={{
-                left: positionedElements.logo?.x || 16,
-                top: positionedElements.logo?.y || 16
+                left: positionedElements.logo.x,
+                top: positionedElements.logo.y
               }}
             >
               <img 
@@ -432,72 +428,52 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                 onError={(e) => { e.currentTarget.style.display = 'none'; }} 
               />
             </div>
-          )}
+          ) : null}
         </>
       )}
 
       {/* Main content container */}
       <div className={`p-6 ${isCompact ? 'p-2' : ''}`}>
-        {/* Logo for title slides (centered, larger) - only on title slides */}
-        {((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || slide.styling?.allLogos || logoUrl) && slide.type === 'title' && (
+        {/* Logo for title slides (centered, larger) - ONLY if template defines logo */}
+        {templateHasLogo && ((content.logos && Array.isArray(content.logos) && content.logos.length > 0) || logoUrl) && slide.type === 'title' && (
           <div className="text-center mb-6">
             {content.logos && Array.isArray(content.logos) && content.logos.length > 0 ? (
-              // New multiple logos format - use all logos from content.logos with individual positioning
-              content.logos.map((logoUrl: string, index: number) => {
-                const logoKey = `logo-${index}`;
-                const logoPosition = positionedElements[logoKey];
-                
-                return (
-                  <div 
-                    key={index}
-                    className="relative"
-                    style={{
-                      left: logoPosition?.x || 'auto',
-                      top: logoPosition?.y || 'auto',
-                      position: logoPosition ? 'absolute' : 'static'
-                    }}
-                  >
-                    <img 
-                      src={logoUrl} 
-                      alt={`Logo ${index + 1}`} 
-                      className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95 mx-auto`} 
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                    />
-                  </div>
-                );
-              })
-            ) : slide.styling?.allLogos && Array.isArray(slide.styling.allLogos) && slide.styling.allLogos.length > 0 ? (
-              // Use all logos from brand kit styling with individual positioning
-              slide.styling.allLogos.map((logoUrl: string, index: number) => {
-                const logoKey = `logo-${index}`;
-                const logoPosition = positionedElements[logoKey];
-                
-                return (
-                  <div 
-                    key={index}
-                    className="relative"
-                    style={{
-                      left: logoPosition?.x || 'auto',
-                      top: logoPosition?.y || 'auto',
-                      position: logoPosition ? 'absolute' : 'static'
-                    }}
-                  >
-                    <img 
-                      src={logoUrl} 
-                      alt={`Logo ${index + 1}`} 
-                      className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95 mx-auto`} 
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                    />
-                  </div>
-                );
-              })
-            ) : (
-              // Fallback to old single logo format
+              // Multiple logos format - filter out empty/null values and use template positioning
+              content.logos
+                .filter((url: string) => url && url.trim()) // Filter out empty/null URLs
+                .map((logoUrl: string, index: number) => {
+                  const logoKey = index === 0 ? 'logo' : `logo-${index}`;
+                  const logoPosition = positionedElements[logoKey];
+                  
+                  // Only render if template has positioning for this logo
+                  if (!logoPosition && index > 0) return null;
+                  
+                  return (
+                    <div 
+                      key={index}
+                      className="relative"
+                      style={{
+                        left: logoPosition?.x || 'auto',
+                        top: logoPosition?.y || 'auto',
+                        position: logoPosition ? 'absolute' : 'static'
+                      }}
+                    >
+                      <img 
+                        src={logoUrl} 
+                        alt={`Logo ${index + 1}`} 
+                        className={`${isCompact ? 'h-8' : 'h-16'} w-auto object-contain opacity-95 mx-auto`} 
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                      />
+                    </div>
+                  );
+                })
+            ) : logoUrl && positionedElements.logo ? (
+              // Single logo format - only if template defines logo position
               <div 
                 className="relative"
                 style={{
-                  left: positionedElements.logo?.x || 'auto',
-                  top: positionedElements.logo?.y || 'auto',
+                  left: positionedElements.logo.x || 'auto',
+                  top: positionedElements.logo.y || 'auto',
                   position: positionedElements.logo ? 'absolute' : 'static'
                 }}
               >
@@ -508,7 +484,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                   onError={(e) => { e.currentTarget.style.display = 'none'; }} 
                 />
               </div>
-            )}
+            ) : null}
           </div>
         )}
 

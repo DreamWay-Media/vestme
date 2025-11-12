@@ -188,6 +188,15 @@ export default function ProjectGenerateDeck() {
 
   // Use shared slide renderer for exact consistency with deck viewer
   const SlidePreview = ({ slide, isCompact = false }: { slide: any; isCompact?: boolean }) => {
+    // Guard against undefined slide
+    if (!slide) {
+      return (
+        <div className={`relative overflow-hidden rounded border ${isCompact ? 'h-24' : 'aspect-video'} bg-gray-100 flex items-center justify-center`}>
+          <p className="text-gray-400 text-sm">Loading slide...</p>
+        </div>
+      );
+    }
+    
     // Pass ALL AI-generated colors and ALL brand kit colors to SlideRenderer
     // This must match exactly what renderSlideContent in deck-viewer.tsx does
     const slideWithStyling = {
@@ -645,10 +654,16 @@ export default function ProjectGenerateDeck() {
                     <>
                       {/* Main slide preview - matches deck viewer exactly */}
                       <div className="mb-4">
-                        <SlidePreview 
-                          slide={latestDeck.slides[currentPreviewSlide]} 
-                          isCompact={false} 
-                        />
+                        {latestDeck.slides[currentPreviewSlide] ? (
+                          <SlidePreview 
+                            slide={latestDeck.slides[currentPreviewSlide]} 
+                            isCompact={false} 
+                          />
+                        ) : (
+                          <div className="aspect-video bg-gray-100 flex items-center justify-center border rounded">
+                            <p className="text-gray-400">Loading slide preview...</p>
+                          </div>
+                        )}
                       </div>
                       
                                               {/* Navigation controls */}
@@ -697,7 +712,7 @@ export default function ProjectGenerateDeck() {
                               ref={setSlideThumbnailsRef}
                               className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100"
                             >
-                              {latestDeck.slides.map((slide: any, index: number) => (
+                              {latestDeck.slides.filter((slide: any) => slide != null).map((slide: any, index: number) => (
                                 <div
                                   key={index}
                                   onClick={() => {
