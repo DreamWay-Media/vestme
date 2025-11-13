@@ -51,6 +51,10 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
   const updateMetadataMutation = useUpdateMediaMetadata(projectId);
   const { toast } = useToast();
 
+  // Debug logging
+  console.log('MediaLibrary - Project ID:', projectId);
+  console.log('MediaLibrary - Website URL:', websiteUrl);
+
   const [selectedAsset, setSelectedAsset] = useState<MediaAsset | null>(null);
   const [showMetadataDialog, setShowMetadataDialog] = useState(false);
   const [metadataForm, setMetadataForm] = useState({
@@ -91,15 +95,29 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
       const base64 = e.target?.result as string;
       
       try {
-        await uploadMutation.mutateAsync({
+        // Show initial upload toast
+        toast({
+          title: 'Uploading...',
+          description: 'Uploading image and analyzing with AI...',
+        });
+
+        const result = await uploadMutation.mutateAsync({
           file: base64,
           filename: file.name,
           fileType: file.type,
         });
 
+        // Show success with AI-generated tags
+        const aiTags = result.tags?.filter((tag: string) => tag !== 'uploaded') || [];
+        let description = 'Image uploaded successfully!';
+        
+        if (aiTags.length > 0) {
+          description += `\n\n🤖 AI Tags: ${aiTags.join(', ')}`;
+        }
+
         toast({
           title: 'Success',
-          description: 'Image uploaded successfully',
+          description,
         });
       } catch (error: any) {
         toast({
@@ -133,9 +151,25 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
         maxImages: 20,
       });
 
+      // Build detailed message
+      const stats = result.stats || {};
+      let description = `Saved ${result.saved.length} pitch deck-relevant images`;
+      
+      if (stats.totalFound) {
+        const filtered = stats.filtered || 0;
+        const duplicates = stats.duplicates || 0;
+        
+        if (filtered > 0 || duplicates > 0) {
+          description += `\n\nFiltered out: ${filtered} irrelevant`;
+          if (duplicates > 0) {
+            description += `, ${duplicates} duplicates`;
+          }
+        }
+      }
+
       toast({
         title: 'Extraction complete',
-        description: `Successfully extracted ${result.saved.length} images from your website`,
+        description,
       });
     } catch (error: any) {
       toast({
@@ -216,26 +250,6 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
     });
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <AlertCircle className="w-12 h-12 mx-auto mb-4 text-destructive" />
-          <p className="text-lg font-semibold">Failed to load media library</p>
-          <p className="text-sm text-muted-foreground mt-2">{error.message}</p>
-        </div>
-      </div>
-    );
-  }
-
   const { assets = [], quota } = data || {};
   const usagePercent = quota ? (quota.currentUsage / quota.limit) * 100 : 0;
 
@@ -285,6 +299,21 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
         </div>
       </div>
 
+      {/* Website URL Info */}
+      {websiteUrl && assets.length === 0 && !extractMutation.isPending && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <Globe className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <h3 className="font-semibold text-blue-900 mb-1">Website detected</h3>
+              <p className="text-sm text-blue-800 mb-2">
+                Click "Extract from Website" to automatically import images from <span className="font-medium">{websiteUrl}</span>
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Storage Quota */}
       {quota && (
         <div className="bg-muted/50 rounded-lg p-4">
@@ -306,7 +335,18 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
       )}
 
       {/* Media Grid */}
-      {assets.length === 0 ? (
+      {isLoading ? (
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      ) : error ? (
+        <div className="text-center py-12 border-2 border-dashed rounded-lg border-destructive">
+          <AlertCircle className="w-12 h-12 mx-auto mb-4 text-destructive" />
+          <h3 className="text-lg font-semibold mb-2">Failed to load media</h3>
+          <p className="text-sm text-muted-foreground mb-4">{error.message}</p>
+          <p className="text-xs text-muted-foreground">You can still upload images using the button above</p>
+        </div>
+      ) : assets.length === 0 ? (
         <div className="text-center py-12 border-2 border-dashed rounded-lg">
           <ImageIcon className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
           <h3 className="text-lg font-semibold mb-2">No images yet</h3>
@@ -370,21 +410,36 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
               </div>
               
               {/* Info Bar */}
-              <div className="p-2 bg-background">
+              <div className="p-2 bg-background space-y-1">
                 <p className="text-xs font-medium truncate">
                   {asset.originalFilename || 'Untitled'}
                 </p>
-                <div className="flex items-center justify-between mt-1">
+                
+                {/* AI Tags */}
+                {asset.tags && asset.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {asset.tags
+                      .filter(tag => tag !== 'website-extracted') // Hide the source tag
+                      .slice(0, 2) // Show max 2 tags
+                      .map((tag, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-primary/10 text-primary"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                  </div>
+                )}
+                
+                <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">
                     {(asset.fileSize / 1024).toFixed(0)} KB
                   </span>
-                  {asset.tags && asset.tags.length > 0 && (
-                    <div className="flex items-center gap-1">
-                      <Tag className="w-3 h-3 text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground">
-                        {asset.tags.length}
-                      </span>
-                    </div>
+                  {asset.tags && asset.tags.length > 2 && (
+                    <span className="text-xs text-muted-foreground">
+                      +{asset.tags.length - 2} more
+                    </span>
                   )}
                 </div>
               </div>

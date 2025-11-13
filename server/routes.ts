@@ -19,6 +19,7 @@ import { BrandAnalyzer } from "./services/brandAnalyzer";
 import { insertProjectSchema, insertBrandKitSchema, insertDeckSchema, insertCrmContactSchema, insertCampaignSchema, insertAudienceSchema } from "@shared/schema";
 import { templateManager } from "./templates/templateManager";
 import { subscriptionService } from "./services/subscriptionService";
+import { rateLimiters } from "./middleware/rateLimiter";
 
 // Helper function to extract string value from potential object or string
 const extractStringValueUtil = (value: any): string => {
@@ -2536,9 +2537,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   /**
-   * Upload media to project
+   * Upload media to project (with rate limiting and security validation)
    */
-  app.post('/api/projects/:projectId/media/upload', isAuthenticated, async (req: any, res) => {
+  app.post('/api/projects/:projectId/media/upload', isAuthenticated, rateLimiters.upload, async (req: any, res) => {
     try {
       const { projectId } = req.params;
       const userId = req.user.id;
@@ -2559,17 +2560,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const buffer = Buffer.from(base64Data, 'base64');
       
       const { mediaManager } = await import('./services/mediaManager');
-      const asset = await mediaManager.uploadMedia({
+      
+      // First, upload the image to get a public URL
+      console.log(`📤 Uploading image: ${filename}`);
+      let asset = await mediaManager.uploadMedia({
         projectId,
         userId,
         file: buffer,
         filename,
         fileType,
         source: 'upload',
-        tags: tags || [],
+        tags: tags || ['uploaded'], // Temporary tag
         description,
         altText
       });
+      
+      // Analyze with AI to get proper tags and description
+      console.log(`🤖 Analyzing uploaded image with AI: ${asset.storageUrl}`);
+      try {
+        const { analyzeImageWithAI } = await import('./services/openai');
+        const aiTags = await analyzeImageWithAI(asset.storageUrl);
+        
+        // Generate AI description if not provided
+        let aiDescription = description;
+        if (!aiDescription && aiTags.length > 0) {
+          // Create a simple description from tags
+          aiDescription = `Image containing: ${aiTags.join(', ')}`;
+        }
+        
+        // Combine user tags with AI tags (remove duplicates)
+        const combinedTags = [...new Set([...(tags || []), ...aiTags])];
+        
+        console.log(`✅ AI analysis complete. Tags: ${combinedTags.join(', ')}`);
+        
+        // Update the asset with AI-generated tags and description
+        asset = await mediaManager.updateMediaMetadata(
+          projectId,
+          asset.id,
+          {
+            tags: combinedTags,
+            description: aiDescription || asset.description
+          }
+        );
+      } catch (aiError: any) {
+        console.warn(`AI analysis failed for uploaded image, continuing with manual tags:`, aiError.message);
+        // Continue without AI tags if analysis fails
+      }
       
       res.json(asset);
     } catch (error: any) {
@@ -2579,9 +2615,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   /**
-   * Extract images from website
+   * Extract images from website (with rate limiting)
    */
-  app.post('/api/projects/:projectId/media/extract', isAuthenticated, async (req: any, res) => {
+  app.post('/api/projects/:projectId/media/extract', isAuthenticated, rateLimiters.extract, async (req: any, res) => {
     try {
       const { projectId } = req.params;
       const userId = req.user.id;

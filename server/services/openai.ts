@@ -914,3 +914,62 @@ function ensureColorContrast(backgroundColor: string, textColor: string, brandin
 
   return { backgroundColor, textColor: newTextColor };
 }
+
+/**
+ * Analyze image using OpenAI Vision and generate tags
+ */
+export async function analyzeImageWithAI(imageUrl: string): Promise<string[]> {
+  try {
+    console.log(`🤖 Analyzing image with AI: ${imageUrl}`);
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Analyze this image and categorize it with relevant tags from this list:
+              
+              - logo: Company or brand logos
+              - product: Product photos or product shots
+              - team: Team photos, people, employees
+              - office: Office spaces, work environment
+              - infographic: Charts, diagrams, infographics
+              - icon: Icons, small graphics, illustrations
+              - background: Background images, patterns, textures
+              - screenshot: Screenshots of software/apps
+              - graphic: General graphics, artwork, designs
+              - photo: General photographs
+              - hero: Hero/banner images suitable for headers
+              
+              Return ONLY the relevant tags as a comma-separated list (e.g., "product,photo" or "logo,icon").
+              Choose 1-3 most relevant tags. Be specific and accurate.`
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: imageUrl,
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 100,
+    });
+
+    const tagsString = response.choices[0]?.message?.content?.trim() || '';
+    const tags = tagsString
+      .split(',')
+      .map(tag => tag.trim().toLowerCase())
+      .filter(tag => tag.length > 0);
+
+    console.log(`✅ AI tags for ${imageUrl}: ${tags.join(', ')}`);
+    return tags;
+  } catch (error: any) {
+    console.error('Error analyzing image with AI:', error.message);
+    // Return default tag if AI fails
+    return ['photo'];
+  }
+}

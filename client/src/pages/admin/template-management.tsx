@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { 
   Star, 
   Lock, 
@@ -14,7 +15,8 @@ import {
   Edit,
   Plus,
   FileDown,
-  FileUp
+  FileUp,
+  Palette
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +65,7 @@ import type { Template } from "@/hooks/useTemplates";
 
 export default function TemplateManagement() {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [deleteConfirm, setDeleteConfirm] = useState<Template | null>(null);
@@ -788,6 +791,15 @@ export default function TemplateManagement() {
                     {/* Actions */}
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setLocation(`/admin/templates/${template.id}/design`)}
+                          title="Visual Design Studio"
+                          className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                        >
+                          <Palette className="h-4 w-4" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"

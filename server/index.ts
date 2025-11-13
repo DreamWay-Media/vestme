@@ -4,8 +4,41 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+// Increase limit for image uploads (base64 encoded in JSON)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: false, limit: '50mb' }));
+
+// Security headers to prevent XSS, clickjacking, and other attacks
+app.use((req, res, next) => {
+  // Content Security Policy - prevent execution of malicious scripts
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data: https: blob:; " +
+    "font-src 'self' data:; " +
+    "connect-src 'self' https:; " +
+    "frame-ancestors 'none';"
+  );
+  
+  // X-Frame-Options - prevent clickjacking
+  res.setHeader('X-Frame-Options', 'DENY');
+  
+  // X-Content-Type-Options - prevent MIME-sniffing
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  
+  // X-XSS-Protection - enable browser XSS protection
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  
+  // Referrer-Policy - control referrer information
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  
+  // Permissions-Policy - disable unnecessary browser features
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  
+  next();
+});
 
 app.use((req, res, next) => {
   const start = Date.now();

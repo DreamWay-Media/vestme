@@ -25,6 +25,7 @@ import ProjectSettings from "@/pages/project-settings";
 import DeckViewer from "@/pages/deck-viewer";
 import { AuthCallback } from "@/pages/auth-callback";
 import TemplateManagement from "@/pages/admin/template-management";
+import TemplateDesignStudio from "@/pages/admin/template-design-studio";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -70,6 +71,7 @@ function Router() {
           
           {/* Admin Routes */}
           <Route path="/admin/templates" component={TemplateManagement} />
+          <Route path="/admin/templates/:templateId/design" component={TemplateDesignStudio} />
           
           {/* 404 - Must be last */}
           <Route component={NotFound} />

@@ -71,7 +71,11 @@ export default function ProjectMediaLibrary() {
           <CardContent className="pt-6">
             <MediaLibrary 
               projectId={projectId} 
-              websiteUrl={project?.websiteUrl || project?.businessProfile?.website}
+              websiteUrl={
+                project?.websiteUrl || 
+                project?.businessProfile?.website || 
+                project?.businessProfile?.websiteUrl
+              }
             />
           </CardContent>
         </Card>
