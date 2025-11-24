@@ -122,10 +122,13 @@ export function useUpdateTemplate() {
       
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
+      // Invalidate all template-related queries to ensure updates are visible everywhere
       queryClient.invalidateQueries({ queryKey: ['admin', 'templates'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'template'] });
       queryClient.invalidateQueries({ queryKey: ['templates'] });
+      // Also invalidate the specific template query used when applying templates
+      queryClient.invalidateQueries({ queryKey: ['template', variables.templateId] });
     },
   });
 }

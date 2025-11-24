@@ -206,7 +206,7 @@ function LayoutProperties({ element }: { element: any }) {
 }
 
 function StyleProperties({ element }: { element: any }) {
-  const { updateElementStyle } = useDesignStudioStore();
+  const { updateElementStyle, updateElementConfig } = useDesignStudioStore();
   
   if (element.type === 'text') {
     return (
@@ -284,12 +284,12 @@ function StyleProperties({ element }: { element: any }) {
             <Input
               type="color"
               value={element.config.fill || '#E5E7EB'}
-              onChange={(e) => updateElementStyle(element.id, { fill: e.target.value })}
+              onChange={(e) => updateElementConfig(element.id, { fill: e.target.value })}
               className="w-20 h-10"
             />
             <Input
               value={element.config.fill || '#E5E7EB'}
-              onChange={(e) => updateElementStyle(element.id, { fill: e.target.value })}
+              onChange={(e) => updateElementConfig(element.id, { fill: e.target.value })}
               className="flex-1"
             />
           </div>
@@ -301,12 +301,12 @@ function StyleProperties({ element }: { element: any }) {
             <Input
               type="color"
               value={element.config.stroke || '#9CA3AF'}
-              onChange={(e) => updateElementStyle(element.id, { stroke: e.target.value })}
+              onChange={(e) => updateElementConfig(element.id, { stroke: e.target.value })}
               className="w-20 h-10"
             />
             <Input
               value={element.config.stroke || '#9CA3AF'}
-              onChange={(e) => updateElementStyle(element.id, { stroke: e.target.value })}
+              onChange={(e) => updateElementConfig(element.id, { stroke: e.target.value })}
               className="flex-1"
             />
           </div>
@@ -317,7 +317,7 @@ function StyleProperties({ element }: { element: any }) {
           <Input
             type="number"
             value={element.config.strokeWidth || 2}
-            onChange={(e) => updateElementStyle(element.id, { strokeWidth: parseInt(e.target.value) || 0 })}
+            onChange={(e) => updateElementConfig(element.id, { strokeWidth: parseInt(e.target.value) || 0 })}
           />
         </div>
       </>
@@ -419,6 +419,10 @@ function ContentProperties({ element }: { element: any }) {
             onChange={(e) => updateElementConfig(element.id, { maxLength: parseInt(e.target.value) || 100 })}
           />
         </div>
+        
+        <Separator className="my-4" />
+        
+        <AIPromptSection element={element} />
       </>
     );
   }
@@ -491,6 +495,10 @@ function ContentProperties({ element }: { element: any }) {
             placeholder="https://..."
           />
         </div>
+        
+        <Separator className="my-4" />
+        
+        <AIPromptSection element={element} />
       </>
     );
   }
@@ -549,13 +557,148 @@ function ContentProperties({ element }: { element: any }) {
             />
           </div>
         </div>
+        
+        <Separator className="my-4" />
+        
+        <AIPromptSection element={element} />
+      </>
+    );
+  }
+  
+  if (element.type === 'shape') {
+    return (
+      <>
+        <div className="text-sm text-muted-foreground mb-4">
+          Shapes can use AI prompts for dynamic styling or data-driven visual properties.
+        </div>
+        
+        <Separator className="my-4" />
+        
+        <AIPromptSection element={element} />
       </>
     );
   }
   
   return (
-    <div className="text-sm text-muted-foreground">
-      No content properties available
+    <>
+      <div className="text-sm text-muted-foreground mb-4">
+        Configure AI content generation for this element
+      </div>
+      
+      <Separator className="my-4" />
+      
+      <AIPromptSection element={element} />
+    </>
+  );
+}
+
+// AI Prompt Section Component
+function AIPromptSection({ element }: { element: any }) {
+  const { updateElementAIPrompt } = useDesignStudioStore();
+  
+  const aiPrompt = element.aiPrompt || {
+    enabled: false,
+    prompt: '',
+    context: [],
+    fallback: '',
+    maxTokens: 100,
+  };
+  
+  const handleUpdate = (updates: Partial<typeof aiPrompt>) => {
+    updateElementAIPrompt(element.id, { ...aiPrompt, ...updates });
+  };
+  
+  return (
+    <div className="space-y-4 border rounded-lg p-4 bg-muted/30">
+      <div className="flex items-center justify-between">
+        <div className="space-y-1">
+          <Label className="text-base font-semibold">AI Content Generation</Label>
+          <p className="text-xs text-muted-foreground">
+            Automatically generate content for this field when template is applied
+          </p>
+        </div>
+        <Switch
+          checked={aiPrompt.enabled}
+          onCheckedChange={(checked) => handleUpdate({ enabled: checked })}
+        />
+      </div>
+      
+      {aiPrompt.enabled && (
+        <>
+          <div className="space-y-2">
+            <Label>AI Prompt</Label>
+            <Textarea
+              value={aiPrompt.prompt}
+              onChange={(e) => handleUpdate({ prompt: e.target.value })}
+              placeholder="e.g., Generate a compelling headline for this slide..."
+              rows={4}
+              className="text-sm"
+            />
+            <p className="text-xs text-muted-foreground">
+              Describe what content should be generated for this field
+            </p>
+          </div>
+          
+          <div className="space-y-2">
+            <Label>Context to Include</Label>
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <Switch
+                  checked={aiPrompt.context?.includes('businessProfile')}
+                  onCheckedChange={(checked) => {
+                    const context = aiPrompt.context || [];
+                    handleUpdate({
+                      context: checked
+                        ? [...context, 'businessProfile']
+                        : context.filter(c => c !== 'businessProfile')
+                    });
+                  }}
+                />
+                <Label className="font-normal">Business Profile</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Switch
+                  checked={aiPrompt.context?.includes('brandKit')}
+                  onCheckedChange={(checked) => {
+                    const context = aiPrompt.context || [];
+                    handleUpdate({
+                      context: checked
+                        ? [...context, 'brandKit']
+                        : context.filter(c => c !== 'brandKit')
+                    });
+                  }}
+                />
+                <Label className="font-normal">Brand Kit</Label>
+              </div>
+            </div>
+          </div>
+          
+          <div className="space-y-2">
+            <Label>Fallback Text</Label>
+            <Input
+              value={aiPrompt.fallback || ''}
+              onChange={(e) => handleUpdate({ fallback: e.target.value })}
+              placeholder="Text to use if AI generation fails"
+              className="text-sm"
+            />
+          </div>
+          
+          <div className="space-y-2">
+            <Label>Max Tokens</Label>
+            <Input
+              type="number"
+              value={aiPrompt.maxTokens}
+              onChange={(e) => handleUpdate({ maxTokens: parseInt(e.target.value) || 100 })}
+              className="text-sm"
+              min={10}
+              max={500}
+            />
+            <p className="text-xs text-muted-foreground">
+              Controls the length of generated content (10-500)
+            </p>
+          </div>
+        </>
+      )}
     </div>
   );
 }

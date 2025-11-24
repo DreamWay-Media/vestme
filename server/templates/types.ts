@@ -155,6 +155,8 @@ export interface AppliedTemplate {
   order: number;
   backgroundColor?: string;
   textColor?: string;
+  // NEW: Full layout elements from design studio for element-by-element rendering
+  layoutElements?: LayoutElement[];
 }
 
 export interface TemplateValidationError {

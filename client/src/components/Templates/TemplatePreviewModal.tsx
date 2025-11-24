@@ -127,19 +127,54 @@ export function TemplatePreviewModal({
         
         const generatedContent = await response.json();
         
-        // Map generated content to form fields
+        console.log('📥 AI Generated Content:', generatedContent);
+        console.log('📋 Template Schema Fields:', template.contentSchema?.fields);
+        
+        // Map generated content to ACTUAL form field IDs from template schema
         const mappedContent: any = {};
-        if (generatedContent.title) mappedContent.title = generatedContent.title;
-        if (generatedContent.description) {
-          mappedContent.description = generatedContent.description;
-          mappedContent.tagline = generatedContent.description;
-        }
-        if (generatedContent.bullets && Array.isArray(generatedContent.bullets)) {
-          mappedContent.bullets = generatedContent.bullets;
-          mappedContent.features = generatedContent.bullets;
-          mappedContent.stats = generatedContent.bullets;
+        
+        // Get actual field IDs from template
+        const fields = template.contentSchema?.fields || [];
+        
+        // Map title to first text field with "title" or "headline" in label
+        if (generatedContent.title) {
+          const titleField = fields.find((f: any) => {
+            const label = f.label?.toLowerCase() || '';
+            return f.type === 'text' && (label.includes('title') || label.includes('headline'));
+          });
+          if (titleField) {
+            mappedContent[titleField.id] = generatedContent.title;
+            console.log(`✅ Mapped title to field: ${titleField.id}`);
+          }
         }
         
+        // Map description to first text field with "description" or "subtitle" in label
+        if (generatedContent.description) {
+          const descFields = fields.filter((f: any) => {
+            const label = f.label?.toLowerCase() || '';
+            return f.type === 'text' && (label.includes('description') || label.includes('subtitle') || label.includes('tagline'));
+          });
+          descFields.forEach((field: any, index: number) => {
+            mappedContent[field.id] = generatedContent.description;
+            console.log(`✅ Mapped description to field: ${field.id}`);
+          });
+        }
+        
+        // Map bullets to text fields with "bullet", "point", "feature" in label
+        if (generatedContent.bullets && Array.isArray(generatedContent.bullets)) {
+          const bulletFields = fields.filter((f: any) => {
+            const label = f.label?.toLowerCase() || '';
+            return f.type === 'text' && (label.includes('bullet') || label.includes('point') || label.includes('feature') || label.includes('stat'));
+          });
+          bulletFields.forEach((field: any, index: number) => {
+            if (index < generatedContent.bullets.length) {
+              mappedContent[field.id] = generatedContent.bullets[index];
+              console.log(`✅ Mapped bullet to field: ${field.id}`);
+            }
+          });
+        }
+        
+        console.log('🗺️ Final Mapped Content:', mappedContent);
         setFormData(prev => ({ ...prev, ...mappedContent }));
         
         toast({
@@ -199,55 +234,161 @@ export function TemplatePreviewModal({
     return '#333333';
   };
   
-  // Check if template defines logo elements
-  const templateHasLogo = template.layout?.elements?.some((el: any) => el.type === 'logo');
+  // Convert layout.elements to positioned elements and content (same logic as server)
+  const convertLayoutToPreview = () => {
+    const layoutElements = template.layout?.elements || [];
+    
+    // If no layout elements, use old format
+    if (layoutElements.length === 0) {
+      return {
+        content: {
+          titles: formData.title ? [formData.title] : [],
+          descriptions: formData.description || formData.tagline 
+            ? [formData.description || formData.tagline] 
+            : [],
+          bullets: formData.bullets || formData.features || formData.stats || formData.contact || [],
+          logos: brandKit?.logoUrl ? [brandKit.logoUrl] : [],
+        },
+        positionedElements: template.positioningRules || {},
+      };
+    }
+    
+    // NEW FORMAT: Process layout.elements
+    const positionedElements: any = {};
+    const content: any = {
+      titles: [],
+      descriptions: [],
+      bullets: [],
+      logos: [],
+      // NEW: Add _elementContent for ElementRenderer
+      _elementContent: {},
+    };
+    
+    let titleIndex = 0;
+    let descriptionIndex = 0;
+    let bulletIndex = 0;
+    let logoIndex = 0;
+    
+    layoutElements.forEach((el: any) => {
+      const fieldId = el.id;
+      const label = el.config?.label?.toLowerCase() || fieldId.toLowerCase();
+      
+      // Parse pixel values from zone
+      const parsePixelValue = (val: string | number): number => {
+        if (typeof val === 'number') return val;
+        if (typeof val === 'string') {
+          const parsed = parseFloat(val);
+          return isNaN(parsed) ? 0 : parsed;
+        }
+        return 0;
+      };
+      
+      // Map positioning
+      let positionKey = fieldId;
+      if (el.type === 'text') {
+        const fieldContent = formData[fieldId] || el.config?.placeholder || el.config?.defaultValue || '';
+        // Store in _elementContent for ElementRenderer
+        content._elementContent[fieldId] = fieldContent;
+        
+        if (label.includes('title') || label.includes('headline')) {
+          positionKey = titleIndex === 0 ? 'title' : `title-${titleIndex}`;
+          content.titles.push(fieldContent);
+          titleIndex++;
+        } else if (label.includes('bullet') || label.includes('point')) {
+          positionKey = bulletIndex === 0 ? 'bullets' : `bullet-${bulletIndex}`;
+          content.bullets.push(fieldContent);
+          bulletIndex++;
+        } else {
+          positionKey = descriptionIndex === 0 ? 'description' : `description-${descriptionIndex}`;
+          content.descriptions.push(fieldContent);
+          descriptionIndex++;
+        }
+      } else if (el.type === 'image') {
+        const mediaType = el.config?.mediaType || '';
+        if (mediaType === 'logo' || fieldId.includes('logo')) {
+          positionKey = logoIndex === 0 ? 'logo' : `logo-${logoIndex}`;
+          if (brandKit?.logoUrl) {
+            content.logos.push(brandKit.logoUrl);
+            // Store in _elementContent for ElementRenderer
+            content._elementContent[fieldId] = brandKit.logoUrl;
+            logoIndex++;
+          }
+        } else {
+          // For other images, store content if provided
+          const imageContent = formData[fieldId];
+          if (imageContent) {
+            content._elementContent[fieldId] = imageContent;
+          }
+        }
+      } else if (el.type === 'data') {
+        // Data elements
+        const dataContent = formData[fieldId] || el.config?.defaultValue || '123';
+        content._elementContent[fieldId] = dataContent;
+      } else if (el.type === 'shape') {
+        // Shapes don't have content, just track they exist
+        content._elementContent[fieldId] = true;
+      }
+      
+      // Add positioned element
+      if (el.zone) {
+        positionedElements[positionKey] = {
+          x: parsePixelValue(el.zone.x || 0),
+          y: parsePixelValue(el.zone.y || 0),
+          width: parsePixelValue(el.zone.width || 100),
+          height: parsePixelValue(el.zone.height || 100),
+        };
+      }
+    });
+    
+    return { content, positionedElements, layoutElements };
+  };
+  
+  const { content: previewContent, positionedElements: previewPositionedElements, layoutElements: previewLayoutElements } = convertLayoutToPreview();
   
   // Create preview slide with current form data
   const previewSlide = {
     id: "preview",
     type: template.category,
-    title: formData.title || template.name,
-    content: {
-      titles: formData.title ? [formData.title] : [],
-      descriptions: formData.description || formData.tagline 
-        ? [formData.description || formData.tagline] 
-        : [],
-      bullets: formData.bullets || formData.features || formData.stats || formData.contact || [],
-      // Only include logos if template defines them
-      logos: templateHasLogo ? (
-        brandKit?.brandAssets
-          ?.filter((asset: any) => asset.type === 'logo')
-          .map((asset: any) => asset.url) || 
-          (brandKit?.logoUrl ? [brandKit.logoUrl] : [])
-      ) : [],
-    },
+    title: previewContent.titles[0] || formData.title || template.name,
+    content: previewContent,
     styling: {
       // Apply processed styling (flat structure like backend does)
-      backgroundColor: resolveBackgroundColor(),
+      backgroundColor: template.canvas?.backgroundColor || resolveBackgroundColor(),
       textColor: resolveTextColor(),
       primaryColor: brandKit?.primaryColor || '#3b82f6',
       secondaryColor: brandKit?.secondaryColor || '#64748b',
       accentColor: brandKit?.accentColor || '#10b981',
       fontFamily: brandKit?.fontFamily || 'Inter',
-      titleFontSize: template.defaultStyling?.typography?.title?.fontSize || '3xl',
-      descriptionFontSize: template.defaultStyling?.typography?.description?.fontSize || 'lg',
+      titleFontSize: template.defaultStyling?.typography?.title?.fontSize || '2xl',
+      descriptionFontSize: template.defaultStyling?.typography?.description?.fontSize || 'base',
       bulletFontSize: template.defaultStyling?.typography?.bullets?.fontSize || 'base',
       brandColors: brandKit ? {
         primary: brandKit.primaryColor,
         secondary: brandKit.secondaryColor,
         accent: brandKit.accentColor,
       } : undefined,
+      logoUrl: brandKit?.logoUrl,
     },
-    positionedElements: template.positioningRules || {},
+    positionedElements: previewPositionedElements,
+    // NEW: Include layoutElements for element-by-element rendering
+    layoutElements: previewLayoutElements && previewLayoutElements.length > 0 ? previewLayoutElements : undefined,
     order: 1,
   };
   
   // Debug preview styling
-  console.log('🎨 Preview Slide Styling:', {
+  console.log('🎨 Template Preview Debug:', {
     templateName: template.name,
+    hasLayoutElements: template.layout?.elements?.length || 0,
+    layoutElements: template.layout?.elements,
+    previewLayoutElements: previewLayoutElements,
+    previewContent: previewContent,
+    previewContentElementContent: previewContent._elementContent,
+    positionedElements: previewPositionedElements,
+    positionedElementsKeys: Object.keys(previewPositionedElements),
     backgroundColor: previewSlide.styling.backgroundColor,
     textColor: previewSlide.styling.textColor,
-    templateBackgroundDef: template.defaultStyling?.background,
+    formData,
+    previewSlideHasLayoutElements: !!previewSlide.layoutElements,
   });
   
   const handleFieldChange = (fieldId: string, value: any) => {
@@ -336,8 +477,10 @@ export function TemplatePreviewModal({
           <div className="space-y-4">
             <div>
               <h3 className="text-sm font-medium mb-2">Preview</h3>
-              <div className="border rounded-lg overflow-hidden" style={{ backgroundColor: previewSlide.styling.backgroundColor }}>
-                <SlideRenderer slide={previewSlide} />
+              <div className="border rounded-lg overflow-hidden aspect-video bg-gray-100" style={{ backgroundColor: previewSlide.styling.backgroundColor }}>
+                <div className="w-full h-full">
+                  <SlideRenderer slide={previewSlide} />
+                </div>
               </div>
             </div>
             
@@ -383,7 +526,15 @@ export function TemplatePreviewModal({
             
             <div className="space-y-4">
               {template.contentSchema?.fields && template.contentSchema.fields.length > 0 ? (
-                template.contentSchema.fields.map((field: any) => (
+                template.contentSchema.fields
+                  .filter((field: any) => {
+                    // Skip image fields (logos are already filtered out in schema, but double-check)
+                    if (field.type === 'image') return false;
+                    // Skip fields without labels
+                    if (!field.label || field.label.trim() === '') return false;
+                    return true;
+                  })
+                  .map((field: any) => (
                   <div key={field.id} className="space-y-2">
                     <Label htmlFor={field.id}>
                       {field.label}
@@ -407,6 +558,15 @@ export function TemplatePreviewModal({
                         }
                         rows={4}
                       />
+                    ) : field.type === "data" ? (
+                      <Input
+                        id={field.id}
+                        type="text"
+                        placeholder={field.placeholder || "Enter value (e.g., 1000, 50, 2024)"}
+                        value={formData[field.id] || ""}
+                        onChange={(e) => handleFieldChange(field.id, e.target.value)}
+                        className="font-mono"
+                      />
                     ) : field.type === "richText" || field.type === "text" ? (
                       field.maxLength && field.maxLength > 100 ? (
                         <Textarea
@@ -427,7 +587,7 @@ export function TemplatePreviewModal({
                           maxLength={field.maxLength}
                         />
                       )
-                    ) : field.type === "logo" ? (
+                    ) : field.type === "logo" || field.type === "image" ? (
                       <p className="text-sm text-gray-500">
                         {brandKit
                           ? `Using ${brandKit.brandAssets?.filter((a: any) => a.type === 'logo').length || 0} logo(s) from your brand kit`

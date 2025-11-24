@@ -145,6 +145,12 @@ export function useApplyTemplateToSlide(deckId: string) {
       content?: any;
       overrides?: any;
     }) => {
+      console.log('=== APPLY TEMPLATE TO SLIDE - API CALL ===');
+      console.log('Deck ID:', deckId);
+      console.log('Slide ID:', data.slideId);
+      console.log('Template ID:', data.templateId);
+      console.log('Content:', data.content);
+      
       const headers = await getAuthHeaders();
       const { slideId, ...requestData } = data;
       const response = await fetch(`/api/decks/${deckId}/slides/${slideId}/apply-template`, {
@@ -159,15 +165,32 @@ export function useApplyTemplateToSlide(deckId: string) {
       
       if (!response.ok) {
         const error = await response.json();
+        console.error('=== TEMPLATE APPLICATION FAILED ===', error);
         throw error;
       }
       
-      return response.json();
+      const result = await response.json();
+      console.log('=== TEMPLATE APPLIED - SERVER RESPONSE ===');
+      console.log('Updated slide:', result);
+      console.log('Content:', result.content);
+      console.log('Positioned elements:', result.positionedElements);
+      console.log('Styling:', result.styling);
+      
+      return result;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log('=== TEMPLATE APPLY SUCCESS - INVALIDATING CACHE ===');
+      console.log('Slide data received:', data);
+      
       // Invalidate deck queries to refetch updated slide
       queryClient.invalidateQueries({ queryKey: ['deck', deckId] });
       queryClient.invalidateQueries({ queryKey: [`/api/decks/${deckId}`] });
+      
+      // Force immediate refetch
+      setTimeout(() => {
+        console.log('Forcing refetch after template apply...');
+        queryClient.refetchQueries({ queryKey: [`/api/decks/${deckId}`] });
+      }, 100);
     },
   });
 }

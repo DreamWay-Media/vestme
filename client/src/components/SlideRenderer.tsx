@@ -1,4 +1,21 @@
 import { cn } from "@/lib/utils";
+import { AllElementsRenderer } from "./ElementRenderer";
+import DOMPurify from 'isomorphic-dompurify';
+import { useEffect, useRef, useState } from 'react';
+
+interface LayoutElement {
+  id: string;
+  type: 'text' | 'image' | 'shape' | 'data';
+  zone: {
+    x: string | number;
+    y: string | number;
+    width: string | number;
+    height: string | number;
+  };
+  styling?: Record<string, any>;
+  config?: any;
+  zIndex?: number;
+}
 
 interface SlideRendererProps {
   slide: {
@@ -38,25 +55,72 @@ interface SlideRendererProps {
       logo?: { x: number; y: number; width?: number; height?: number };
       [key: string]: { x: number; y: number; width?: number; height?: number } | undefined;
     };
+    // NEW: Layout elements from design studio
+    layoutElements?: LayoutElement[];
   };
   isCompact?: boolean;
 }
 
 export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) {
-  const unescapeHtml = (str: string) => {
-    if (!str) return '';
-    let s = str
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  
+  // Calculate scale when container size changes
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    const updateScale = () => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const scaleX = rect.width / 1920;
+      const scaleY = rect.height / 1080;
+      const newScale = Math.min(scaleX, scaleY);
+      setScale(newScale);
+      console.log('📐 SlideRenderer scale calculated:', { width: rect.width, height: rect.height, scale: newScale });
+    };
+    
+    updateScale();
+    
+    // Update on window resize
+    window.addEventListener('resize', updateScale);
+    
+    // Use ResizeObserver for container size changes
+    const resizeObserver = new ResizeObserver(updateScale);
+    resizeObserver.observe(containerRef.current);
+    
+    return () => {
+      window.removeEventListener('resize', updateScale);
+      resizeObserver.disconnect();
+    };
+  }, []);
+  
+  // Sanitize HTML to prevent XSS attacks
+  const sanitizeHtml = (html: string) => {
+    if (!html) return '';
+    
+    // First unescape HTML entities
+    let unescaped = html
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&amp;/g, '&')
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'")
       .replace(/&nbsp;/g, ' ');
-    // Strip a single wrapping <p>...</p> to avoid invalid nesting (e.g., <p> inside <span>)
-    const match = s.match(/^\s*<p[^>]*>([\s\S]*?)<\/p>\s*$/i);
-    if (match) s = match[1];
-    return s;
+    
+    // Strip a single wrapping <p>...</p> to avoid invalid nesting
+    const match = unescaped.match(/^\s*<p[^>]*>([\s\S]*?)<\/p>\s*$/i);
+    if (match) unescaped = match[1];
+    
+    // Sanitize with DOMPurify - allow safe formatting tags only
+    return DOMPurify.sanitize(unescaped, {
+      ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'u', 'br', 'span', 'p', 'div', 'ul', 'ol', 'li'],
+      ALLOWED_ATTR: ['style', 'class'],
+      ALLOW_DATA_ATTR: false
+    });
   };
+  
+  // Keep backward compatibility with old function name
+  const unescapeHtml = sanitizeHtml;
   const content = slide.content || {};
   const styling = slide.styling || {};
   const positionedElements = slide.positionedElements || {};
@@ -115,21 +179,78 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
     ...backgroundStyle
   };
 
-  // Debug: Log the styling being applied
-  console.log('SlideRenderer - Styling received:', styling);
-  console.log('SlideRenderer - Background color:', backgroundColor);
-  console.log('SlideRenderer - Background style:', backgroundStyle);
-  console.log('SlideRenderer - Final slide style:', slideStyle);
-  console.log('SlideRenderer - Positioned elements:', positionedElements);
-  console.log('SlideRenderer - Content logos:', content.logos);
-  console.log('SlideRenderer - Positioned elements keys:', Object.keys(positionedElements));
-
   // Check if we should use positioned layout
   const usePositionedLayout = Object.keys(positionedElements).length > 0;
 
   // Check if template defines logo elements (only render logos if template includes them)
   const templateHasLogo = positionedElements.logo || 
                           Object.keys(positionedElements).some(key => key.startsWith('logo-'));
+
+  // Debug: Log the styling being applied
+  console.log('=== SLIDE RENDERER DEBUG ===');
+  console.log('Slide ID:', slide.id);
+  console.log('Slide type:', slide.type);
+  console.log('Slide title:', slide.title);
+  console.log('Content received:', content);
+  console.log('  - Titles:', content.titles);
+  console.log('  - Descriptions:', content.descriptions);
+  console.log('  - Bullets:', content.bullets);
+  console.log('  - Logos:', content.logos);
+  console.log('Styling received:', styling);
+  console.log('  - Background color:', backgroundColor);
+  console.log('  - Text color:', textColor);
+  console.log('  - Font family:', fontFamily);
+  console.log('Positioned elements:', positionedElements);
+  console.log('  - Keys:', Object.keys(positionedElements));
+  console.log('  - Full data:', JSON.stringify(positionedElements, null, 2));
+  console.log('Will use positioned layout?', usePositionedLayout);
+  console.log('Template has logo?', templateHasLogo);
+  console.log('Layout elements:', slide.layoutElements);
+  console.log('Has layout elements?', !!slide.layoutElements && slide.layoutElements.length > 0);
+
+  // NEW: Check if slide has layoutElements from design studio
+  // If yes, use the new element-by-element renderer for perfect parity
+  if (slide.layoutElements && slide.layoutElements.length > 0) {
+    console.log('🎨 Using NEW element-by-element renderer with', slide.layoutElements.length, 'elements');
+    
+    // Design studio canvas dimensions
+    const DESIGN_WIDTH = 1920;
+    const DESIGN_HEIGHT = 1080;
+    
+    return (
+      <div 
+        ref={containerRef}
+        className={`relative overflow-hidden rounded border ${isCompact ? 'h-24' : 'aspect-video'}`}
+        style={slideStyle}
+      >
+        {/* Scaling wrapper to fit 1920x1080 canvas into container */}
+        <div className="w-full h-full relative flex items-center justify-center">
+          <div 
+            style={{
+              width: `${DESIGN_WIDTH}px`,
+              height: `${DESIGN_HEIGHT}px`,
+              transform: `scale(${scale})`,
+              transformOrigin: 'center center',
+              position: 'relative',
+            }}
+          >
+            <AllElementsRenderer
+              layoutElements={slide.layoutElements}
+              content={content}
+              brandKit={{
+                logoUrl: styling.logoUrl,
+                fontFamily: fontFamily,
+                brandColors: brandColors,
+              }}
+              isCompact={isCompact}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  console.log('📋 Using LEGACY renderer (no layoutElements found)');
   
   // If using positioned layout, render with absolute positioning
   if (usePositionedLayout) {
@@ -219,7 +340,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                       fontFamily,
                       marginBottom: index < content.titles.length - 1 ? '16px' : '0'
                     }}
-                    dangerouslySetInnerHTML={{ __html: title }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(title) }}
                   />
                 ))
               ) : (
@@ -230,7 +351,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                     color: brandColors?.primary || textColor,
                     fontFamily
                   }}
-                  dangerouslySetInnerHTML={{ __html: slide.title }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(slide.title) }}
                 />
               )}
             </div>
@@ -258,7 +379,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                       color: brandColors?.primary || textColor,
                       fontFamily
                     }}
-                    dangerouslySetInnerHTML={{ __html: description }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(description) }}
                   />
                 ))
               ) : (
@@ -269,7 +390,7 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                     color: brandColors?.primary || textColor,
                     fontFamily
                   }}
-                  dangerouslySetInnerHTML={{ __html: content.description || '' }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(content.description || '') }}
                 />
               )}
             </div>

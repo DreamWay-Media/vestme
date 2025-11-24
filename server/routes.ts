@@ -2057,9 +2057,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       };
       
-      // Generate AI content if no meaningful content provided
+      // Check if template uses new layout.elements format (from design studio)
+      const isVisualTemplate = template.layout?.elements && Array.isArray(template.layout.elements);
+      
+      // Generate AI content if no meaningful content provided AND not a visual template
       let slideContent = content;
-      if (!hasContent(content)) {
+      if (!hasContent(content) && !isVisualTemplate) {
         console.log('No meaningful content provided, generating AI content for new slide...');
         try {
           const aiContent = await openai.generateSlideContentForTemplate({
@@ -2076,13 +2079,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Use template name as fallback
           slideContent = { title: template.name };
         }
+      } else if (isVisualTemplate && !hasContent(content)) {
+        // For visual templates, use placeholder content from template schema
+        console.log('Visual template detected - using placeholder content from schema');
+        slideContent = { title: template.name };
       }
+      
+      // Pass businessProfile via content for AI generation
+      const contentWithProfile = {
+        ...slideContent,
+        _businessProfile: project.businessProfile // Hidden field for context
+      };
       
       // Apply template
       const newSlide = await templateManager.applyTemplate(
         templateId,
         userId,
-        slideContent,
+        contentWithProfile,
         brandKit,
         overrides
       );
@@ -2191,9 +2204,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       };
       
-      // Generate AI content if no meaningful content provided
+      // Check if template uses new layout.elements format (from design studio)
+      const isVisualTemplate = template.layout?.elements && Array.isArray(template.layout.elements);
+      
+      // Generate AI content if no meaningful content provided AND not a visual template
       let slideContent = content;
-      if (!hasContent(content)) {
+      if (!hasContent(content) && !isVisualTemplate) {
         console.log('No meaningful content provided, generating with AI...');
         try {
           const aiContent = await openai.generateSlideContentForTemplate({
@@ -2210,14 +2226,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Use existing content as fallback
           slideContent = existingSlide.content || { title: template.name };
         }
+      } else if (isVisualTemplate && !hasContent(content)) {
+        // For visual templates, use placeholder content from template schema
+        console.log('Visual template detected - using placeholder content from schema');
+        slideContent = { title: template.name };
       }
       
       console.log('Applying template with content:', JSON.stringify(slideContent, null, 2));
       
+      // Pass businessProfile via content for AI generation
+      const contentWithProfile = {
+        ...slideContent,
+        _businessProfile: project.businessProfile // Hidden field for context
+      };
+      
       const updatedSlide = await templateManager.applyTemplate(
         templateId,
         userId,
-        slideContent,
+        contentWithProfile,
         brandKit,
         overrides
       );
@@ -2230,7 +2256,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         hasStyling: !!updatedSlide.styling,
         stylingKeys: updatedSlide.styling ? Object.keys(updatedSlide.styling) : [],
         hasContent: !!updatedSlide.content,
-        contentKeys: updatedSlide.content ? Object.keys(updatedSlide.content) : []
+        contentKeys: updatedSlide.content ? Object.keys(updatedSlide.content) : [],
+        hasPositionedElements: !!updatedSlide.positionedElements,
+        positionedElementsKeys: updatedSlide.positionedElements ? Object.keys(updatedSlide.positionedElements) : []
       }, null, 2));
       
       // Preserve slide ID and order
@@ -2244,6 +2272,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.updateDeck(deckId, { slides: existingSlides });
       
       console.log('✓ Template applied to slide successfully');
+      console.log('=== FINAL SLIDE DATA BEING RETURNED TO CLIENT ===');
+      console.log('Slide ID:', updatedSlide.id);
+      console.log('Content:', JSON.stringify(updatedSlide.content, null, 2));
+      console.log('Positioned elements:', JSON.stringify(updatedSlide.positionedElements, null, 2));
+      console.log('Styling keys:', Object.keys(updatedSlide.styling || {}));
+      
       res.json(updatedSlide);
     } catch (error: any) {
       console.error('=== ERROR APPLYING TEMPLATE TO SLIDE ===');

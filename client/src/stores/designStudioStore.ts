@@ -362,6 +362,7 @@ export const useDesignStudioStore = create<DesignStudioState>()(
           state.isDirty = true;
         }
       });
+      get().pushHistory();
     },
     
     updateElementConfig: (id, config) => {
@@ -372,6 +373,7 @@ export const useDesignStudioStore = create<DesignStudioState>()(
           state.isDirty = true;
         }
       });
+      get().pushHistory();
     },
     
     updateElementAIPrompt: (id, aiPrompt) => {

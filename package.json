@@ -89,6 +89,7 @@
     "cmdk": "^1.1.1",
     "connect-pg-simple": "^10.0.0",
     "date-fns": "^3.6.0",
+    "dompurify": "^3.3.0",
     "dotenv": "^17.2.1",
     "drizzle-orm": "^0.39.1",
     "drizzle-zod": "^0.7.0",
@@ -101,6 +102,7 @@
     "googleapis": "^159.0.0",
     "immer": "^10.2.0",
     "input-otp": "^1.4.2",
+    "isomorphic-dompurify": "^2.30.0",
     "jsdom": "^26.1.0",
     "lucide-react": "^0.453.0",
     "memoizee": "^0.4.17",
@@ -140,6 +142,7 @@
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.15",
     "@types/connect-pg-simple": "^7.0.3",
+    "@types/dompurify": "^3.0.5",
     "@types/express": "4.17.21",
     "@types/express-session": "^1.18.0",
     "@types/node": "^20.19.11",
@@ -156,7 +159,7 @@
     "typescript": "^5.6.3"
   },
   "optionalDependencies": {
-    "@rollup/rollup-darwin-arm64": "^4.53.2",
+    "@rollup/rollup-darwin-arm64": "https://registry.npmjs.org/@rollup/rollup-darwin-arm64/-/rollup-darwin-arm64-4.53.2.tgz",
     "bufferutil": "^4.0.8"
   }
 }

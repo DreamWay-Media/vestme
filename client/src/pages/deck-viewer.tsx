@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import DOMPurify from 'isomorphic-dompurify';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { isUnauthorizedError } from "@/lib/authUtils";
@@ -984,20 +985,33 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
   };
 
   // Helper functions for HTML rendering consistency
-  const unescapeHtml = (str: string) => {
-    if (!str) return '';
-    let s = str
+  // Sanitize HTML to prevent XSS attacks
+  const sanitizeHtml = (html: string) => {
+    if (!html) return '';
+    
+    // First unescape HTML entities
+    let unescaped = html
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&amp;/g, '&')
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'")
       .replace(/&nbsp;/g, ' ');
-    // Strip a single wrapping <p>...</p> to avoid invalid nesting (e.g., <p> inside <span>)
-    const match = s.match(/^\s*<p[^>]*>([\s\S]*?)<\/p>\s*$/i);
-    if (match) s = match[1];
-    return s;
+    
+    // Strip a single wrapping <p>...</p> to avoid invalid nesting
+    const match = unescaped.match(/^\s*<p[^>]*>([\s\S]*?)<\/p>\s*$/i);
+    if (match) unescaped = match[1];
+    
+    // Sanitize with DOMPurify - allow safe formatting tags only
+    return DOMPurify.sanitize(unescaped, {
+      ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'u', 'br', 'span', 'p', 'div', 'ul', 'ol', 'li'],
+      ALLOWED_ATTR: ['style', 'class'],
+      ALLOW_DATA_ATTR: false
+    });
   };
+  
+  // Keep backward compatibility with old function name
+  const unescapeHtml = sanitizeHtml;
 
   const startEditing = (slide: Slide) => {
     // Get the most current slide data from the deck to ensure we have the latest changes
@@ -2146,7 +2160,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                         color: brandColors?.primary || textColor,
                         fontFamily: fontFamily || 'Inter'
                       }}
-                      dangerouslySetInnerHTML={{ __html: title }}
+                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(title) }}
                     />
                   ))
                 ) : (
@@ -2157,7 +2171,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                       color: brandColors?.primary || textColor,
                       fontFamily: fontFamily || 'Inter'
                     }}
-                    dangerouslySetInnerHTML={{ __html: slide.title }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(slide.title) }}
                   />
                 )}
               </div>
@@ -2189,7 +2203,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                         color: brandColors?.primary || textColor,
                         fontFamily: fontFamily || 'Inter'
                       }}
-                      dangerouslySetInnerHTML={{ __html: description }}
+                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(description) }}
                     />
                   ))
                 ) : (
@@ -2199,7 +2213,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                       color: brandColors?.primary || textColor,
                       fontFamily: fontFamily || 'Inter'
                     }}
-                    dangerouslySetInnerHTML={{ __html: slide.content.description || '' }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(slide.content.description || '') }}
                   />
                 )}
               </div>

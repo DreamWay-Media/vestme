@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useLocation } from 'wouter';
 import { ArrowLeft, Save, Eye, Settings, Loader2 } from 'lucide-react';
 import { DndContext, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
@@ -22,6 +23,7 @@ export default function TemplateDesignStudio() {
   const { templateId } = useParams<{ templateId: string }>();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   
   // Get template from API if editing existing
   const { data: existingTemplate, isLoading } = useGetTemplate(templateId || '');
@@ -152,10 +154,20 @@ export default function TemplateDesignStudio() {
       const apiTemplate = convertToAPITemplate(template);
       
       if (templateId) {
-        // Update existing
+        // Update existing - Fixed: Use correct structure for mutation
         await updateMutation.mutateAsync({
-          ...apiTemplate,
-          id: templateId,
+          templateId: templateId,
+          updates: apiTemplate
+        });
+        
+        // Invalidate all template caches to ensure preview updates everywhere
+        await queryClient.invalidateQueries({ queryKey: ['templates'] });
+        await queryClient.invalidateQueries({ queryKey: ['admin', 'templates'] });
+        
+        // Refetch the template to get the updated data back into the design studio
+        await queryClient.refetchQueries({ 
+          queryKey: ['admin', 'template', templateId],
+          exact: true 
         });
       } else {
         // Create new (we'll implement this later)
@@ -312,8 +324,93 @@ export default function TemplateDesignStudio() {
 
 // Helper functions to convert between formats
 function convertToVisualTemplate(apiTemplate: any): any {
-  // For now, create a basic visual template structure
-  // In Phase 2, we'll add proper conversion logic
+  // Convert API template format back to visual template format
+  const layoutElements = apiTemplate.layout?.elements || [];
+  const schemaFields = apiTemplate.contentSchema?.fields || [];
+  
+  // Create a map of field configs for quick lookup
+  const fieldConfigMap = new Map(
+    schemaFields.map((field: any) => [field.id, field])
+  );
+  
+  // Convert layout elements to visual elements
+  const visualElements = layoutElements.map((el: any, index: number) => {
+    const fieldConfig = fieldConfigMap.get(el.id);
+    
+    // Parse position and size from zone strings (e.g., "100px" -> 100)
+    const parsePixelValue = (val: string | number): number => {
+      if (typeof val === 'number') return val;
+      if (typeof val === 'string') {
+        const parsed = parseFloat(val);
+        return isNaN(parsed) ? 0 : parsed;
+      }
+      return 0;
+    };
+    
+    const parseSizeValue = (val: string | number): number | 'auto' => {
+      if (val === 'auto') return 'auto';
+      if (typeof val === 'number') return val;
+      if (typeof val === 'string') {
+        if (val === 'auto') return 'auto';
+        const parsed = parseFloat(val);
+        return isNaN(parsed) ? 0 : parsed;
+      }
+      return 0;
+    };
+    
+    // Build config based on element type
+    let config: any = {};
+    if (el.type === 'text') {
+      config = {
+        fieldId: el.id,
+        label: fieldConfig?.label || '',
+        placeholder: fieldConfig?.placeholder || '',
+        defaultValue: '',
+        maxLength: 1000,
+        required: fieldConfig?.required || false,
+        multiline: false,
+        richText: false,
+      };
+    } else if (el.type === 'image') {
+      config = {
+        fieldId: el.id,
+        mediaType: 'graphic',
+        tags: [],
+        objectFit: 'cover',
+      };
+    } else if (el.type === 'shape') {
+      config = {
+        shape: el.config?.shape || 'rectangle',
+        fill: el.config?.fill || '#E5E7EB',
+        stroke: el.config?.stroke || '#9CA3AF',
+        strokeWidth: el.config?.strokeWidth !== undefined ? el.config.strokeWidth : 2,
+      };
+    } else if (el.type === 'data') {
+      config = {
+        fieldId: el.id,
+        dataPath: fieldConfig?.dataPath || '',
+        format: 'text',
+      };
+    }
+    
+    return {
+      id: el.id,
+      type: el.type,
+      position: {
+        x: parsePixelValue(el.zone?.x || 0),
+        y: parsePixelValue(el.zone?.y || 0),
+      },
+      size: {
+        width: parseSizeValue(el.zone?.width || 100),
+        height: parseSizeValue(el.zone?.height || 100),
+      },
+      zIndex: el.zIndex !== undefined ? el.zIndex : index,  // Use actual zIndex if available
+      config,
+      style: el.styling || {},
+      aiPrompt: el.aiPrompt || undefined, // Restore AI prompt configuration
+    };
+  });
+  
   return {
     id: apiTemplate.id,
     name: apiTemplate.name,
@@ -328,14 +425,14 @@ function convertToVisualTemplate(apiTemplate: any): any {
       height: 1080,
       backgroundColor: apiTemplate.defaultStyling?.background?.fallback || '#FFFFFF',
     },
-    elements: [], // We'll populate this from layout.elements in Phase 2
+    elements: visualElements,
     thumbnail: apiTemplate.thumbnail,
   };
 }
 
 function convertToAPITemplate(visualTemplate: any): any {
   // Convert visual template back to API format
-  // For now, return basic structure
+  // Fixed: Added safe property access and AI prompt support
   return {
     name: visualTemplate.name,
     description: visualTemplate.description,
@@ -347,33 +444,55 @@ function convertToAPITemplate(visualTemplate: any): any {
     layout: {
       type: 'absolute',
       elements: visualTemplate.elements.map((el: any) => ({
-        id: el.config.fieldId || el.id,
+        id: el.config?.fieldId || el.id,
         type: el.type,
         zone: {
-          x: `${el.position.x}px`,
-          y: `${el.position.y}px`,
-          width: typeof el.size.width === 'number' ? `${el.size.width}px` : el.size.width,
-          height: typeof el.size.height === 'number' ? `${el.size.height}px` : el.size.height,
+          x: `${el.position?.x || 0}px`,
+          y: `${el.position?.y || 0}px`,
+          width: typeof el.size?.width === 'number' ? `${el.size.width}px` : (el.size?.width || 'auto'),
+          height: typeof el.size?.height === 'number' ? `${el.size.height}px` : (el.size?.height || 'auto'),
         },
-        styling: el.style,
+        zIndex: el.zIndex !== undefined ? el.zIndex : 0,  // Save zIndex
+        styling: el.style || {},
+        config: el.config || {},
+        aiPrompt: el.aiPrompt || null, // Include AI prompt configuration
       })),
     },
     defaultStyling: {
       background: {
         type: 'solid',
-        fallback: visualTemplate.canvas.backgroundColor,
+        fallback: visualTemplate.canvas?.backgroundColor || '#FFFFFF',
       },
     },
     contentSchema: {
       fields: visualTemplate.elements
-        .filter((el: any) => el.type === 'text' || el.type === 'image')
+        .filter((el: any) => {
+          // Include text elements
+          if (el.type === 'text') return true;
+          // Include data elements (stats, numbers, etc.)
+          if (el.type === 'data') return true;
+          // For image elements, EXCLUDE logos (they come from brand kit)
+          if (el.type === 'image') {
+            const mediaType = el.config?.mediaType || '';
+            return mediaType !== 'logo';  // Only include non-logo images
+          }
+          // Exclude shapes (no user-editable content)
+          return false;
+        })
         .map((el: any) => ({
-          id: el.config.fieldId,
+          id: el.config?.fieldId || el.id,
           type: el.type,
-          label: el.config.label,
-          placeholder: el.config.placeholder,
-          required: el.config.required,
-        })),
+          label: el.config?.label || el.id || 'Untitled Field', // Ensure every field has a label
+          placeholder: el.config?.placeholder || '',
+          required: el.config?.required || false,
+          maxLength: el.config?.maxLength || undefined,
+          multiline: el.config?.multiline || false,
+          aiPrompt: el.aiPrompt || null, // Include AI prompt in schema
+        }))
+        .filter((field: any) => {
+          // Extra safety: filter out fields that still don't have valid labels
+          return field.label && field.label.trim() !== '';
+        }),
     },
   };
 }
