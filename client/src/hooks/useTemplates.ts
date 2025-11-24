@@ -28,6 +28,8 @@ export interface Template {
   layout: any;
   defaultStyling: any;
   contentSchema: any;
+  positioningRules?: any;
+  canvas?: any;
 }
 
 interface UseTemplatesOptions {
@@ -45,16 +47,16 @@ export function useTemplates(options?: UseTemplatesOptions) {
       if (options?.category) params.append('category', options.category);
       if (options?.tags?.length) params.append('tags', options.tags.join(','));
       if (options?.search) params.append('search', options.search);
-      
+
       const response = await fetch(`/api/templates?${params}`, {
         headers,
         credentials: 'include',
       });
-      
+
       if (!response.ok) {
         throw new Error('Failed to fetch templates');
       }
-      
+
       return response.json() as Promise<Template[]>;
     },
   });
@@ -65,17 +67,17 @@ export function useTemplate(templateId: string | null) {
     queryKey: ['template', templateId],
     queryFn: async () => {
       if (!templateId) return null;
-      
+
       const headers = await getAuthHeaders();
       const response = await fetch(`/api/templates/${templateId}`, {
         headers,
         credentials: 'include',
       });
-      
+
       if (!response.ok) {
         throw new Error('Failed to fetch template');
       }
-      
+
       return response.json() as Promise<Template>;
     },
     enabled: !!templateId,
@@ -91,11 +93,11 @@ export function useDefaultTemplate() {
         headers,
         credentials: 'include',
       });
-      
+
       if (!response.ok) {
         throw new Error('Failed to fetch default template');
       }
-      
+
       return response.json() as Promise<Template>;
     },
   });
@@ -103,7 +105,7 @@ export function useDefaultTemplate() {
 
 export function useApplyTemplate(deckId: string) {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (data: {
       templateId: string;
@@ -120,12 +122,12 @@ export function useApplyTemplate(deckId: string) {
         credentials: 'include',
         body: JSON.stringify(data),
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw error;
       }
-      
+
       return response.json();
     },
     onSuccess: () => {
@@ -137,7 +139,7 @@ export function useApplyTemplate(deckId: string) {
 
 export function useApplyTemplateToSlide(deckId: string) {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (data: {
       slideId: string;
@@ -150,7 +152,7 @@ export function useApplyTemplateToSlide(deckId: string) {
       console.log('Slide ID:', data.slideId);
       console.log('Template ID:', data.templateId);
       console.log('Content:', data.content);
-      
+
       const headers = await getAuthHeaders();
       const { slideId, ...requestData } = data;
       const response = await fetch(`/api/decks/${deckId}/slides/${slideId}/apply-template`, {
@@ -162,30 +164,30 @@ export function useApplyTemplateToSlide(deckId: string) {
         credentials: 'include',
         body: JSON.stringify(requestData),
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         console.error('=== TEMPLATE APPLICATION FAILED ===', error);
         throw error;
       }
-      
+
       const result = await response.json();
       console.log('=== TEMPLATE APPLIED - SERVER RESPONSE ===');
       console.log('Updated slide:', result);
       console.log('Content:', result.content);
       console.log('Positioned elements:', result.positionedElements);
       console.log('Styling:', result.styling);
-      
+
       return result;
     },
     onSuccess: (data) => {
       console.log('=== TEMPLATE APPLY SUCCESS - INVALIDATING CACHE ===');
       console.log('Slide data received:', data);
-      
+
       // Invalidate deck queries to refetch updated slide
       queryClient.invalidateQueries({ queryKey: ['deck', deckId] });
       queryClient.invalidateQueries({ queryKey: [`/api/decks/${deckId}`] });
-      
+
       // Force immediate refetch
       setTimeout(() => {
         console.log('Forcing refetch after template apply...');
@@ -197,7 +199,7 @@ export function useApplyTemplateToSlide(deckId: string) {
 
 export function useCreateTemplateFromSlide() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (data: {
       slideId: string;
@@ -215,11 +217,11 @@ export function useCreateTemplateFromSlide() {
         credentials: 'include',
         body: JSON.stringify(data),
       });
-      
+
       if (!response.ok) {
         throw new Error('Failed to create template');
       }
-      
+
       return response.json();
     },
     onSuccess: () => {

@@ -25,23 +25,40 @@ export function CanvasToolbar() {
     toggleSnap,
     toggleGuides,
   } = useDesignStudioStore();
-  
+
   const handleZoomIn = () => {
     const currentIndex = ZOOM_LEVELS.findIndex(z => z >= canvas.zoom);
     const nextIndex = Math.min(currentIndex + 1, ZOOM_LEVELS.length - 1);
     setZoom(ZOOM_LEVELS[nextIndex]);
   };
-  
+
   const handleZoomOut = () => {
     const currentIndex = ZOOM_LEVELS.findIndex(z => z >= canvas.zoom);
     const prevIndex = Math.max(currentIndex - 1, 0);
     setZoom(ZOOM_LEVELS[prevIndex]);
   };
-  
+
   const handleFitToScreen = () => {
-    setZoom(1);
+    // Calculate available space (accounting for padding and sidebars)
+    // Viewport height minus header (64px) minus toolbar (48px) minus padding (32px total) minus buffer (48px)
+    // Viewport width minus left sidebar (256px) minus right sidebar (320px) minus padding (32px total) minus buffer (48px)
+    const availableHeight = window.innerHeight - 64 - 48 - 32 - 48;
+    const availableWidth = window.innerWidth - 256 - 320 - 32 - 48;
+
+    // Calculate zoom to fit
+    const zoomToFitWidth = availableWidth / 1920;
+    const zoomToFitHeight = availableHeight / 1080;
+
+    // Use the smaller zoom to ensure it fits in both dimensions
+    const optimalZoom = Math.min(zoomToFitWidth, zoomToFitHeight, 1); // Cap at 100%
+
+    // Find the largest zoom level that is LESS THAN OR EQUAL to optimal (round down, not nearest)
+    const fittingZoom = ZOOM_LEVELS.filter(z => z <= optimalZoom);
+    const closestZoom = fittingZoom.length > 0 ? fittingZoom[fittingZoom.length - 1] : 0.25;
+
+    setZoom(closestZoom);
   };
-  
+
   return (
     <div className="h-12 border-b bg-background flex items-center justify-between px-4 shrink-0">
       {/* Left - Zoom Controls */}
@@ -54,7 +71,7 @@ export function CanvasToolbar() {
         >
           <ZoomOut className="w-4 h-4" />
         </Button>
-        
+
         <Select
           value={String(canvas.zoom)}
           onValueChange={(value) => setZoom(parseFloat(value))}
@@ -70,7 +87,7 @@ export function CanvasToolbar() {
             ))}
           </SelectContent>
         </Select>
-        
+
         <Button
           variant="ghost"
           size="sm"
@@ -79,9 +96,9 @@ export function CanvasToolbar() {
         >
           <ZoomIn className="w-4 h-4" />
         </Button>
-        
+
         <div className="w-px h-6 bg-border mx-2" />
-        
+
         <Button
           variant="ghost"
           size="sm"
@@ -91,7 +108,7 @@ export function CanvasToolbar() {
           <Maximize2 className="w-4 h-4" />
         </Button>
       </div>
-      
+
       {/* Right - View Controls */}
       <div className="flex items-center gap-2">
         <Toggle
@@ -103,7 +120,7 @@ export function CanvasToolbar() {
           <Grid3x3 className="w-4 h-4 mr-1" />
           Grid
         </Toggle>
-        
+
         <Toggle
           pressed={canvas.grid.snap}
           onPressedChange={toggleSnap}
@@ -114,7 +131,7 @@ export function CanvasToolbar() {
           <Grid3x3 className="w-4 h-4 mr-1" />
           Snap
         </Toggle>
-        
+
         <Toggle
           pressed={canvas.guides.visible}
           onPressedChange={toggleGuides}
@@ -124,7 +141,7 @@ export function CanvasToolbar() {
           <Ruler className="w-4 h-4 mr-1" />
           Guides
         </Toggle>
-        
+
         <div className="text-xs text-muted-foreground ml-4">
           1920 × 1080 px
         </div>

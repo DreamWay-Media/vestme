@@ -4,20 +4,20 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { 
-  useProjectMedia, 
-  useUploadMedia, 
-  useExtractImages, 
+import {
+  useProjectMedia,
+  useUploadMedia,
+  useExtractImages,
   useDeleteMedia,
   useUpdateMediaMetadata,
-  type MediaAsset 
+  type MediaAsset
 } from '@/hooks/useMedia';
-import { 
-  Upload, 
-  Image as ImageIcon, 
-  Trash2, 
-  Download, 
-  Tag, 
+import {
+  Upload,
+  Image as ImageIcon,
+  Trash2,
+  Download,
+  Tag,
   FileText,
   Loader2,
   AlertCircle,
@@ -41,9 +41,13 @@ import { useToast } from '@/hooks/use-toast';
 interface MediaLibraryProps {
   projectId: string;
   websiteUrl?: string;
+  /**
+   * Optional callback when an asset is selected. Used by picker dialogs.
+   */
+  onSelect?: (url: string) => void;
 }
 
-export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
+export function MediaLibrary({ projectId, websiteUrl, onSelect }: MediaLibraryProps) {
   const { data, isLoading, error } = useProjectMedia(projectId);
   const uploadMutation = useUploadMedia(projectId);
   const extractMutation = useExtractImages(projectId);
@@ -93,7 +97,7 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
     const reader = new FileReader();
     reader.onload = async (e) => {
       const base64 = e.target?.result as string;
-      
+
       try {
         // Show initial upload toast
         toast({
@@ -110,7 +114,7 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
         // Show success with AI-generated tags
         const aiTags = result.tags?.filter((tag: string) => tag !== 'uploaded') || [];
         let description = 'Image uploaded successfully!';
-        
+
         if (aiTags.length > 0) {
           description += `\n\n🤖 AI Tags: ${aiTags.join(', ')}`;
         }
@@ -128,7 +132,7 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
       }
     };
     reader.readAsDataURL(file);
-    
+
     // Reset input
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -154,11 +158,11 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
       // Build detailed message
       const stats = result.stats || {};
       let description = `Saved ${result.saved.length} pitch deck-relevant images`;
-      
+
       if (stats.totalFound) {
         const filtered = stats.filtered || 0;
         const duplicates = stats.duplicates || 0;
-        
+
         if (filtered > 0 || duplicates > 0) {
           description += `\n\nFiltered out: ${filtered} irrelevant`;
           if (duplicates > 0) {
@@ -208,6 +212,13 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
       altText: asset.altText || '',
     });
     setShowMetadataDialog(true);
+  };
+
+  // New: handle asset selection for picker mode
+  const handleSelectAsset = (asset: MediaAsset) => {
+    if (onSelect) {
+      onSelect(asset.storageUrl);
+    }
   };
 
   const handleSaveMetadata = async () => {
@@ -263,7 +274,7 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
             Manage images for your pitch deck
           </p>
         </div>
-        
+
         <div className="flex gap-2">
           {websiteUrl && (
             <Button
@@ -278,7 +289,7 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
               )}
             </Button>
           )}
-          
+
           <Button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploadMutation.isPending}
@@ -325,9 +336,8 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
           </div>
           <div className="w-full bg-muted rounded-full h-2">
             <div
-              className={`h-2 rounded-full transition-all ${
-                usagePercent > 90 ? 'bg-destructive' : 'bg-primary'
-              }`}
+              className={`h-2 rounded-full transition-all ${usagePercent > 90 ? 'bg-destructive' : 'bg-primary'
+                }`}
               style={{ width: `${Math.min(usagePercent, 100)}%` }}
             />
           </div>
@@ -382,7 +392,7 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
                   }}
                 />
               </div>
-              
+
               {/* Overlay Actions */}
               <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                 <Button
@@ -399,6 +409,15 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
                 >
                   <Download className="w-4 h-4" />
                 </Button>
+                {onSelect && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleSelectAsset(asset)}
+                  >
+                    Select
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="destructive"
@@ -408,13 +427,13 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
                   <Trash2 className="w-4 h-4" />
                 </Button>
               </div>
-              
+
               {/* Info Bar */}
               <div className="p-2 bg-background space-y-1">
                 <p className="text-xs font-medium truncate">
                   {asset.originalFilename || 'Untitled'}
                 </p>
-                
+
                 {/* AI Tags */}
                 {asset.tags && asset.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1">
@@ -431,7 +450,7 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
                       ))}
                   </div>
                 )}
-                
+
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">
                     {(asset.fileSize / 1024).toFixed(0)} KB
@@ -457,7 +476,7 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
               Add tags and descriptions to help AI select the best images for your slides
             </DialogDescription>
           </DialogHeader>
-          
+
           {selectedAsset && (
             <div className="space-y-4">
               {/* Image Preview */}
@@ -468,7 +487,7 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
                   className="w-full h-full object-contain"
                 />
               </div>
-              
+
               {/* Tags */}
               <div>
                 <Label>Tags</Label>
@@ -514,7 +533,7 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
                   </Button>
                 </div>
               </div>
-              
+
               {/* Description */}
               <div>
                 <Label htmlFor="description">Description</Label>
@@ -529,7 +548,7 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
                   className="mt-1"
                 />
               </div>
-              
+
               {/* Alt Text */}
               <div>
                 <Label htmlFor="altText">Alt Text (for accessibility)</Label>
@@ -543,7 +562,7 @@ export function MediaLibrary({ projectId, websiteUrl }: MediaLibraryProps) {
                   className="mt-1"
                 />
               </div>
-              
+
               {/* Actions */}
               <div className="flex justify-end gap-2 pt-4 border-t">
                 <Button

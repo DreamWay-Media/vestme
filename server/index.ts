@@ -1,4 +1,19 @@
 import "dotenv/config";
+
+// Polyfill File for Node 18 compatibility with undici/cheerio
+if (!global.File) {
+  class File extends Blob {
+    name: string;
+    lastModified: number;
+    constructor(fileBits: any[], fileName: string, options?: any) {
+      super(fileBits, options);
+      this.name = fileName;
+      this.lastModified = options?.lastModified || Date.now();
+    }
+  }
+  (global as any).File = File;
+}
+
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
@@ -21,22 +36,22 @@ app.use((req, res, next) => {
     "connect-src 'self' https:; " +
     "frame-ancestors 'none';"
   );
-  
+
   // X-Frame-Options - prevent clickjacking
   res.setHeader('X-Frame-Options', 'DENY');
-  
+
   // X-Content-Type-Options - prevent MIME-sniffing
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  
+
   // X-XSS-Protection - enable browser XSS protection
   res.setHeader('X-XSS-Protection', '1; mode=block');
-  
+
   // Referrer-Policy - control referrer information
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  
+
   // Permissions-Policy - disable unnecessary browser features
   res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
-  
+
   next();
 });
 
@@ -105,18 +120,18 @@ app.use((req, res, next) => {
   // Default to 3000 for development (5000 is used by macOS Control Center)
   // this serves both the API and the client.
   const port = parseInt(process.env.PORT || '3000', 10);
-  
+
   // reusePort is not supported on macOS, so we'll conditionally use it
   const listenOptions: any = {
     port,
     host: "0.0.0.0",
   };
-  
+
   // Only add reusePort on platforms that support it (Linux)
   if (process.platform !== 'darwin') {
     listenOptions.reusePort = true;
   }
-  
+
   server.listen(listenOptions, () => {
     log(`serving on port ${port}`);
   });

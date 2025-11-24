@@ -24,11 +24,11 @@ export default function TemplateDesignStudio() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  
+
   // Get template from API if editing existing
   const { data: existingTemplate, isLoading } = useGetTemplate(templateId || '');
   const updateMutation = useUpdateTemplate(templateId || '');
-  
+
   // Design studio state
   const {
     template,
@@ -49,26 +49,26 @@ export default function TemplateDesignStudio() {
     deselectAll,
     history,
   } = useDesignStudioStore();
-  
+
   const [showPreview, setShowPreview] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  
+
   // Configure DnD sensors with activation constraints
   const mouseSensor = useSensor(MouseSensor, {
     activationConstraint: {
       distance: 10, // 10px movement required to start drag
     },
   });
-  
+
   const touchSensor = useSensor(TouchSensor, {
     activationConstraint: {
       delay: 250,
       tolerance: 5,
     },
   });
-  
+
   const sensors = useSensors(mouseSensor, touchSensor);
-  
+
   // Load template on mount
   useEffect(() => {
     if (existingTemplate && templateId) {
@@ -80,28 +80,60 @@ export default function TemplateDesignStudio() {
       reset();
     }
   }, [existingTemplate, templateId, setTemplate, reset]);
-  
+
+  // Auto-fit canvas to screen on mount
+  useEffect(() => {
+    const autoFit = () => {
+      // Calculate available space (accounting for padding and sidebars)
+      // Padding changed from p-8 (64px) to p-4 (32px)
+      // Adding 48px buffer to ensure no overflow or sidebar overlap
+      const availableHeight = window.innerHeight - 64 - 48 - 32 - 48;
+      const availableWidth = window.innerWidth - 256 - 320 - 32 - 48;
+
+      // Calculate zoom to fit
+      const zoomToFitWidth = availableWidth / 1920;
+      const zoomToFitHeight = availableHeight / 1080;
+
+      // Use the smaller zoom to ensure it fits in both dimensions
+      const optimalZoom = Math.min(zoomToFitWidth, zoomToFitHeight, 1);
+
+      // Find the largest zoom level that is LESS THAN OR EQUAL to optimal (round down, not nearest)
+      const ZOOM_LEVELS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+      const fittingZoom = ZOOM_LEVELS.filter(z => z <= optimalZoom);
+      const closestZoom = fittingZoom.length > 0 ? fittingZoom[fittingZoom.length - 1] : 0.25;
+
+      // Get setZoom from store
+      const { setZoom } = useDesignStudioStore.getState();
+      setZoom(closestZoom);
+    };
+
+    // Run on mount with a slight delay to ensure layout is ready
+    const timer = setTimeout(autoFit, 100);
+    return () => clearTimeout(timer);
+  }, []);
+
+
   // Keyboard shortcuts
   useHotkeys('mod+s', (e) => {
     e.preventDefault();
     handleSave();
   });
-  
+
   useHotkeys('mod+z', (e) => {
     e.preventDefault();
     undo();
   });
-  
+
   useHotkeys('mod+shift+z', (e) => {
     e.preventDefault();
     redo();
   });
-  
+
   useHotkeys('mod+y', (e) => {
     e.preventDefault();
     redo();
   });
-  
+
   useHotkeys('mod+c', (e) => {
     if (selectedElementIds.length > 0) {
       e.preventDefault();
@@ -112,19 +144,19 @@ export default function TemplateDesignStudio() {
       });
     }
   });
-  
+
   useHotkeys('mod+v', (e) => {
     e.preventDefault();
     paste();
   });
-  
+
   useHotkeys('mod+x', (e) => {
     if (selectedElementIds.length > 0) {
       e.preventDefault();
       cut();
     }
   });
-  
+
   useHotkeys('delete', () => {
     if (selectedElementIds.length > 0) {
       selectedElementIds.forEach(id => deleteElement(id));
@@ -134,40 +166,40 @@ export default function TemplateDesignStudio() {
       });
     }
   });
-  
+
   useHotkeys('backspace', () => {
     if (selectedElementIds.length > 0) {
       selectedElementIds.forEach(id => deleteElement(id));
     }
   });
-  
+
   useHotkeys('escape', () => {
     deselectAll();
   });
-  
+
   // Save template
   const handleSave = async () => {
     try {
       setSaving(true);
-      
+
       // Convert visual template back to API format
       const apiTemplate = convertToAPITemplate(template);
-      
+
       if (templateId) {
         // Update existing - Fixed: Use correct structure for mutation
         await updateMutation.mutateAsync({
           templateId: templateId,
           updates: apiTemplate
         });
-        
+
         // Invalidate all template caches to ensure preview updates everywhere
         await queryClient.invalidateQueries({ queryKey: ['templates'] });
         await queryClient.invalidateQueries({ queryKey: ['admin', 'templates'] });
-        
+
         // Refetch the template to get the updated data back into the design studio
-        await queryClient.refetchQueries({ 
+        await queryClient.refetchQueries({
           queryKey: ['admin', 'template', templateId],
-          exact: true 
+          exact: true
         });
       } else {
         // Create new (we'll implement this later)
@@ -178,7 +210,7 @@ export default function TemplateDesignStudio() {
         });
         return;
       }
-      
+
       markClean();
       toast({
         title: 'Saved',
@@ -194,7 +226,7 @@ export default function TemplateDesignStudio() {
       setSaving(false);
     }
   };
-  
+
   // Back to template management
   const handleBack = () => {
     if (isDirty) {
@@ -203,7 +235,7 @@ export default function TemplateDesignStudio() {
     }
     setLocation('/admin/templates');
   };
-  
+
   // Preview template
   const handlePreview = () => {
     setShowPreview(true);
@@ -213,7 +245,7 @@ export default function TemplateDesignStudio() {
       description: 'Preview will be implemented in Phase 2',
     });
   };
-  
+
   if (isLoading && templateId) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -221,7 +253,7 @@ export default function TemplateDesignStudio() {
       </div>
     );
   }
-  
+
   return (
     <div className="flex flex-col h-screen bg-muted/30">
       {/* Header */}
@@ -236,23 +268,23 @@ export default function TemplateDesignStudio() {
             <ArrowLeft className="w-4 h-4" />
             Templates
           </Button>
-          
+
           <div className="h-6 w-px bg-border" />
-          
+
           <Input
             value={template.name}
             onChange={(e) => updateTemplateInfo({ name: e.target.value })}
             className="w-64 h-9"
             placeholder="Template name..."
           />
-          
+
           {isDirty && (
             <span className="text-xs text-muted-foreground">
               • Unsaved changes
             </span>
           )}
         </div>
-        
+
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 text-xs text-muted-foreground mr-4">
             <kbd className="px-2 py-1 rounded bg-muted">⌘Z</kbd> Undo
@@ -261,7 +293,7 @@ export default function TemplateDesignStudio() {
             <span className="mx-1">·</span>
             <kbd className="px-2 py-1 rounded bg-muted">⌘S</kbd> Save
           </div>
-          
+
           <Button
             variant="outline"
             size="sm"
@@ -271,7 +303,7 @@ export default function TemplateDesignStudio() {
             <Eye className="w-4 h-4" />
             Preview
           </Button>
-          
+
           <Button
             variant="outline"
             size="sm"
@@ -281,7 +313,7 @@ export default function TemplateDesignStudio() {
             <Settings className="w-4 h-4" />
             Settings
           </Button>
-          
+
           <Button
             size="sm"
             onClick={handleSave}
@@ -297,7 +329,7 @@ export default function TemplateDesignStudio() {
           </Button>
         </div>
       </header>
-      
+
       {/* Main Content */}
       <DndContext sensors={sensors}>
         <div className="flex-1 flex overflow-hidden">
@@ -305,13 +337,13 @@ export default function TemplateDesignStudio() {
           <div className="w-64 border-r bg-background shrink-0 overflow-y-auto">
             <ElementLibrary />
           </div>
-          
+
           {/* Center - Canvas */}
           <div className="flex-1 flex flex-col overflow-hidden">
             <CanvasToolbar />
             <DesignCanvas />
           </div>
-          
+
           {/* Right Sidebar - Properties */}
           <div className="w-80 border-l bg-background shrink-0 overflow-y-auto">
             <PropertiesPanel />
@@ -327,16 +359,16 @@ function convertToVisualTemplate(apiTemplate: any): any {
   // Convert API template format back to visual template format
   const layoutElements = apiTemplate.layout?.elements || [];
   const schemaFields = apiTemplate.contentSchema?.fields || [];
-  
+
   // Create a map of field configs for quick lookup
   const fieldConfigMap = new Map(
     schemaFields.map((field: any) => [field.id, field])
   );
-  
+
   // Convert layout elements to visual elements
   const visualElements = layoutElements.map((el: any, index: number) => {
     const fieldConfig = fieldConfigMap.get(el.id);
-    
+
     // Parse position and size from zone strings (e.g., "100px" -> 100)
     const parsePixelValue = (val: string | number): number => {
       if (typeof val === 'number') return val;
@@ -346,7 +378,7 @@ function convertToVisualTemplate(apiTemplate: any): any {
       }
       return 0;
     };
-    
+
     const parseSizeValue = (val: string | number): number | 'auto' => {
       if (val === 'auto') return 'auto';
       if (typeof val === 'number') return val;
@@ -357,7 +389,7 @@ function convertToVisualTemplate(apiTemplate: any): any {
       }
       return 0;
     };
-    
+
     // Build config based on element type
     let config: any = {};
     if (el.type === 'text') {
@@ -392,7 +424,7 @@ function convertToVisualTemplate(apiTemplate: any): any {
         format: 'text',
       };
     }
-    
+
     return {
       id: el.id,
       type: el.type,
@@ -410,7 +442,7 @@ function convertToVisualTemplate(apiTemplate: any): any {
       aiPrompt: el.aiPrompt || undefined, // Restore AI prompt configuration
     };
   });
-  
+
   return {
     id: apiTemplate.id,
     name: apiTemplate.name,
