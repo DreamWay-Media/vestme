@@ -80,16 +80,6 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
       const scaleY = height / 1080;
       const newScale = Math.min(scaleX, scaleY);
       setScale(newScale);
-      console.log('📐 SlideRenderer scale calculated:', {
-        containerElement: containerRef.current.tagName,
-        width,
-        height,
-        scaleX,
-        scaleY,
-        finalScale: newScale,
-        expectedCanvasWidth: 1920 * newScale,
-        expectedCanvasHeight: 1080 * newScale
-      });
     };
 
     updateScale();
@@ -204,31 +194,10 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
     Object.keys(positionedElements).some(key => key.startsWith('logo-'));
 
   // Debug: Log the styling being applied
-  console.log('=== SLIDE RENDERER DEBUG ===');
-  console.log('Slide ID:', slide.id);
-  console.log('Slide type:', slide.type);
-  console.log('Slide title:', slide.title);
-  console.log('Content received:', content);
-  console.log('  - Titles:', content.titles);
-  console.log('  - Descriptions:', content.descriptions);
-  console.log('  - Bullets:', content.bullets);
-  console.log('  - Logos:', content.logos);
-  console.log('Styling received:', styling);
-  console.log('  - Background color:', backgroundColor);
-  console.log('  - Text color:', textColor);
-  console.log('  - Font family:', fontFamily);
-  console.log('Positioned elements:', positionedElements);
-  console.log('  - Keys:', Object.keys(positionedElements));
-  console.log('  - Full data:', JSON.stringify(positionedElements, null, 2));
-  console.log('Will use positioned layout?', usePositionedLayout);
-  console.log('Template has logo?', templateHasLogo);
-  console.log('Layout elements:', slide.layoutElements);
-  console.log('Has layout elements?', !!slide.layoutElements && slide.layoutElements.length > 0);
 
   // NEW: Check if slide has layoutElements from design studio
   // If yes, use the new element-by-element renderer for perfect parity
   if (slide.layoutElements && slide.layoutElements.length > 0) {
-    console.log('🎨 Using NEW element-by-element renderer with', slide.layoutElements.length, 'elements');
 
     // Design studio canvas dimensions
     const DESIGN_WIDTH = 1920;
@@ -279,7 +248,6 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
     );
   }
 
-  console.log('📋 Using LEGACY renderer (no layoutElements found)');
 
   // If using positioned layout, render with absolute positioning
   if (usePositionedLayout) {
@@ -301,13 +269,6 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
 
                   // Only render if template has positioning for this logo
                   if (!logoPosition && index > 0) return null;
-
-                  console.log(`SlideRenderer - Logo ${index} positioning:`, {
-                    logoKey,
-                    logoPosition,
-                    logoUrl,
-                    hasPosition: !!logoPosition
-                  });
 
                   return (
                     <div

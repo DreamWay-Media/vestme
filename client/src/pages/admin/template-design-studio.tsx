@@ -508,18 +508,25 @@ function convertToAPITemplate(visualTemplate: any): any {
             const mediaType = el.config?.mediaType || '';
             return mediaType !== 'logo';  // Only include non-logo images
           }
-          // Exclude shapes (no user-editable content)
+          // Include shapes (allow color customization)
+          if (el.type === 'shape') return true;
           return false;
         })
         .map((el: any) => ({
           id: el.config?.fieldId || el.id,
           type: el.type,
-          label: el.config?.label || el.id || 'Untitled Field', // Ensure every field has a label
+          label: el.config?.label || (el.type === 'shape' ? `Shape ${el.id}` : el.id) || 'Untitled Field', // Auto-label for shapes
           placeholder: el.config?.placeholder || '',
           required: el.config?.required || false,
           maxLength: el.config?.maxLength || undefined,
           multiline: el.config?.multiline || false,
           aiPrompt: el.aiPrompt || null, // Include AI prompt in schema
+          config: el.type === 'shape' ? {
+            fill: el.config?.fill || '#E5E7EB',
+            stroke: el.config?.stroke || '#9CA3AF',
+            strokeWidth: el.config?.strokeWidth || 2,
+            shape: el.config?.shape || 'rectangle',
+          } : undefined, // Include shape config for color defaults
         }))
         .filter((field: any) => {
           // Extra safety: filter out fields that still don't have valid labels

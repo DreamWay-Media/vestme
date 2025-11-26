@@ -2504,7 +2504,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Generate AI content for template preview
   app.post('/api/generate-template-content', isAuthenticated, async (req: any, res) => {
     try {
-      const { templateCategory, templateName, businessProfile } = req.body;
+      const { templateCategory, templateName, businessProfile, projectId, templateSchema } = req.body;
       
       if (!businessProfile) {
         return res.status(400).json({ error: 'Business profile is required' });
@@ -2516,12 +2516,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`Generating AI content for template: ${templateName} (${templateCategory})`);
       
-      // Call OpenAI to generate content
+      // Count how many image fields are in the template
+      let imageFieldCount = 0;
+      if (templateSchema?.fields) {
+        imageFieldCount = templateSchema.fields.filter((f: any) => {
+          // Only count fields with labels (same filtering as the form)
+          if (!f.label || f.label.trim() === '') return false;
+          return f.type === 'image' || f.type === 'logo';
+        }).length;
+      }
+      console.log(`Template has ${imageFieldCount} image fields`);
+      
+      // Fetch available media from the project's media library (if projectId provided)
+      let availableMedia: Array<{ url: string; name: string; type: string }> = [];
+      if (projectId) {
+        try {
+          const mediaResult = await storage.getProjectMedia(projectId, req.user.id);
+          availableMedia = mediaResult.media.map((m: any) => ({
+            url: m.url,
+            name: m.name || 'Untitled',
+            type: m.contentType || 'image',
+          }));
+          console.log(`Found ${availableMedia.length} media assets for AI selection`);
+        } catch (error) {
+          console.warn('Could not fetch media library:', error);
+          // Continue without media - not a fatal error
+        }
+      }
+      
+      // Call OpenAI to generate content with image selection
       const generatedContent = await openai.generateSlideContentForTemplate({
         templateCategory,
         templateName,
         businessProfile,
         existingContent: null,
+        availableMedia, // Pass available images for AI selection
+        requiredImageCount: imageFieldCount, // Tell AI how many images to select
+        templateSchema, // Pass schema so AI can use field-specific prompts
       });
       
       console.log('Generated content:', generatedContent);

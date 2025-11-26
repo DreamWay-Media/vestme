@@ -746,8 +746,8 @@ export class TemplateManager {
       // Map content based on element type
       if (el.type === 'text') {
         console.log(`TEXT ELEMENT: ${fieldId}`);
-        // Check if content was provided for this field
-        let fieldContent = content?.[fieldId];
+        // Check _elementContent first (client sends this), then direct field
+        let fieldContent = content?._elementContent?.[fieldId] || content?.[fieldId];
         console.log(`  - Content from request: "${fieldContent}"`);
         console.log(`  - AI prompt enabled: ${el.aiPrompt?.enabled}`);
         console.log(`  - AI prompt: "${el.aiPrompt?.prompt}"`);
@@ -837,12 +837,31 @@ export class TemplateManager {
           }
         } else {
           // For other image types (graphic, photo, icon), store content if provided
-          const imageContent = content?.[fieldId];
+          // Check _elementContent first (for indexed keys from client), then direct field
+          let imageContent = null;
+          
+          // Try to find content with layout index (client sends this for multi-image templates)
+          const layoutIndex = layoutElements.indexOf(el);
+          const indexedKey = `${fieldId}-layout-${layoutIndex}`;
+          if (content?._elementContent?.[indexedKey]) {
+            imageContent = content._elementContent[indexedKey];
+            console.log(`  ✅ Found image content with indexed key ${indexedKey}:`, imageContent);
+          } else if (content?._elementContent?.[fieldId]) {
+            imageContent = content._elementContent[fieldId];
+            console.log(`  ✅ Found image content with field ID ${fieldId}:`, imageContent);
+          } else if (content?.[fieldId]) {
+            imageContent = content[fieldId];
+            console.log(`  ✅ Found image content with direct key ${fieldId}:`, imageContent);
+          }
+          
           if (imageContent) {
             slideContent._elementContent[fieldId] = imageContent;
           } else if (el.config?.fallbackUrl) {
             // Use fallback if no content provided
             slideContent._elementContent[fieldId] = el.config.fallbackUrl;
+            console.log(`  ⚠️ Using fallback URL for ${fieldId}`);
+          } else {
+            console.log(`  ⚠️ No image content found for ${fieldId}`);
           }
 
           // For other image types, AI prompt could describe what image is needed
@@ -852,20 +871,25 @@ export class TemplateManager {
           }
         }
       } else if (el.type === 'data') {
-        let dataContent = content?.[fieldId];
+        // Check _elementContent first, then direct field
+        let dataContent = content?._elementContent?.[fieldId] || content?.[fieldId];
+        
+        console.log(`DATA ELEMENT: ${fieldId}`);
+        console.log(`  - Content from client:`, dataContent);
 
         // Check if data field has AI prompt for formatting or context
         if (!dataContent && el.aiPrompt?.enabled && el.aiPrompt?.prompt) {
           try {
-            console.log(`Generating data content for field ${fieldId} with AI prompt`);
+            console.log(`  ✨ Generating data content for field ${fieldId} with AI prompt`);
             dataContent = await this.generateFieldContent(
               el.aiPrompt,
               businessProfile,
               brandKit,
               template.category
             );
+            console.log(`  ✅ Generated data content:`, dataContent);
           } catch (error) {
-            console.error(`Error generating AI content for data field ${fieldId}:`, error);
+            console.error(`  ❌ Error generating AI content for data field ${fieldId}:`, error);
           }
         }
 
@@ -874,6 +898,9 @@ export class TemplateManager {
           // Improved fallback: Use null/undefined to let renderer handle it (showing '--')
           // instead of hardcoded '123'
           dataContent = el.config?.defaultValue || null;
+          console.log(`  ⚠️ Using default value:`, dataContent);
+        } else {
+          console.log(`  ✅ Using provided data content:`, dataContent);
         }
 
         // Store by element ID for ElementRenderer
@@ -887,8 +914,52 @@ export class TemplateManager {
           slideContent.descriptions.push(dataContent);
         }
       } else if (el.type === 'shape') {
-        // Shapes don't have content, but we need to track them exist
-        slideContent._elementContent[fieldId] = true;
+        console.log(`SHAPE ELEMENT: ${fieldId}`);
+        // Shapes - check for color customizations from client
+        // Client sends shape data as an object: { exists: true, fill: "#color", stroke: "#color" }
+        const shapeData: any = { exists: true };
+        
+        // Check if client sent shape data as an object in _elementContent
+        const clientShapeData = content?._elementContent?.[fieldId];
+        if (clientShapeData && typeof clientShapeData === 'object') {
+          console.log(`  ✅ Found shape data object for ${fieldId}:`, clientShapeData);
+          if (clientShapeData.fill) {
+            shapeData.fill = clientShapeData.fill;
+            console.log(`  ✅ Using custom fill color:`, shapeData.fill);
+          } else if (el.config?.fill) {
+            shapeData.fill = el.config.fill;
+            console.log(`  ℹ️ Using default fill color:`, shapeData.fill);
+          }
+          
+          if (clientShapeData.stroke) {
+            shapeData.stroke = clientShapeData.stroke;
+            console.log(`  ✅ Using custom stroke color:`, shapeData.stroke);
+          } else if (el.config?.stroke) {
+            shapeData.stroke = el.config.stroke;
+          }
+        } else {
+          // Fallback: check old format (individual keys)
+          const fillKey = `${fieldId}_fill`;
+          const strokeKey = `${fieldId}_stroke`;
+          
+          if (content?._elementContent?.[fillKey] || content?.[fillKey]) {
+            shapeData.fill = content._elementContent?.[fillKey] || content[fillKey];
+            console.log(`  ✅ Found shape fill color (old format) for ${fieldId}:`, shapeData.fill);
+          } else if (el.config?.fill) {
+            shapeData.fill = el.config.fill;
+            console.log(`  ℹ️ Using default fill color for ${fieldId}:`, shapeData.fill);
+          }
+          
+          if (content?._elementContent?.[strokeKey] || content?.[strokeKey]) {
+            shapeData.stroke = content._elementContent?.[strokeKey] || content[strokeKey];
+            console.log(`  ✅ Found shape stroke color (old format) for ${fieldId}:`, shapeData.stroke);
+          } else if (el.config?.stroke) {
+            shapeData.stroke = el.config.stroke;
+          }
+        }
+        
+        slideContent._elementContent[fieldId] = shapeData;
+        console.log(`  📦 Stored shape data:`, slideContent._elementContent[fieldId]);
       }
     }
 

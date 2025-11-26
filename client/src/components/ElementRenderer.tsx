@@ -61,6 +61,7 @@ interface ElementRendererProps {
     };
   };
   isCompact?: boolean;
+  layoutIndex?: number; // Index of this element in the layout array (for unique content lookup)
 }
 
 /**
@@ -81,7 +82,7 @@ function parsePixelValue(val: string | number): string {
 /**
  * Main ElementRenderer component
  */
-export function ElementRenderer({ element, content, brandKit, isCompact = false }: ElementRendererProps) {
+export function ElementRenderer({ element, content, brandKit, isCompact = false, layoutIndex }: ElementRendererProps) {
   // Base positioning style
   const positionStyle: React.CSSProperties = {
     position: 'absolute',
@@ -100,7 +101,20 @@ export function ElementRenderer({ element, content, brandKit, isCompact = false 
 
   // Get content for this element
   // Content can be in _elementContent (new format) or directly by ID
-  const elementContent = content?._elementContent?.[element.id] || content?.[element.id];
+  // CRITICAL: If layoutIndex is provided, check indexed key FIRST to ensure uniqueness
+  // This prevents duplicate element.id values from overwriting each other
+  let elementContent: any = undefined;
+  
+  if (layoutIndex !== undefined) {
+    // Check indexed key first (for elements with duplicate ids)
+    const indexedKey = `${element.id}-layout-${layoutIndex}`;
+    elementContent = content?._elementContent?.[indexedKey];
+  }
+  
+  // Fall back to element.id lookup if indexed key not found or layoutIndex not provided
+  if (elementContent === undefined) {
+    elementContent = content?._elementContent?.[element.id] || content?.[element.id];
+  }
 
   switch (element.type) {
     case 'text':
@@ -110,7 +124,7 @@ export function ElementRenderer({ element, content, brandKit, isCompact = false 
       return <ImageElement element={element} content={elementContent} style={combinedStyle} brandKit={brandKit} />;
     
     case 'shape':
-      return <ShapeElement element={element} style={combinedStyle} />;
+      return <ShapeElement element={element} content={elementContent} style={combinedStyle} />;
     
     case 'data':
       return <DataElement element={element} content={elementContent} style={combinedStyle} brandKit={brandKit} />;
@@ -177,63 +191,104 @@ function ImageElement({ element, content, style, brandKit }: any) {
     imageSrc = config.fallbackUrl;
   }
 
-  // Apply image-specific styles
+  // Determine object-fit based on media type
+  // For logos, use 'contain' to show entire image without cropping
+  // For other images, also use 'contain' to prevent cropping (user can override via config)
+  const defaultObjectFit = 'contain'; // Use contain for all images to prevent cropping
+  const objectFit = (config.objectFit as any) || defaultObjectFit;
+
+  // Container style: positioning and size come from the zone
+  const containerStyle: React.CSSProperties = {
+    position: style.position || 'absolute',
+    left: style.left,
+    top: style.top,
+    width: style.width, // Container gets the fixed width from zone
+    height: style.height, // Container gets the fixed height from zone
+    zIndex: style.zIndex || 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden', // Clip content that exceeds container bounds
+  };
+
+  // Image style: adapts to fit within the container
+  // Don't set width/height - let image use natural dimensions and fit within container
   const imageStyle: React.CSSProperties = {
-    ...style,
+    maxWidth: '100%', // Constrain to container width
+    maxHeight: '100%', // Constrain to container height
+    width: 'auto', // Use natural width
+    height: 'auto', // Use natural height
+    objectFit: objectFit, // Use contain for logos, cover for others
+    objectPosition: 'center',
     borderRadius: style.borderRadius || '0px',
     opacity: style.opacity !== undefined ? style.opacity : 1,
-    objectFit: (config.objectFit as any) || 'cover',
+    display: 'block',
   };
 
   if (!imageSrc) {
     // Placeholder for missing image
     return (
       <div
-        style={{
-          ...imageStyle,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: '#F3F4F6',
-          border: '2px dashed #D1D5DB',
-        }}
+        style={containerStyle}
       >
-        <div className="text-center text-sm text-gray-400">
-          <div className="text-2xl mb-1">
-            {mediaType === 'logo' ? '🏢' : '🖼️'}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '100%',
+            height: '100%',
+            backgroundColor: '#F3F4F6',
+            border: '2px dashed #D1D5DB',
+          }}
+        >
+          <div className="text-center text-sm text-gray-400">
+            <div className="text-2xl mb-1">
+              {mediaType === 'logo' ? '🏢' : '🖼️'}
+            </div>
+            <div>{config.label || mediaType}</div>
           </div>
-          <div>{config.label || mediaType}</div>
         </div>
       </div>
     );
   }
 
+  // Always wrap image in container for consistent positioning and sizing
   return (
-    <img
-      src={imageSrc}
-      alt={config.label || element.id}
-      style={imageStyle}
-      className="pointer-events-none"
-      onError={(e) => {
-        // Hide broken images
-        e.currentTarget.style.display = 'none';
-      }}
-    />
+    <div style={containerStyle}>
+      <img
+        src={imageSrc}
+        alt={config.label || element.id}
+        style={imageStyle}
+        className="pointer-events-none"
+        onError={(e) => {
+          // Hide broken images
+          e.currentTarget.style.display = 'none';
+        }}
+      />
+    </div>
   );
 }
 
 /**
  * Shape Element Renderer
+ * Supports custom colors from content (user customizations) or falls back to config
  */
-function ShapeElement({ element, style }: any) {
+function ShapeElement({ element, content, style }: any) {
   const config = element.config || {};
   const shape = config.shape || 'rectangle';
+  
+  // Get colors from content (user customizations) or fallback to config
+  const shapeData = content || {};
+  const fill = shapeData.fill || config.fill || '#E5E7EB';
+  const stroke = shapeData.stroke || config.stroke;
+  const strokeWidth = config.strokeWidth || 2;
   
   if (shape === 'circle') {
     const shapeStyle: React.CSSProperties = {
       ...style,
-      backgroundColor: config.fill || '#E5E7EB',
-      border: config.stroke ? `${config.strokeWidth || 2}px solid ${config.stroke}` : 'none',
+      backgroundColor: fill,
+      border: stroke ? `${strokeWidth}px solid ${stroke}` : 'none',
       borderRadius: '50%',
     };
     
@@ -243,8 +298,8 @@ function ShapeElement({ element, style }: any) {
   if (shape === 'line') {
     const shapeStyle: React.CSSProperties = {
       ...style,
-      height: `${config.strokeWidth || 2}px`,
-      backgroundColor: config.stroke || '#9CA3AF',
+      height: `${strokeWidth}px`,
+      backgroundColor: stroke || '#9CA3AF',
       border: 'none',
     };
     
@@ -254,8 +309,8 @@ function ShapeElement({ element, style }: any) {
   // Default: rectangle
   const shapeStyle: React.CSSProperties = {
     ...style,
-    backgroundColor: config.fill || '#E5E7EB',
-    border: config.stroke ? `${config.strokeWidth || 2}px solid ${config.stroke}` : 'none',
+    backgroundColor: fill,
+    border: stroke ? `${strokeWidth}px solid ${stroke}` : 'none',
     borderRadius: style.borderRadius || '0px',
   };
   
@@ -351,21 +406,19 @@ export function AllElementsRenderer({
   // Sort by z-index to render in correct order
   const sortedElements = [...layoutElements].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
   
-  console.log('🎨 AllElementsRenderer rendering', sortedElements.length, 'elements');
-  console.log('Content available:', content);
-  console.log('Element content (_elementContent):', content?._elementContent);
-  
   return (
     <>
-      {sortedElements.map((element) => {
-        console.log(`Rendering element ${element.id} (${element.type})`);
+      {sortedElements.map((element, index) => {
+        // Find the original index in the unsorted array to maintain correct mapping
+        const originalIndex = layoutElements.findIndex(el => el === element);
         return (
           <ElementRenderer
-            key={element.id}
+            key={`${element.id}-${originalIndex}`} // Use both id and index for unique React key
             element={element}
             content={content}
             brandKit={brandKit}
             isCompact={isCompact}
+            layoutIndex={originalIndex >= 0 ? originalIndex : index} // Pass layout index for content lookup
           />
         );
       })}

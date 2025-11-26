@@ -22,6 +22,7 @@ interface TemplatePreviewModalProps {
   template: Template;
   brandKit?: any;
   deckId?: string;
+  projectId?: string;
   businessProfile?: any;
   onClose: () => void;
   onApply?: (content: any) => void;
@@ -31,27 +32,64 @@ export function TemplatePreviewModal({
   template,
   brandKit,
   deckId,
+  projectId,
   businessProfile,
   onClose,
   onApply,
 }: TemplatePreviewModalProps) {
-  console.log('🎭 TemplatePreviewModal Props:', {
-    templateName: template?.name,
-    hasBrandKit: !!brandKit,
-    deckId,
-    businessProfile,
-    hasBusinessProfile: !!businessProfile
-  });
 
   const { toast } = useToast();
   // Don't use mutation if onApply is provided (deck-viewer will handle it)
   const applyTemplate = (deckId && !onApply) ? useApplyTemplate(deckId) : null;
 
   // Initialize form state from template schema with null checks
-  const initialFormState = template.contentSchema?.fields?.reduce((acc: any, field: any) => {
-    acc[field.id] = field.defaultValue || "";
-    return acc;
-  }, {}) || {};
+  // For image fields, use unique IDs (field.id-filteredIndex) to ensure each field has its own entry
+  // IMPORTANT: Use the same filtering logic as the form rendering
+  const initialFormState = (() => {
+    const schemaFields = template.contentSchema?.fields || [];
+    const layoutElements = template.layout?.elements || [];
+    
+    // Find shapes in layout that aren't in schema (for backward compatibility)
+    const shapeElements = layoutElements.filter((el: any) => el.type === 'shape');
+    const schemaShapeIds = new Set(schemaFields.filter((f: any) => f.type === 'shape').map((f: any) => f.id));
+    const missingShapes = shapeElements.filter((shape: any) => !schemaShapeIds.has(shape.id));
+    
+    // Combine schema fields with missing shapes
+    const enhancedFields = [
+      ...schemaFields,
+      ...missingShapes.map((shape: any, idx: number) => ({
+        id: shape.id,
+        type: 'shape',
+        label: `Shape ${idx + 1}`,
+        config: {
+          fill: shape.config?.fill || shape.styling?.backgroundColor || '#E5E7EB',
+          stroke: shape.config?.stroke || shape.styling?.borderColor || '#9CA3AF',
+          strokeWidth: shape.config?.strokeWidth || 2,
+        },
+      })),
+    ];
+    
+    // Filter fields the same way as the form does (only fields with labels, or shapes)
+    const filteredFields = enhancedFields.filter((field: any) => {
+      if (field.type === 'shape') return true; // Always include shapes
+      if (!field.label || field.label.trim() === '') return false;
+      return true;
+    });
+    
+    // Initialize with filtered index (matches form rendering)
+    return filteredFields.reduce((acc: any, field: any, filteredIndex: number) => {
+      if (field.type === 'shape') {
+        // Initialize shape fill color only (border color removed from UI)
+        acc[`${field.id}_fill`] = field.config?.fill || '#3b82f6';
+      } else {
+        // For image/logo fields, use unique ID with filtered index (matches form rendering)
+        const isImageField = field.type === 'image' || field.type === 'logo';
+        const fieldKey = isImageField ? `${field.id}-${filteredIndex}` : field.id;
+        acc[fieldKey] = field.defaultValue || "";
+      }
+      return acc;
+    }, {});
+  })();
 
   const [formData, setFormData] = useState(initialFormState);
   const [isApplying, setIsApplying] = useState(false);
@@ -61,28 +99,30 @@ export function TemplatePreviewModal({
   const [pickerFieldId, setPickerFieldId] = useState<string | null>(null);
   const hasGeneratedRef = useRef(false); // Track if we've already generated content
 
+  // Reset generation flag when template changes
+  useEffect(() => {
+    hasGeneratedRef.current = false;
+  }, [template.id]);
+
   // Generate AI content when modal opens and businessProfile is available
   useEffect(() => {
     const generateContent = async () => {
-      console.log('🤖 Checking if should generate AI content...');
-      console.log('Business Profile:', businessProfile);
-      console.log('Form Data:', formData);
-      console.log('Has Generated Before:', hasGeneratedRef.current);
-
-      // Skip if already generated
+      // Skip if already generated for this template
       if (hasGeneratedRef.current) {
-        console.log('✋ Already generated content, skipping');
         return;
       }
 
       // Skip if no business profile
       if (!businessProfile) {
-        console.log('❌ No business profile, skipping AI generation');
         return;
       }
 
-      // Check if formData has meaningful content (not just empty strings)
-      const hasMeaningfulContent = Object.values(formData).some(val => {
+      // Check if formData has meaningful content (excluding shape color defaults and empty strings)
+      const hasMeaningfulContent = Object.entries(formData).some(([key, val]) => {
+        // Skip shape color fields (they're just defaults)
+        if (key.endsWith('_fill') || key.endsWith('_stroke')) {
+          return false;
+        }
         if (Array.isArray(val)) {
           return val.length > 0 && val.some(v => v && String(v).trim());
         }
@@ -90,11 +130,9 @@ export function TemplatePreviewModal({
       });
 
       if (hasMeaningfulContent) {
-        console.log('⚠️ Form already has content, skipping AI generation');
         return;
       }
 
-      console.log('✅ Generating AI content...');
       hasGeneratedRef.current = true; // Mark as generated
       setIsGenerating(true);
       try {
@@ -122,6 +160,8 @@ export function TemplatePreviewModal({
             templateCategory: template.category,
             templateName: template.name,
             businessProfile,
+            projectId, // Pass projectId for media library access
+            templateSchema: template.contentSchema, // Pass schema so AI knows how many images to select
           }),
         });
 
@@ -131,14 +171,34 @@ export function TemplatePreviewModal({
 
         const generatedContent = await response.json();
 
-        console.log('📥 AI Generated Content:', generatedContent);
-        console.log('📋 Template Schema Fields:', template.contentSchema?.fields);
-
         // Map generated content to ACTUAL form field IDs from template schema
         const mappedContent: any = {};
 
-        // Get actual field IDs from template
-        const fields = template.contentSchema?.fields || [];
+        // Get actual field IDs from template - use SAME enhancement logic as form
+        const schemaFields = template.contentSchema?.fields || [];
+        const layoutElements = template.layout?.elements || [];
+        
+        // Find shapes in layout that aren't in schema (same as form rendering)
+        const shapeElements = layoutElements.filter((el: any) => el.type === 'shape');
+        const schemaShapeIds = new Set(schemaFields.filter((f: any) => f.type === 'shape').map((f: any) => f.id));
+        const missingShapes = shapeElements.filter((shape: any) => !schemaShapeIds.has(shape.id));
+        
+        // Add missing shapes to schema dynamically (same as form rendering)
+        const enhancedFields = [
+          ...schemaFields,
+          ...missingShapes.map((shape: any, idx: number) => ({
+            id: shape.id,
+            type: 'shape',
+            label: `Shape ${idx + 1}`,
+            config: {
+              fill: shape.config?.fill || shape.styling?.backgroundColor || '#E5E7EB',
+              stroke: shape.config?.stroke || shape.styling?.borderColor || '#9CA3AF',
+              strokeWidth: shape.config?.strokeWidth || 2,
+            },
+          })),
+        ];
+        
+        const fields = enhancedFields;
 
         // Map title to first text field with "title" or "headline" in label
         if (generatedContent.title) {
@@ -148,7 +208,6 @@ export function TemplatePreviewModal({
           });
           if (titleField) {
             mappedContent[titleField.id] = generatedContent.title;
-            console.log(`✅ Mapped title to field: ${titleField.id}`);
           }
         }
 
@@ -166,7 +225,6 @@ export function TemplatePreviewModal({
           });
           descFields.forEach((field: any) => {
             mappedContent[field.id] = generatedContent.description;
-            console.log(`✅ Mapped description to field: ${field.id} (${field.label})`);
           });
         }
 
@@ -178,7 +236,6 @@ export function TemplatePreviewModal({
           });
           taglineFields.forEach((field: any) => {
             mappedContent[field.id] = generatedContent.tagline;
-            console.log(`✅ Mapped tagline to field: ${field.id} (${field.label})`);
           });
         }
 
@@ -191,12 +248,72 @@ export function TemplatePreviewModal({
           bulletFields.forEach((field: any, index: number) => {
             if (index < generatedContent.bullets.length) {
               mappedContent[field.id] = generatedContent.bullets[index];
-              console.log(`✅ Mapped bullet to field: ${field.id} (${field.label})`);
             }
           });
         }
 
-        console.log('🗺️ Final Mapped Content:', mappedContent);
+        // Map stats to data/number fields
+        if (generatedContent.stats && Array.isArray(generatedContent.stats)) {
+          const dataFields = fields.filter((f: any) => f.type === 'data');
+          dataFields.forEach((field: any, index: number) => {
+            if (index < generatedContent.stats.length) {
+              mappedContent[field.id] = generatedContent.stats[index];
+            }
+          });
+        }
+
+        // Map AI-selected images to image fields
+        if (generatedContent.images && Array.isArray(generatedContent.images) && generatedContent.images.length > 0) {
+          // Filter fields the EXACT same way as form rendering
+          const filteredFields = fields.filter((field: any) => {
+            // Include all shapes (they get auto-labeled)
+            if (field.type === 'shape') return true;
+            // Skip fields without labels
+            if (!field.label || field.label.trim() === '') return false;
+            return true;
+          });
+
+          // Get image fields with their filtered indices
+          const imageFields = filteredFields
+            .map((f: any, filteredIndex: number) => ({ 
+              field: f, 
+              filteredIndex,
+              uniqueId: (f.type === 'image' || f.type === 'logo') ? `${f.id}-${filteredIndex}` : f.id
+            }))
+            .filter(({ field }) => field.type === 'image' || field.type === 'logo');
+
+          // Map AI-selected images to image fields (up to the number of available image fields)
+          generatedContent.images.forEach((imageUrl: string, index: number) => {
+            if (index < imageFields.length) {
+              const { uniqueId } = imageFields[index];
+              mappedContent[uniqueId] = imageUrl;
+            }
+          });
+        }
+
+        // Apply brand colors to shapes automatically (fill color only)
+        if (brandKit) {
+          // Find shapes in layout elements
+          const layoutElements = template.layout?.elements || [];
+          const shapeElements = layoutElements.filter((el: any) => el.type === 'shape');
+          
+          // Apply brand colors to shape fills
+          shapeElements.forEach((shape: any, index: number) => {
+            // Alternate between brand colors
+            if (index === 0) {
+              mappedContent[`${shape.id}_fill`] = brandKit.primaryColor || '#3b82f6';
+            } else if (index === 1) {
+              mappedContent[`${shape.id}_fill`] = brandKit.secondaryColor || brandKit.primaryColor || '#64748b';
+            } else if (index === 2) {
+              mappedContent[`${shape.id}_fill`] = brandKit.accentColor || brandKit.primaryColor || '#93c5fd';
+            } else {
+              // Alternate between brand colors for additional shapes
+              const colors = [brandKit.primaryColor, brandKit.secondaryColor, brandKit.accentColor].filter(Boolean);
+              mappedContent[`${shape.id}_fill`] = colors[index % colors.length] || '#3b82f6';
+            }
+          });
+        }
+
         setFormData((prev: any) => ({ ...prev, ...mappedContent }));
 
         toast({
@@ -275,6 +392,68 @@ export function TemplatePreviewModal({
       };
     }
 
+    // Create a map to track which schema field and filtered index each layout element should use
+    // Match layout image elements to contentSchema image fields by simple order
+    // IMPORTANT: Use the EXACT SAME field enhancement logic as the form
+    const layoutToSchemaMap = new Map<number, { fieldId: string; filteredIndex: number }>();
+    if (template.contentSchema?.fields) {
+      // Enhance fields the SAME way as the form (add shapes from layout)
+      const schemaFields = template.contentSchema.fields;
+      const shapeElements = layoutElements.filter((el: any) => el.type === 'shape');
+      const schemaShapeIds = new Set(schemaFields.filter((f: any) => f.type === 'shape').map((f: any) => f.id));
+      const missingShapes = shapeElements.filter((shape: any) => !schemaShapeIds.has(shape.id));
+      
+      // Add missing shapes to schema dynamically (same as form)
+      const enhancedFields = [
+        ...schemaFields,
+        ...missingShapes.map((shape: any, idx: number) => ({
+          id: shape.id,
+          type: 'shape',
+          label: `Shape ${idx + 1}`,
+          config: {
+            fill: shape.config?.fill || shape.styling?.backgroundColor || '#E5E7EB',
+            stroke: shape.config?.stroke || shape.styling?.borderColor || '#9CA3AF',
+            strokeWidth: shape.config?.strokeWidth || 2,
+          },
+        })),
+      ];
+      
+      // Filter fields the EXACT same way as the form
+      const filteredFields = enhancedFields.filter((field: any) => {
+        // Include all shapes (they get auto-labeled)
+        if (field.type === 'shape') return true;
+        // Skip fields without labels
+        if (!field.label || field.label.trim() === '') return false;
+        return true;
+      });
+      
+      // Get all image fields from filtered fields in order (using filtered index)
+      // This matches exactly how the form creates unique IDs
+      const imageSchemaFields: Array<{ field: any; filteredIndex: number }> = [];
+      filteredFields.forEach((f: any, filteredIdx: number) => {
+        if (f.type === 'image' || f.type === 'logo') {
+          imageSchemaFields.push({ field: f, filteredIndex: filteredIdx });
+        }
+      });
+      
+      // Get all image layout elements in order (preserving their original indices)
+      const imageLayoutElements: Array<{ element: any; originalIndex: number }> = [];
+      layoutElements.forEach((el: any, idx: number) => {
+        if (el.type === 'image' || el.type === 'logo') {
+          imageLayoutElements.push({ element: el, originalIndex: idx });
+        }
+      });
+      
+      // Simple 1-to-1 matching by order: first layout image -> first schema image
+      // Store both the schema fieldId and filteredIndex so we can create the correct uniqueFieldId
+      imageLayoutElements.forEach(({ originalIndex: layoutIndex }, imageOrderIndex: number) => {
+        if (imageOrderIndex < imageSchemaFields.length) {
+          const { field, filteredIndex } = imageSchemaFields[imageOrderIndex];
+          layoutToSchemaMap.set(layoutIndex, { fieldId: field.id, filteredIndex });
+        }
+      });
+    }
+
     // NEW FORMAT: Process layout.elements
     const positionedElements: any = {};
     const content: any = {
@@ -291,9 +470,19 @@ export function TemplatePreviewModal({
     let bulletIndex = 0;
     let logoIndex = 0;
 
-    layoutElements.forEach((el: any) => {
+    layoutElements.forEach((el: any, layoutIndex: number) => {
       const fieldId = el.id;
       const label = el.config?.label?.toLowerCase() || fieldId.toLowerCase();
+      
+      // For image elements, get the unique field ID from the mapping
+      // Use the schema field's fieldId and filtered index (which matches what the form uses)
+      let uniqueFieldId = fieldId;
+      if ((el.type === 'image' || el.type === 'logo') && layoutToSchemaMap.has(layoutIndex)) {
+        const { fieldId: schemaFieldId, filteredIndex } = layoutToSchemaMap.get(layoutIndex)!;
+        // Use the schema field's fieldId, not the layout element's fieldId
+        // This ensures the key matches what the form creates
+        uniqueFieldId = `${schemaFieldId}-${filteredIndex}`;
+      }
 
       // Parse pixel values from zone
       const parsePixelValue = (val: string | number): number => {
@@ -329,17 +518,25 @@ export function TemplatePreviewModal({
         const mediaType = el.config?.mediaType || '';
         if (mediaType === 'logo' || fieldId.includes('logo')) {
           positionKey = logoIndex === 0 ? 'logo' : `logo-${logoIndex}`;
-          if (brandKit?.logoUrl) {
-            content.logos.push(brandKit.logoUrl);
-            // Store in _elementContent for ElementRenderer
-            content._elementContent[fieldId] = brandKit.logoUrl;
+          // For logos, use unique field ID to lookup formData
+          // Prioritize user-selected image from formData, fall back to brandKit logo
+          const logoUrl = formData[uniqueFieldId] || brandKit?.logoUrl;
+          if (logoUrl) {
+            content.logos.push(logoUrl);
+            // CRITICAL FIX: Store content ONLY using layout index to ensure uniqueness
+            // Do NOT store under non-indexed key to prevent overwrites
+            const indexedContentKey = `${fieldId}-layout-${layoutIndex}`;
+            content._elementContent[indexedContentKey] = logoUrl;
             logoIndex++;
           }
         } else {
-          // For other images, store content if provided
-          const imageContent = formData[fieldId];
+          // For other images, use unique field ID to lookup formData
+          const imageContent = formData[uniqueFieldId];
           if (imageContent) {
-            content._elementContent[fieldId] = imageContent;
+            // CRITICAL FIX: Store content ONLY using layout index to ensure uniqueness
+            // Do NOT store under non-indexed key to prevent all images showing the same content
+            const indexedContentKey = `${fieldId}-layout-${layoutIndex}`;
+            content._elementContent[indexedContentKey] = imageContent;
           }
         }
       } else if (el.type === 'data') {
@@ -350,19 +547,21 @@ export function TemplatePreviewModal({
         // Shapes - store color customizations if provided
         const shapeData: any = { exists: true };
 
-        // Check if user customized colors
+        // Check if user customized fill color
         if (formData[`${fieldId}_fill`]) {
           shapeData.fill = formData[`${fieldId}_fill`];
         } else if (el.config?.fill) {
           shapeData.fill = el.config.fill;
         }
 
+        // Check if user customized stroke color (even though UI only shows fill)
         if (formData[`${fieldId}_stroke`]) {
           shapeData.stroke = formData[`${fieldId}_stroke`];
         } else if (el.config?.stroke) {
           shapeData.stroke = el.config.stroke;
         }
 
+        // Store shape data for ElementRenderer
         content._elementContent[fieldId] = shapeData;
       }
 
@@ -412,22 +611,6 @@ export function TemplatePreviewModal({
     order: 1,
   };
 
-  // Debug preview styling
-  console.log('🎨 Template Preview Debug:', {
-    templateName: template.name,
-    hasLayoutElements: template.layout?.elements?.length || 0,
-    layoutElements: template.layout?.elements,
-    previewLayoutElements: previewLayoutElements,
-    previewContent: previewContent,
-    previewContentElementContent: previewContent._elementContent,
-    positionedElements: previewPositionedElements,
-    positionedElementsKeys: Object.keys(previewPositionedElements),
-    backgroundColor: previewSlide.styling.backgroundColor,
-    textColor: previewSlide.styling.textColor,
-    formData,
-    previewSlideHasLayoutElements: !!previewSlide.layoutElements,
-  });
-
   const handleFieldChange = (fieldId: string, value: any) => {
     setFormData((prev: any) => ({
       ...prev,
@@ -436,22 +619,22 @@ export function TemplatePreviewModal({
   };
 
   const handleApply = async () => {
-    console.log('🎬 TemplatePreviewModal handleApply called');
-    console.log('Form data:', formData);
-    console.log('Has onApply callback:', !!onApply);
-    console.log('Has applyTemplate mutation:', !!applyTemplate);
-
+    // Convert formData to proper slide content format with _elementContent
+    const { content: convertedContent } = convertLayoutToPreview();
+    
+    console.log('🚀 Applying template with converted content:', convertedContent);
+    console.log('📝 Form data:', formData);
+    
     // If onApply callback is provided (from deck-viewer), use it
     if (onApply) {
-      console.log('✅ Using onApply callback (deck-viewer will handle)');
-      onApply(formData);
+      // Pass converted content, not raw formData!
+      onApply(convertedContent);
       // Don't call onClose() - let deck-viewer handle closing after mutation succeeds
       return;
     }
 
     // Otherwise, handle it directly (for standalone usage)
     if (!applyTemplate) {
-      console.log('⚠️ No mutation available');
       onClose();
       return;
     }
@@ -459,14 +642,9 @@ export function TemplatePreviewModal({
     setIsApplying(true);
 
     try {
-      console.log('🚀 Calling applyTemplate mutation with:', {
-        templateId: template.id,
-        content: formData,
-      });
-
       await applyTemplate.mutateAsync({
         templateId: template.id,
-        content: formData,
+        content: convertedContent,
       });
 
       toast({
@@ -562,17 +740,55 @@ export function TemplatePreviewModal({
             </h3>
 
             <div className="space-y-4">
-              {template.contentSchema?.fields && template.contentSchema.fields.length > 0 ? (
-                template.contentSchema.fields
-                  .filter((field: any) => {
-                    // Include all image fields (including logos)
-                    // Skip fields without labels
-                    if (!field.label || field.label.trim() === '') return false;
-                    return true;
-                  })
-                  .map((field: any) => (
-                    <div key={field.id} className="space-y-2">
-                      <Label htmlFor={field.id}>
+              {(() => {
+                const schemaFields = template.contentSchema?.fields || [];
+                const layoutElements = template.layout?.elements || [];
+                
+                // Find shapes in layout that aren't in schema
+                const shapeElements = layoutElements.filter((el: any) => el.type === 'shape');
+                const schemaShapeIds = new Set(schemaFields.filter((f: any) => f.type === 'shape').map((f: any) => f.id));
+                const missingShapes = shapeElements.filter((shape: any) => !schemaShapeIds.has(shape.id));
+                
+                // Add missing shapes to schema dynamically
+                const enhancedFields = [
+                  ...schemaFields,
+                  ...missingShapes.map((shape: any, idx: number) => ({
+                    id: shape.id,
+                    type: 'shape',
+                    label: `Shape ${idx + 1}`,
+                    config: {
+                      fill: shape.config?.fill || shape.styling?.backgroundColor || '#E5E7EB',
+                      stroke: shape.config?.stroke || shape.styling?.borderColor || '#9CA3AF',
+                      strokeWidth: shape.config?.strokeWidth || 2,
+                      shape: shape.config?.shape || 'rectangle',
+                    },
+                  })),
+                ];
+                
+                const filteredFields = enhancedFields.filter((field: any) => {
+                  // Skip fields without labels (except shapes which we auto-label)
+                  if (field.type === 'shape') return true;
+                  if (!field.label || field.label.trim() === '') return false;
+                  return true;
+                });
+                
+                if (filteredFields.length === 0) {
+                  return (
+                    <p className="text-sm text-gray-500">
+                      No customization fields available for this template.
+                    </p>
+                  );
+                }
+                
+                return filteredFields.map((field: any, index: number) => {
+                    // For image/logo fields, create a unique ID by combining field.id with index
+                    // This ensures each image field has its own formData entry even if field.id is duplicated
+                    const isImageField = field.type === 'image' || field.type === 'logo';
+                    const uniqueFieldId = isImageField ? `${field.id}-${index}` : field.id;
+                    
+                    return (
+                      <div key={`${uniqueFieldId}-${index}`} className="space-y-2">
+                      <Label htmlFor={uniqueFieldId}>
                         {field.label}
                         {field.required && <span className="text-red-500 ml-1">*</span>}
                       </Label>
@@ -623,94 +839,113 @@ export function TemplatePreviewModal({
                             maxLength={field.maxLength}
                           />
                         )
-                      ) : field.type === "image" ? (
-                        <div className="space-y-2">
-                          {formData[field.id] && (
-                            <img
-                              src={formData[field.id]}
-                              alt="Preview"
-                              className="w-full h-32 object-cover rounded border"
-                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                            />
-                          )}
-                          <div className="flex gap-2">
-                            <Input
-                              id={field.id}
-                              type="url"
-                              placeholder={field.placeholder || "Enter image URL or select from media library"}
-                              value={formData[field.id] || ""}
-                              onChange={(e) => handleFieldChange(field.id, e.target.value)}
-                            />
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setPickerFieldId(field.id);
-                                setPickerOpen(true);
-                              }}
-                              className="ml-2"
-                            >
-                              Choose Image
-                            </Button>
-                          </div>
-                          <p className="text-xs text-gray-500">
-                            💡 Tip: Paste an image URL or select from your media library
-                          </p>
-                          {pickerOpen && pickerFieldId && (
-                            <MediaLibraryPicker
-                              projectId={deckId ?? ''}
-                              open={pickerOpen}
-                              onClose={() => setPickerOpen(false)}
-                              onSelect={(url) => {
-                                handleFieldChange(pickerFieldId, url);
-                                setPickerOpen(false);
-                                setPickerFieldId(null);
-                              }}
-                              currentValue={formData[pickerFieldId]}
-                            />
-                          )}
-                        </div>
-                      ) : field.type === "shape" ? (
-                        <div className="space-y-3">
-                          <div className="space-y-2">
-                            <Label htmlFor={`${field.id}_fill`}>Fill Color</Label>
-                            <div className="flex gap-2 items-center">
-                              <Input
-                                id={`${field.id}_fill`}
-                                type="color"
-                                value={formData[`${field.id}_fill`] || field.config?.fill || '#3b82f6'}
-                                onChange={(e) => handleFieldChange(`${field.id}_fill`, e.target.value)}
-                                className="w-20 h-10"
-                              />
-                              <Input
-                                type="text"
-                                value={formData[`${field.id}_fill`] || field.config?.fill || '#3b82f6'}
-                                onChange={(e) => handleFieldChange(`${field.id}_fill`, e.target.value)}
-                                placeholder="#3b82f6"
-                                className="flex-1 font-mono text-sm"
-                              />
-                            </div>
-                          </div>
-
-                          {(field.config?.strokeWidth || field.config?.stroke) && (
-                            <div className="space-y-2">
-                              <Label htmlFor={`${field.id}_stroke`}>Border Color</Label>
-                              <div className="flex gap-2 items-center">
-                                <Input
-                                  id={`${field.id}_stroke`}
-                                  type="color"
-                                  value={formData[`${field.id}_stroke`] || field.config?.stroke || '#000000'}
-                                  onChange={(e) => handleFieldChange(`${field.id}_stroke`, e.target.value)}
-                                  className="w-20 h-10"
-                                />
-                                <Input
-                                  type="text"
-                                  value={formData[`${field.id}_stroke`] || field.config?.stroke || '#000000'}
-                                  onChange={(e) => handleFieldChange(`${field.id}_stroke`, e.target.value)}
-                                  placeholder="#000000"
-                                  className="flex-1 font-mono text-sm"
+                      ) : field.type === "image" || field.type === "logo" ? (() => {
+                        // Use uniqueFieldId for image fields to ensure each has its own formData entry
+                        const currentFieldId = uniqueFieldId;
+                        return (
+                          <div key={currentFieldId} className="space-y-2">
+                            {formData[currentFieldId] && (
+                              <div className="w-full h-32 rounded border overflow-hidden bg-gray-50 flex items-center justify-center">
+                                <img
+                                  src={formData[currentFieldId]}
+                                  alt="Preview"
+                                  className="max-w-full max-h-full object-contain"
+                                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
                                 />
                               </div>
+                            )}
+                            <div className="flex gap-2">
+                              <Input
+                                id={currentFieldId}
+                                type="url"
+                                placeholder={field.placeholder || "Enter image URL or select from media library"}
+                                value={formData[currentFieldId] || ""}
+                                onChange={(e) => handleFieldChange(currentFieldId, e.target.value)}
+                              />
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setPickerFieldId(currentFieldId);
+                                  setPickerOpen(true);
+                                }}
+                                className="ml-2"
+                              >
+                                Choose Image
+                              </Button>
+                            </div>
+                            <p className="text-xs text-gray-500">
+                              💡 Tip: Paste an image URL or select from your media library
+                            </p>
+                            {pickerOpen && pickerFieldId === currentFieldId && !projectId && (
+                              <p className="text-xs text-amber-600 mt-2">
+                                ⚠️ Media library requires a project ID. Please enter image URL manually.
+                              </p>
+                            )}
+                            {/* Render picker for this specific field only - with key to ensure uniqueness */}
+                            {pickerOpen && pickerFieldId === currentFieldId && projectId && (
+                              <MediaLibraryPicker
+                                key={`picker-${currentFieldId}`}
+                                projectId={projectId}
+                                open={pickerOpen && pickerFieldId === currentFieldId}
+                                onClose={() => {
+                                  setPickerOpen(false);
+                                  setPickerFieldId(null);
+                                }}
+                                onSelect={(url) => {
+                                  // Explicitly use captured currentFieldId to ensure correct field
+                                  handleFieldChange(currentFieldId, url);
+                                  setPickerOpen(false);
+                                  setPickerFieldId(null);
+                                }}
+                                currentValue={formData[currentFieldId]}
+                              />
+                            )}
+                          </div>
+                        );
+                      })() : field.type === "shape" ? (
+                        <div className="space-y-2">
+                          <Label htmlFor={`${field.id}_fill`}>Fill Color</Label>
+                          <div className="flex gap-2 items-center">
+                            <Input
+                              id={`${field.id}_fill`}
+                              type="color"
+                              value={formData[`${field.id}_fill`] || field.config?.fill || '#3b82f6'}
+                              onChange={(e) => handleFieldChange(`${field.id}_fill`, e.target.value)}
+                              className="w-20 h-10"
+                            />
+                            <Input
+                              type="text"
+                              value={formData[`${field.id}_fill`] || field.config?.fill || '#3b82f6'}
+                              onChange={(e) => handleFieldChange(`${field.id}_fill`, e.target.value)}
+                              placeholder="#3b82f6"
+                              className="flex-1 font-mono text-sm"
+                            />
+                          </div>
+                          {brandKit && (
+                            <div className="flex gap-1 items-center mt-2">
+                              <span className="text-xs text-gray-500 mr-1">Brand colors:</span>
+                              <button
+                                type="button"
+                                onClick={() => handleFieldChange(`${field.id}_fill`, brandKit.primaryColor)}
+                                className="w-6 h-6 rounded border-2 border-gray-300 hover:border-gray-500 transition-colors"
+                                style={{ backgroundColor: brandKit.primaryColor }}
+                                title={`Primary: ${brandKit.primaryColor}`}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleFieldChange(`${field.id}_fill`, brandKit.secondaryColor)}
+                                className="w-6 h-6 rounded border-2 border-gray-300 hover:border-gray-500 transition-colors"
+                                style={{ backgroundColor: brandKit.secondaryColor }}
+                                title={`Secondary: ${brandKit.secondaryColor}`}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleFieldChange(`${field.id}_fill`, brandKit.accentColor)}
+                                className="w-6 h-6 rounded border-2 border-gray-300 hover:border-gray-500 transition-colors"
+                                style={{ backgroundColor: brandKit.accentColor }}
+                                title={`Accent: ${brandKit.accentColor}`}
+                              />
                             </div>
                           )}
                         </div>
@@ -735,13 +970,10 @@ export function TemplatePreviewModal({
                           {(formData[field.id]?.length || 0)} / {field.maxLength} characters
                         </p>
                       )}
-                    </div>
-                  ))
-              ) : (
-                <p className="text-sm text-gray-500">
-                  No customization fields available for this template.
-                </p>
-              )}
+                      </div>
+                    );
+                });
+              })()}
             </div>
 
             <div className="flex gap-3 pt-4 border-t">

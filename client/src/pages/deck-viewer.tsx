@@ -2628,6 +2628,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
           template={selectedTemplate}
           brandKit={brandKits?.[0]}
           deckId={deckId}
+          projectId={deck?.projectId}
           businessProfile={project?.businessProfile}
           onClose={() => {
             setSelectedTemplate(null);
