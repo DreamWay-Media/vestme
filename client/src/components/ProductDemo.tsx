@@ -35,7 +35,16 @@ export default function ProductDemo() {
             ))}
           </div>
           
-          <Button variant="outline" size="lg" className="gap-2" data-testid="button-explore-features">
+          <Button 
+            variant="outline" 
+            size="lg" 
+            className="gap-2" 
+            data-testid="button-explore-features"
+            onClick={() => {
+              const featuresSection = document.getElementById('features');
+              featuresSection?.scrollIntoView({ behavior: 'smooth' });
+            }}
+          >
             Explore All Features
           </Button>
         </div>

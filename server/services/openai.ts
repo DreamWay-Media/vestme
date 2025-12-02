@@ -61,6 +61,9 @@ Please provide only the improved text, without any additional explanations or fo
   }
 }
 
+/**
+ * Generate content for a specific template/slide type based on business profile
+ */
 // Additional functions for compatibility with existing routes
 export async function analyzeBusinessFromData(data: any) {
   // This function was already implemented elsewhere
@@ -68,19 +71,371 @@ export async function analyzeBusinessFromData(data: any) {
   throw new Error('Function not implemented in this service');
 }
 
+/**
+ * Generate pitch deck slides using available templates
+ */
+async function generateTemplateBasedSlides(
+  businessProfile: any,
+  brandingInfo: any,
+  templateManager: any
+) {
+  console.log('🎨 Starting template-based slide generation');
+  
+  // Fetch all available templates
+  const allTemplates = await templateManager.getAllTemplates();
+  console.log(`Found ${allTemplates.length} templates`);
+  
+  // Define the pitch deck structure - what slides we want to create
+  const deckStructure = [
+    { slideType: 'title', templateCategory: 'title', title: 'Company Overview' },
+    { slideType: 'problem', templateCategory: 'content', title: 'The Problem' },
+    { slideType: 'solution', templateCategory: 'content', title: 'Our Solution' },
+    { slideType: 'market', templateCategory: 'content', title: 'Market Opportunity' },
+    { slideType: 'business-model', templateCategory: 'content', title: 'Business Model' },
+    { slideType: 'competitive-advantage', templateCategory: 'content', title: 'Competitive Advantage' },
+    { slideType: 'financials', templateCategory: 'data', title: 'Financial Projections' },
+    { slideType: 'team', templateCategory: 'content', title: 'Our Team' },
+    { slideType: 'roadmap', templateCategory: 'content', title: 'Product Roadmap' },
+    { slideType: 'closing', templateCategory: 'closing', title: 'Investment Opportunity' },
+  ];
+  
+  // Group templates by category
+  const templatesByCategory: Record<string, any[]> = {};
+  for (const template of allTemplates) {
+    if (!templatesByCategory[template.category]) {
+      templatesByCategory[template.category] = [];
+    }
+    templatesByCategory[template.category].push(template);
+  }
+  
+  console.log('Templates by category:', Object.keys(templatesByCategory).map(cat => `${cat}: ${templatesByCategory[cat].length}`));
+  
+  // Generate content for each slide using AI
+  const slides = [];
+  for (let i = 0; i < deckStructure.length; i++) {
+    const slideSpec = deckStructure[i];
+    const availableTemplates = templatesByCategory[slideSpec.templateCategory] || [];
+    
+    if (availableTemplates.length === 0) {
+      console.warn(`⚠️ No templates found for category: ${slideSpec.templateCategory}, skipping slide: ${slideSpec.title}`);
+      continue;
+    }
+    
+    // Select the most appropriate template (for now, use the first one or default)
+    const selectedTemplate = availableTemplates.find(t => t.isDefault) || availableTemplates[0];
+    
+    console.log(`📄 Generating slide ${i + 1}/${deckStructure.length}: "${slideSpec.title}" using template "${selectedTemplate.name}"`);
+    
+    // Generate content for this slide using AI
+    const slideContent = await generateSlideContentForTemplate({
+      templateCategory: selectedTemplate.category,
+      templateName: selectedTemplate.name,
+      businessProfile,
+      slideType: slideSpec.slideType,
+      slideTitle: slideSpec.title,
+      existingContent: null,
+    });
+    
+    // Apply the template to create the slide
+    const appliedSlide = await templateManager.applyTemplate(
+      selectedTemplate.id,
+      'system', // userId
+      slideContent,
+      brandingInfo,
+      {} // no overrides
+    );
+    
+    // Add order and ensure proper structure
+    appliedSlide.order = i + 1;
+    appliedSlide.title = slideContent.title || slideSpec.title;
+    
+    slides.push(appliedSlide);
+  }
+  
+  console.log(`✅ Generated ${slides.length} slides using templates`);
+  return slides;
+}
+
+/**
+ * Generate slide content for a specific template using AI
+ */
+export async function generateSlideContentForTemplate(params: {
+  templateCategory: string;
+  templateName: string;
+  businessProfile: any;
+  slideType?: string;
+  slideTitle?: string;
+  existingContent?: any;
+  availableMedia?: Array<{ url: string; name: string; type: string }>;
+  requiredImageCount?: number;
+  templateSchema?: any;
+}) {
+  const { templateCategory, templateName, businessProfile, slideType, slideTitle, existingContent, availableMedia, requiredImageCount } = params;
+  
+  // Only use slide type guidance as fallback if NO custom field prompts exist
+  let specificGuidance = '';
+  
+  // Check if we'll have custom prompts (we'll check this below)
+  const willHaveCustomPrompts = params.templateSchema?.fields?.some((f: any) => 
+    f.aiPrompt?.enabled && f.aiPrompt?.prompt
+  );
+  
+  // Only add generic slide type guidance if NO custom prompts exist
+  if (!willHaveCustomPrompts) {
+    switch (slideType) {
+      case 'title':
+        specificGuidance = `This is a TITLE SLIDE. Generate appropriate title content.`;
+        break;
+      case 'problem':
+        specificGuidance = `This is a PROBLEM slide. Focus on challenges and pain points.`;
+        break;
+      case 'solution':
+        specificGuidance = `This is a SOLUTION slide. Focus on how the product solves problems.`;
+        break;
+      case 'market':
+        specificGuidance = `This is a MARKET OPPORTUNITY slide. Focus on market size and growth.`;
+        break;
+      case 'business-model':
+        specificGuidance = `This is a BUSINESS MODEL slide. Focus on revenue streams and monetization.`;
+        break;
+      case 'competitive-advantage':
+        specificGuidance = `This is a COMPETITIVE ADVANTAGE slide. Focus on differentiation.`;
+        break;
+      case 'financials':
+        specificGuidance = `This is a FINANCIAL PROJECTIONS slide. Focus on revenue and metrics.`;
+        break;
+      case 'team':
+        specificGuidance = `This is a TEAM slide. Focus on team expertise and backgrounds.`;
+        break;
+      case 'roadmap':
+        specificGuidance = `This is a ROADMAP slide. Focus on milestones and strategy.`;
+        break;
+      case 'closing':
+        specificGuidance = `This is a CLOSING/CALL TO ACTION slide. Focus on investment opportunity.`;
+        break;
+      default:
+        specificGuidance = `Generate appropriate content for a ${templateCategory} slide.`;
+    }
+  } else {
+    // If custom prompts exist, don't add generic guidance - let the custom prompts take full control
+    specificGuidance = `Slide Type: ${slideType || templateCategory}`;
+  }
+  
+  // Build field-specific prompts section from template schema
+  let fieldPromptsSection = '';
+  let hasCustomPrompts = false;
+  let dataFieldCount = 0;
+  
+  if (params.templateSchema?.fields && Array.isArray(params.templateSchema.fields)) {
+    // Get fields WITH custom prompts
+    const fieldsWithPrompts = params.templateSchema.fields.filter((f: any) => 
+      f.aiPrompt?.enabled && f.aiPrompt?.prompt
+    );
+    
+    // Get fields WITHOUT custom prompts (for fallback guidance)
+    const fieldsWithoutPrompts = params.templateSchema.fields.filter((f: any) => 
+      !f.aiPrompt?.enabled || !f.aiPrompt?.prompt
+    );
+    
+    const dataFields = params.templateSchema.fields.filter((f: any) => f.type === 'data');
+    dataFieldCount = dataFields.length;
+    
+    // Build field prompts section
+    let promptParts: string[] = [];
+    
+    // 1. PRIORITY: Custom prompts from template (these should be followed EXACTLY)
+    if (fieldsWithPrompts.length > 0) {
+      hasCustomPrompts = true;
+      promptParts.push(`
+🎯 CUSTOM FIELD INSTRUCTIONS FROM TEMPLATE (FOLLOW THESE EXACTLY):
+${fieldsWithPrompts.map((f: any) => `- ${f.label || f.id} (${f.type}): ${f.aiPrompt.prompt}`).join('\n')}
+`);
+    }
+    
+    // 2. FALLBACK: Generic guidance ONLY for fields WITHOUT custom prompts
+    if (fieldsWithoutPrompts.length > 0) {
+      const textAndDataFields = fieldsWithoutPrompts.filter((f: any) => 
+        f.type === 'text' || f.type === 'data'
+      );
+      
+      if (textAndDataFields.length > 0) {
+        promptParts.push(`
+📝 Fields without custom instructions (use intelligent defaults based on field names):
+${textAndDataFields.map((f: any) => {
+  const label = (f.label || f.id).toLowerCase();
+  let guidance = '';
+  if (f.type === 'data') {
+    if (label.includes('revenue') || label.includes('sales')) {
+      guidance = 'Extract revenue/sales figure from business profile';
+    } else if (label.includes('growth') || label.includes('rate') || label.includes('percent')) {
+      guidance = 'Extract growth percentage from business profile';
+    } else if (label.includes('year') || label.includes('date')) {
+      guidance = 'Extract relevant year or date from business profile';
+    } else if (label.includes('customer') || label.includes('user')) {
+      guidance = 'Extract customer/user count from business profile';
+    } else if (label.includes('market') || label.includes('size')) {
+      guidance = 'Extract market size from business profile';
+    } else {
+      guidance = 'Extract relevant numeric data from business profile';
+    }
+  } else if (label.includes('title') || label.includes('headline')) {
+    guidance = 'Generate headline based on business profile';
+  } else if (label.includes('description') || label.includes('body')) {
+    guidance = 'Generate description based on business profile';
+  } else if (label.includes('tagline') || label.includes('subtitle')) {
+    guidance = 'Generate tagline based on business profile';
+  } else {
+    guidance = 'Generate content based on field name and business profile';
+  }
+  return `- ${f.label || f.id} (${f.type}): ${guidance}`;
+}).join('\n')}
+`);
+      }
+    }
+    
+    fieldPromptsSection = promptParts.join('\n');
+  }
+
+  // Build media library section if available
+  let mediaSection = '';
+  if (availableMedia && availableMedia.length > 0 && requiredImageCount && requiredImageCount > 0) {
+    // Find image fields with AI prompts for better selection
+    let imageFieldPrompts = '';
+    if (params.templateSchema?.fields) {
+      const imageFields = params.templateSchema.fields.filter((f: any) => 
+        (f.type === 'image' || f.type === 'logo') && f.aiPrompt?.enabled && f.aiPrompt?.prompt
+      );
+      if (imageFields.length > 0) {
+        imageFieldPrompts = `\nImage Field Instructions (FOLLOW EXACTLY):\n${imageFields.map((f: any, idx: number) => 
+          `${idx + 1}. ${f.label || f.id}: ${f.aiPrompt.prompt}`
+        ).join('\n')}`;
+      }
+    }
+
+    mediaSection = `
+Available Images in Media Library:
+${availableMedia.map((m, idx) => `${idx + 1}. "${m.name}" - ${m.url}`).join('\n')}
+${imageFieldPrompts}
+
+CRITICAL IMAGE SELECTION REQUIREMENTS:
+- This template has ${requiredImageCount} image field(s) that MUST be filled
+- You MUST select EXACTLY ${requiredImageCount} image(s) from the available media library
+- If there are field-specific instructions above, follow them carefully when selecting images
+- Analyze the available images and select the ${requiredImageCount} most appropriate ones for this slide
+- Choose images that best represent the content and message of the slide
+- Consider the slide type and what would be most relevant
+- Return the full URL(s) of selected image(s) in the "images" array in order matching the field order
+- The first image should be for the first field, second image for the second field, etc.
+- If there are fewer than ${requiredImageCount} images available, select all available images and repeat the most relevant ones to fill all ${requiredImageCount} slots
+- NEVER return an empty images array - you must always select ${requiredImageCount} image(s)
+`;
+  }
+
+  const prompt = `You are generating content for a pitch deck slide.
+
+Business Information:
+${JSON.stringify(businessProfile, null, 2)}
+
+Slide Type: ${slideType || templateCategory}
+Slide Title: ${slideTitle || 'Slide Content'}
+Template: ${templateName}
+
+${specificGuidance}
+
+${fieldPromptsSection ? `\n${fieldPromptsSection}\n` : ''}
+
+${mediaSection}
+
+IMPORTANT GUIDELINES:
+1. Use REAL information from the businessProfile
+2. Be specific and concrete - no generic placeholders
+3. Keep descriptions concise (2-3 sentences max)
+4. Provide 3-4 bullet points that are meaningful and specific
+5. Extract and use actual business data, numbers, and facts
+6. Make it compelling and investor-ready
+7. ${hasCustomPrompts ? '🚨🚨🚨 CRITICAL: CUSTOM FIELD INSTRUCTIONS are provided above (marked with 🎯). These come from the template and OVERRIDE all other guidance. You MUST follow them EXACTLY and CONSISTENTLY. Ignore generic slide type guidance if custom instructions exist.' : 'Follow the field guidelines above and generate appropriate content'}
+8. ${hasCustomPrompts ? '🚨🚨🚨 CRITICAL: For image selection, follow the Image Field Instructions EXACTLY as specified in the custom instructions. Match each image to its specific purpose.' : 'Select appropriate images from the media library if available'}
+
+Return a JSON object with this structure:
+{
+  "title": "Specific slide title",
+  "tagline": "Optional tagline (for title slides)",
+  "description": "2-3 sentence description",
+  "bullets": [
+    "Specific bullet point 1",
+    "Specific bullet point 2",
+    "Specific bullet point 3"
+  ],
+  "stats": [
+    "1000",
+    "$500K",
+    "2024",
+    "50%"
+  ],
+  "images": ["full_url_1", "full_url_2", ...]
+}
+
+${requiredImageCount ? `IMPORTANT: The "images" array MUST contain EXACTLY ${requiredImageCount} image URL(s) from the available media library listed above.` : ''}
+
+IMPORTANT: The "stats" array should contain numeric values, percentages, dollar amounts, or years extracted from the business profile.${dataFieldCount > 0 ? ` You MUST generate EXACTLY ${dataFieldCount} stats to fill the data/number fields in this template.` : ' Include relevant stats if available.'} Format them appropriately (e.g., "$1.2M", "50%", "2024", "1000+").
+
+Use ONLY information from the businessProfile. Be specific and meaningful.`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "You are a pitch deck content generator. Create specific, compelling content based on real business information. INSTRUCTION HIERARCHY: (1) Custom field instructions from template (marked with 🎯) are HIGHEST PRIORITY - follow them EXACTLY. (2) Generic field guidance is only for fields without custom instructions. (3) Generic slide type guidance is lowest priority. Never use generic placeholders. Be CONSISTENT - generate the SAME content when given the SAME inputs."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.3,  // Lower temperature for more consistent, deterministic output
+      seed: 12345,  // Use a consistent seed for deterministic results
+    });
+
+    const content = JSON.parse(response.choices[0].message.content || '{}');
+    console.log(`Generated content for "${slideType}" slide:`, content);
+    
+    return content;
+  } catch (error) {
+    console.error('Error generating slide content:', error);
+    // Return fallback content
+    return {
+      title: slideTitle || templateName,
+      description: existingContent?.description || `Content for ${templateName}`,
+      bullets: existingContent?.bullets || []
+    };
+  }
+}
+
 export async function generatePitchDeckSlides(data: any) {
-  const { businessProfile, brandingInfo } = data;
+  const { businessProfile, brandingInfo, templateManager } = data;
   
   console.log('generatePitchDeckSlides called with:', {
     hasBusinessProfile: !!businessProfile,
     businessProfileKeys: businessProfile ? Object.keys(businessProfile) : [],
     hasBrandingInfo: !!brandingInfo,
-    brandingInfoKeys: brandingInfo ? Object.keys(brandingInfo) : []
+    brandingInfoKeys: brandingInfo ? Object.keys(brandingInfo) : [],
+    hasTemplateManager: !!templateManager
   });
   
   if (!businessProfile) {
     throw new Error('Business profile is required to generate pitch deck slides');
   }
+  
+  // If templateManager is provided, use template-based generation
+  if (templateManager) {
+    return await generateTemplateBasedSlides(businessProfile, brandingInfo, templateManager);
+  }
+  
+  // Otherwise fall back to legacy generation
+  console.warn('⚠️ No templateManager provided, using legacy slide generation');
 
   const prompt = `You are a creative and talented pitch deck designer. Your mission is to create BEAUTIFUL, VISUALLY STUNNING slides that showcase the brand's identity while ensuring perfect readability and visual appeal.
 
@@ -660,4 +1015,63 @@ function ensureColorContrast(backgroundColor: string, textColor: string, brandin
   }
 
   return { backgroundColor, textColor: newTextColor };
+}
+
+/**
+ * Analyze image using OpenAI Vision and generate tags
+ */
+export async function analyzeImageWithAI(imageUrl: string): Promise<string[]> {
+  try {
+    console.log(`🤖 Analyzing image with AI: ${imageUrl}`);
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Analyze this image and categorize it with relevant tags from this list:
+              
+              - logo: Company or brand logos
+              - product: Product photos or product shots
+              - team: Team photos, people, employees
+              - office: Office spaces, work environment
+              - infographic: Charts, diagrams, infographics
+              - icon: Icons, small graphics, illustrations
+              - background: Background images, patterns, textures
+              - screenshot: Screenshots of software/apps
+              - graphic: General graphics, artwork, designs
+              - photo: General photographs
+              - hero: Hero/banner images suitable for headers
+              
+              Return ONLY the relevant tags as a comma-separated list (e.g., "product,photo" or "logo,icon").
+              Choose 1-3 most relevant tags. Be specific and accurate.`
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: imageUrl,
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 100,
+    });
+
+    const tagsString = response.choices[0]?.message?.content?.trim() || '';
+    const tags = tagsString
+      .split(',')
+      .map(tag => tag.trim().toLowerCase())
+      .filter(tag => tag.length > 0);
+
+    console.log(`✅ AI tags for ${imageUrl}: ${tags.join(', ')}`);
+    return tags;
+  } catch (error: any) {
+    console.error('Error analyzing image with AI:', error.message);
+    // Return default tag if AI fails
+    return ['photo'];
+  }
 }

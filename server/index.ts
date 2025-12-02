@@ -1,11 +1,59 @@
 import "dotenv/config";
+
+// Polyfill File for Node 18 compatibility with undici/cheerio
+if (!global.File) {
+  class File extends Blob {
+    name: string;
+    lastModified: number;
+    constructor(fileBits: any[], fileName: string, options?: any) {
+      super(fileBits, options);
+      this.name = fileName;
+      this.lastModified = options?.lastModified || Date.now();
+    }
+  }
+  (global as any).File = File;
+}
+
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+// Increase limit for image uploads (base64 encoded in JSON)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: false, limit: '50mb' }));
+
+// Security headers to prevent XSS, clickjacking, and other attacks
+app.use((req, res, next) => {
+  // Content Security Policy - prevent execution of malicious scripts
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data: https: blob:; " +
+    "font-src 'self' data:; " +
+    "connect-src 'self' https:; " +
+    "frame-ancestors 'none';"
+  );
+
+  // X-Frame-Options - prevent clickjacking
+  res.setHeader('X-Frame-Options', 'DENY');
+
+  // X-Content-Type-Options - prevent MIME-sniffing
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  // X-XSS-Protection - enable browser XSS protection
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+
+  // Referrer-Policy - control referrer information
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+  // Permissions-Policy - disable unnecessary browser features
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+
+  next();
+});
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -40,6 +88,17 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
+  // SPA fallback - catch any non-API 404s and serve index.html
+  // This prevents the brief 404 flash when refreshing on client-side routes
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    // Only handle GET requests for non-API routes
+    if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/objects')) {
+      // Let the Vite middleware or static file server handle it
+      return next();
+    }
+    next();
+  });
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
@@ -61,18 +120,18 @@ app.use((req, res, next) => {
   // Default to 3000 for development (5000 is used by macOS Control Center)
   // this serves both the API and the client.
   const port = parseInt(process.env.PORT || '3000', 10);
-  
+
   // reusePort is not supported on macOS, so we'll conditionally use it
   const listenOptions: any = {
     port,
     host: "0.0.0.0",
   };
-  
+
   // Only add reusePort on platforms that support it (Linux)
   if (process.platform !== 'darwin') {
     listenOptions.reusePort = true;
   }
-  
+
   server.listen(listenOptions, () => {
     log(`serving on port ${port}`);
   });

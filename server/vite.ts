@@ -43,10 +43,18 @@ export async function setupVite(app: Express, server: Server) {
   });
 
   app.use(vite.middlewares);
+  
+  // SPA fallback - serve index.html for all non-API routes
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
 
+    // Skip API routes and assets
+    if (url.startsWith('/api') || url.startsWith('/objects') || url.includes('.')) {
+      return next();
+    }
+
     try {
+      console.log(`[SPA Fallback] Serving index.html for: ${url}`);
       const clientTemplate = path.resolve(
         __dirname,
         "..",
@@ -63,6 +71,7 @@ export async function setupVite(app: Express, server: Server) {
       const page = await vite.transformIndexHtml(url, template);
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
+      console.error(`[SPA Fallback Error] ${url}:`, e);
       vite.ssrFixStacktrace(e as Error);
       next(e);
     }
