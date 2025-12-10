@@ -16,6 +16,7 @@ PitchPerfect is an advanced AI-powered web application that enables entrepreneur
 ## Tech Stack
 
 ### Frontend
+
 - **React 18** with TypeScript
 - **Vite** for development and bundling
 - **Tailwind CSS** for styling
@@ -26,6 +27,7 @@ PitchPerfect is an advanced AI-powered web application that enables entrepreneur
 - **TipTap** for rich text editing
 
 ### Backend
+
 - **Node.js** with Express.js
 - **TypeScript** with ES modules
 - **Drizzle ORM** with PostgreSQL
@@ -33,18 +35,20 @@ PitchPerfect is an advanced AI-powered web application that enables entrepreneur
 - **Google Cloud Storage** for file management
 
 ### Database & Storage
+
 - **Supabase PostgreSQL** database
 - **Google Cloud Storage** with custom ACL system
 - **Express sessions** with PostgreSQL store
 
 ### AI & External Services
+
 - **OpenAI GPT-4o** for business analysis and content generation
 - **Website crawling** with JSDOM for business intelligence
 - **SendGrid** for email campaigns (optional)
 
 ## Prerequisites
 
-- **Node.js** 18+ 
+- **Node.js** 18+
 - **npm** or **yarn**
 - **PostgreSQL** database (Supabase recommended)
 - **OpenAI API key**
@@ -53,18 +57,20 @@ PitchPerfect is an advanced AI-powered web application that enables entrepreneur
 ## Installation
 
 1. **Clone the repository**
+
    ```bash
    git clone <repository-url>
    cd pitchperfect
    ```
 
 2. **Install dependencies**
+
    ```bash
    npm install
    ```
 
 3. **Environment Setup**
-   
+
    Create a `.env` file in the root directory with the following variables:
 
    ```env
@@ -110,6 +116,7 @@ PitchPerfect is an advanced AI-powered web application that enables entrepreneur
    - Add this as `DATABASE_URL` in your `.env` file
 
 3. **Run Database Migrations**
+
    ```bash
    npm run db:push
    ```
@@ -189,11 +196,13 @@ pitchperfect/
 ## API Documentation
 
 ### Authentication
+
 - `GET /api/auth/user` - Get current user information
 - `GET /api/login` - Initiate login flow
 - `GET /api/logout` - Logout user
 
 ### Projects
+
 - `GET /api/projects` - List user projects
 - `POST /api/projects` - Create new project
 - `GET /api/projects/:id` - Get project details
@@ -202,6 +211,7 @@ pitchperfect/
 - `POST /api/projects/:id/analyze` - Analyze project with AI
 
 ### CRM
+
 - `GET /api/crm/contacts` - List contacts
 - `POST /api/crm/contacts` - Create contact
 - `POST /api/crm/contacts/import` - Import contacts from CSV
@@ -209,6 +219,7 @@ pitchperfect/
 - `POST /api/crm/audiences` - Create audience
 
 ### File Upload
+
 - `POST /api/objects/upload` - Get upload URL for files
 
 ## Troubleshooting
@@ -260,9 +271,81 @@ This project is proprietary software. All rights reserved.
 ## Support
 
 For technical support or questions:
+
 - Check the troubleshooting section above
 - Review the error logs for specific error messages
 - Ensure all environment variables are properly configured
+
+## Documentation
+
+All additional documentation files have been organized in the [`docs/`](./docs/) directory. Below is a comprehensive list of available documentation:
+
+### Setup & Configuration
+
+- [Complete Implementation Guide](./docs/COMPLETE_IMPLEMENTATION_GUIDE.md)
+- [Template System Setup](./docs/TEMPLATE_SYSTEM_SETUP.md)
+- [Template System README](./docs/TEMPLATE_SYSTEM_README.md)
+- [Media Library Setup](./docs/MEDIA_LIBRARY_SETUP.md)
+- [Media Library PRD](./docs/MEDIA_LIBRARY_PRD.md)
+- [Supabase Storage Setup](./docs/SUPABASE_STORAGE_SETUP.md)
+- [Deployment Guide](./docs/DEPLOYMENT.md)
+- [Docker Fixes](./docs/DOCKER_FIXES.md)
+- [DigitalOcean Supabase Fix](./docs/DIGITALOCEAN_SUPABASE_FIX.md)
+
+### API & Reference
+
+- [Admin API Reference](./docs/ADMIN_API_REFERENCE.md)
+
+### Implementation & Features
+
+- [Implementation Summary](./docs/IMPLEMENTATION_SUMMARY.md)
+- [Template Based Deck Generation](./docs/TEMPLATE_BASED_DECK_GENERATION.md)
+- [Template Designer Implementation](./docs/TEMPLATE_DESIGNER_IMPLEMENTATION.md)
+- [Template Designer Analysis](./docs/TEMPLATE_DESIGNER_ANALYSIS.md)
+- [Design Studio Phase 1](./docs/DESIGN_STUDIO_PHASE1.md)
+- [Feature Modals Implementation](./docs/FEATURE_MODALS_IMPLEMENTATION.md)
+- [Feature Modals Visual Guide](./docs/FEATURE_MODALS_VISUAL_GUIDE.md)
+
+### Security
+
+- [Security Summary](./docs/SECURITY_SUMMARY.md)
+- [Security Audit Report](./docs/SECURITY_AUDIT_REPORT.md)
+- [Security Action Plan](./docs/SECURITY_ACTION_PLAN.md)
+- [Image Upload Security](./docs/IMAGE_UPLOAD_SECURITY.md)
+- [XSS Protection Summary](./docs/XSS_PROTECTION_SUMMARY.md)
+
+### Bug Fixes & Troubleshooting
+
+- [Troubleshooting Templates](./docs/TROUBLESHOOTING_TEMPLATES.md)
+- [Testing Guide](./docs/TESTING_GUIDE.md)
+- [Bugfix Summary](./docs/BUGFIX_SUMMARY.md)
+- [Design Studio Bugfixes](./docs/DESIGN_STUDIO_BUGFIXES.md)
+- [Homepage Fix Summary](./docs/HOMEPAGE_FIX_SUMMARY.md)
+- [Homepage Before After](./docs/HOMEPAGE_BEFORE_AFTER.md)
+- [Homepage Audit Report](./docs/HOMEPAGE_AUDIT_REPORT.md)
+- [Quick Fix](./docs/QUICK_FIX.md)
+- [Quick Fix Summary](./docs/QUICK_FIX_SUMMARY.md)
+
+### Template System Fixes
+
+- [Template AI Fix Summary](./docs/TEMPLATE_AI_FIX_SUMMARY.md)
+- [Template Apply Fix](./docs/TEMPLATE_APPLY_FIX.md)
+- [Template Persistence Fix](./docs/TEMPLATE_PERSISTENCE_FIX.md)
+- [Template Modal Close Fix](./docs/TEMPLATE_MODAL_CLOSE_FIX.md)
+- [Template Modal Final Fix](./docs/TEMPLATE_MODAL_FINAL_FIX.md)
+- [Template Double Modal Root Cause](./docs/TEMPLATE_DOUBLE_MODAL_ROOT_CAUSE.md)
+- [AI Template Debug](./docs/AI_TEMPLATE_DEBUG.md)
+
+### Preview & Scale Fixes
+
+- [Preview Modal Fix](./docs/PREVIEW_MODAL_FIX.md)
+- [Preview Scale Fix](./docs/PREVIEW_SCALE_FIX.md)
+- [AI Generation and Preview Scale Fix](./docs/AI_GENERATION_AND_PREVIEW_SCALE_FIX.md)
+
+### Updates & Analysis
+
+- [Code Analysis Latest Updates](./docs/CODE_ANALYSIS_LATEST_UPDATES.md)
+- [Updated TODO](./docs/UPDATED_TODO.md)
 
 ---
 

@@ -839,12 +839,14 @@ export class TemplateManager {
           // For other image types (graphic, photo, icon), store content if provided
           // Check _elementContent first (for indexed keys from client), then direct field
           let imageContent = null;
+          let foundWithIndexedKey = false;
           
           // Try to find content with layout index (client sends this for multi-image templates)
           const layoutIndex = layoutElements.indexOf(el);
           const indexedKey = `${fieldId}-layout-${layoutIndex}`;
           if (content?._elementContent?.[indexedKey]) {
             imageContent = content._elementContent[indexedKey];
+            foundWithIndexedKey = true;
             console.log(`  ✅ Found image content with indexed key ${indexedKey}:`, imageContent);
           } else if (content?._elementContent?.[fieldId]) {
             imageContent = content._elementContent[fieldId];
@@ -855,6 +857,13 @@ export class TemplateManager {
           }
           
           if (imageContent) {
+            // CRITICAL FIX: Preserve indexed key if that's how content was found
+            // This ensures ElementRenderer can find it when looking for indexed keys
+            if (foundWithIndexedKey) {
+              slideContent._elementContent[indexedKey] = imageContent;
+              console.log(`  📦 Stored image content with indexed key ${indexedKey}`);
+            }
+            // Also store under fieldId for backward compatibility
             slideContent._elementContent[fieldId] = imageContent;
           } else if (el.config?.fallbackUrl) {
             // Use fallback if no content provided
@@ -984,6 +993,18 @@ export class TemplateManager {
       brandColors,
       ...overrides?.styling
     };
+
+    // Preserve any additional _elementContent from client that wasn't processed
+    // This ensures client-sent content isn't lost (e.g., custom indexed keys)
+    if (content?._elementContent) {
+      Object.keys(content._elementContent).forEach((key) => {
+        // Only preserve if we didn't already process this key
+        if (!slideContent._elementContent.hasOwnProperty(key)) {
+          slideContent._elementContent[key] = content._elementContent[key];
+          console.log(`  📦 Preserved additional content key: ${key}`);
+        }
+      });
+    }
 
     // Build the slide
     const slide: AppliedTemplate = {

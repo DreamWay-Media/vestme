@@ -169,14 +169,17 @@ export async function generateSlideContentForTemplate(params: {
   availableMedia?: Array<{ url: string; name: string; type: string }>;
   requiredImageCount?: number;
   templateSchema?: any;
+  layoutElements?: Array<any>; // NEW: Layout elements with element-specific prompts
 }) {
-  const { templateCategory, templateName, businessProfile, slideType, slideTitle, existingContent, availableMedia, requiredImageCount } = params;
+  const { templateCategory, templateName, businessProfile, slideType, slideTitle, existingContent, availableMedia, requiredImageCount, layoutElements } = params;
   
   // Only use slide type guidance as fallback if NO custom field prompts exist
   let specificGuidance = '';
   
-  // Check if we'll have custom prompts (we'll check this below)
-  const willHaveCustomPrompts = params.templateSchema?.fields?.some((f: any) => 
+  // Check if we'll have custom prompts from layout elements (preferred) or schema (fallback)
+  const willHaveCustomPrompts = layoutElements?.some((el: any) => 
+    el.aiPrompt?.enabled && el.aiPrompt?.prompt
+  ) || params.templateSchema?.fields?.some((f: any) => 
     f.aiPrompt?.enabled && f.aiPrompt?.prompt
   );
   
@@ -221,12 +224,110 @@ export async function generateSlideContentForTemplate(params: {
     specificGuidance = `Slide Type: ${slideType || templateCategory}`;
   }
   
-  // Build field-specific prompts section from template schema
+  // Build field-specific prompts section from layout elements (preferred) or template schema (fallback)
   let fieldPromptsSection = '';
   let hasCustomPrompts = false;
   let dataFieldCount = 0;
   
-  if (params.templateSchema?.fields && Array.isArray(params.templateSchema.fields)) {
+  // PREFERRED: Use layout elements if available (they have the actual element prompts)
+  if (layoutElements && Array.isArray(layoutElements) && layoutElements.length > 0) {
+    // Filter elements with labels (same logic as form rendering)
+    const elementsWithLabels = layoutElements.filter((el: any) => {
+      if (el.type === 'shape') return true; // Always include shapes
+      const label = el.config?.label || '';
+      return label && label.trim() !== '';
+    });
+    
+    // Get elements WITH custom prompts
+    const elementsWithPrompts = elementsWithLabels.filter((el: any) => 
+      el.aiPrompt?.enabled && el.aiPrompt?.prompt
+    );
+    
+    // Get elements WITHOUT custom prompts (for fallback guidance)
+    const elementsWithoutPrompts = elementsWithLabels.filter((el: any) => 
+      !el.aiPrompt?.enabled || !el.aiPrompt?.prompt
+    );
+    
+    const dataElements = elementsWithLabels.filter((el: any) => el.type === 'data');
+    dataFieldCount = dataElements.length;
+    
+    // Build field prompts section
+    let promptParts: string[] = [];
+    
+    // 1. PRIORITY: Custom prompts from layout elements (these should be followed EXACTLY)
+    if (elementsWithPrompts.length > 0) {
+      hasCustomPrompts = true;
+      promptParts.push(`
+🎯 ELEMENT-SPECIFIC INSTRUCTIONS FROM TEMPLATE (FOLLOW THESE EXACTLY - HIGHEST PRIORITY):
+${elementsWithPrompts.map((el: any, idx: number) => {
+  const label = el.config?.label || el.id || `Element ${idx + 1}`;
+  const elementId = el.id;
+  const elementType = el.type;
+  const prompt = el.aiPrompt.prompt;
+  const context = el.aiPrompt.context || [];
+  
+  let contextInfo = '';
+  if (context.includes('businessProfile') && businessProfile) {
+    contextInfo += `\n   Business Context: ${businessProfile.companyName || businessProfile.businessName || 'Company'}`;
+  }
+  if (context.includes('brandKit')) {
+    contextInfo += `\n   Brand Context: Use brand information`;
+  }
+  
+  return `- Element ID "${elementId}" (${elementType}): "${label}"
+   Prompt: ${prompt}${contextInfo}`;
+}).join('\n')}
+`);
+    }
+    
+    // 2. FALLBACK: Generic guidance ONLY for elements WITHOUT custom prompts
+    if (elementsWithoutPrompts.length > 0) {
+      const textAndDataElements = elementsWithoutPrompts.filter((el: any) => 
+        el.type === 'text' || el.type === 'data'
+      );
+      
+      if (textAndDataElements.length > 0) {
+        promptParts.push(`
+📝 Elements without custom instructions (use intelligent defaults based on element labels):
+${textAndDataElements.map((el: any) => {
+  const label = (el.config?.label || el.id || '').toLowerCase();
+  const elementId = el.id;
+  let guidance = '';
+  if (el.type === 'data') {
+    if (label.includes('revenue') || label.includes('sales')) {
+      guidance = 'Extract revenue/sales figure from business profile';
+    } else if (label.includes('growth') || label.includes('rate') || label.includes('percent')) {
+      guidance = 'Extract growth percentage from business profile';
+    } else if (label.includes('year') || label.includes('date')) {
+      guidance = 'Extract relevant year or date from business profile';
+    } else if (label.includes('customer') || label.includes('user')) {
+      guidance = 'Extract customer/user count from business profile';
+    } else if (label.includes('market') || label.includes('size')) {
+      guidance = 'Extract market size from business profile';
+    } else {
+      guidance = 'Extract relevant numeric data from business profile';
+    }
+  } else if (label.includes('title') || label.includes('headline')) {
+    guidance = 'Generate compelling headline based on business profile';
+  } else if (label.includes('description') || label.includes('body')) {
+    guidance = 'Generate 2-3 sentence description based on business profile';
+  } else if (label.includes('tagline') || label.includes('subtitle')) {
+    guidance = 'Generate tagline based on business profile';
+  } else if (label.includes('bullet') || label.includes('point') || label.includes('feature')) {
+    guidance = 'Generate specific bullet point based on business profile';
+  } else {
+    guidance = 'Generate content based on element label and business profile';
+  }
+  return `- Element ID "${elementId}" (${el.type}): ${guidance}`;
+}).join('\n')}
+`);
+      }
+    }
+    
+    fieldPromptsSection = promptParts.join('\n');
+  } 
+  // FALLBACK: Use template schema if layout elements not available
+  else if (params.templateSchema?.fields && Array.isArray(params.templateSchema.fields)) {
     // Get fields WITH custom prompts
     const fieldsWithPrompts = params.templateSchema.fields.filter((f: any) => 
       f.aiPrompt?.enabled && f.aiPrompt?.prompt
@@ -299,9 +400,26 @@ ${textAndDataFields.map((f: any) => {
   // Build media library section if available
   let mediaSection = '';
   if (availableMedia && availableMedia.length > 0 && requiredImageCount && requiredImageCount > 0) {
-    // Find image fields with AI prompts for better selection
+    // Find image elements with AI prompts for better selection (prefer layout elements)
     let imageFieldPrompts = '';
-    if (params.templateSchema?.fields) {
+    if (layoutElements && Array.isArray(layoutElements)) {
+      const imageElements = layoutElements.filter((el: any) => 
+        (el.type === 'image' || el.type === 'logo') && 
+        el.aiPrompt?.enabled && 
+        el.aiPrompt?.prompt &&
+        el.config?.label && 
+        el.config.label.trim() !== ''
+      );
+      if (imageElements.length > 0) {
+        imageFieldPrompts = `\n🎯 IMAGE ELEMENT INSTRUCTIONS (FOLLOW EXACTLY - Match images to these specific purposes):\n${imageElements.map((el: any, idx: number) => {
+          const label = el.config?.label || el.id || `Image ${idx + 1}`;
+          const elementId = el.id;
+          const prompt = el.aiPrompt.prompt;
+          return `${idx + 1}. Element ID "${elementId}" - "${label}": ${prompt}`;
+        }).join('\n')}`;
+      }
+    } else if (params.templateSchema?.fields) {
+      // Fallback to schema
       const imageFields = params.templateSchema.fields.filter((f: any) => 
         (f.type === 'image' || f.type === 'logo') && f.aiPrompt?.enabled && f.aiPrompt?.prompt
       );
@@ -372,8 +490,14 @@ Return a JSON object with this structure:
     "2024",
     "50%"
   ],
-  "images": ["full_url_1", "full_url_2", ...]
+  "images": ["full_url_1", "full_url_2", ...],
+  "elementContent": {
+    "element-id-1": "Content for element with ID element-id-1",
+    "element-id-2": "Content for element with ID element-id-2"
+  }
 }
+
+IMPORTANT: If element-specific instructions are provided above, you MUST generate content in the "elementContent" object mapping each element ID to its specific content. This ensures each element gets content that matches its individual prompt.
 
 ${requiredImageCount ? `IMPORTANT: The "images" array MUST contain EXACTLY ${requiredImageCount} image URL(s) from the available media library listed above.` : ''}
 
@@ -387,7 +511,21 @@ Use ONLY information from the businessProfile. Be specific and meaningful.`;
       messages: [
         {
           role: "system",
-          content: "You are a pitch deck content generator. Create specific, compelling content based on real business information. INSTRUCTION HIERARCHY: (1) Custom field instructions from template (marked with 🎯) are HIGHEST PRIORITY - follow them EXACTLY. (2) Generic field guidance is only for fields without custom instructions. (3) Generic slide type guidance is lowest priority. Never use generic placeholders. Be CONSISTENT - generate the SAME content when given the SAME inputs."
+          content: `You are a pitch deck content generator. Create specific, compelling content based on real business information.
+
+INSTRUCTION HIERARCHY (STRICT ORDER):
+1. 🎯 Element-specific instructions (marked with 🎯) are HIGHEST PRIORITY - follow them EXACTLY and PRECISELY
+2. Generic field guidance is only for elements/fields WITHOUT custom instructions
+3. Generic slide type guidance is LOWEST PRIORITY (only used if no element-specific guidance exists)
+
+CRITICAL RULES:
+- For each element with a custom prompt, generate content that EXACTLY matches that prompt's intent
+- Use the element ID to map content correctly in the "elementContent" object
+- Extract REAL data from the businessProfile - never use placeholders or generic text
+- Be specific, concrete, and compelling
+- If element-specific instructions exist, IGNORE generic slide type guidance
+- Generate the SAME content when given the SAME inputs (be deterministic)
+- For images, match each image to its specific element's purpose as described in the element instructions`
         },
         {
           role: "user",
@@ -395,8 +533,9 @@ Use ONLY information from the businessProfile. Be specific and meaningful.`;
         }
       ],
       response_format: { type: "json_object" },
-      temperature: 0.3,  // Lower temperature for more consistent, deterministic output
+      temperature: 0.2,  // Lower temperature for more consistent, deterministic output (reduced from 0.3)
       seed: 12345,  // Use a consistent seed for deterministic results
+      max_tokens: 2000,  // Allow more tokens for detailed element-specific content
     });
 
     const content = JSON.parse(response.choices[0].message.content || '{}');

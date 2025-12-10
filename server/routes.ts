@@ -2504,7 +2504,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Generate AI content for template preview
   app.post('/api/generate-template-content', isAuthenticated, async (req: any, res) => {
     try {
-      const { templateCategory, templateName, businessProfile, projectId, templateSchema } = req.body;
+      const { templateCategory, templateName, businessProfile, projectId, templateSchema, layoutElements } = req.body;
       
       if (!businessProfile) {
         return res.status(400).json({ error: 'Business profile is required' });
@@ -2515,12 +2515,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       console.log(`Generating AI content for template: ${templateName} (${templateCategory})`);
+      console.log(`Layout elements provided: ${layoutElements?.length || 0}`);
       
-      // Count how many image fields are in the template
+      // Count how many image fields are in the template (use layout elements if available, fallback to schema)
       let imageFieldCount = 0;
-      if (templateSchema?.fields) {
+      if (layoutElements && Array.isArray(layoutElements)) {
+        // Use layout elements - count image/logo elements with labels
+        imageFieldCount = layoutElements.filter((el: any) => {
+          if (el.type !== 'image' && el.type !== 'logo') return false;
+          // Only count elements with labels (same filtering as the form)
+          const label = el.config?.label || '';
+          return label && label.trim() !== '';
+        }).length;
+      } else if (templateSchema?.fields) {
+        // Fallback to schema
         imageFieldCount = templateSchema.fields.filter((f: any) => {
-          // Only count fields with labels (same filtering as the form)
           if (!f.label || f.label.trim() === '') return false;
           return f.type === 'image' || f.type === 'logo';
         }).length;
@@ -2552,7 +2561,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         existingContent: null,
         availableMedia, // Pass available images for AI selection
         requiredImageCount: imageFieldCount, // Tell AI how many images to select
-        templateSchema, // Pass schema so AI can use field-specific prompts
+        templateSchema, // Pass schema for backward compatibility
+        layoutElements, // Pass layout elements with element-specific prompts (NEW)
       });
       
       console.log('Generated content:', generatedContent);
