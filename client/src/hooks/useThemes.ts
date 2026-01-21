@@ -54,33 +54,26 @@ export function useThemes(options?: UseThemesOptions) {
         }
         
         const url = `/api/themes${params.toString() ? `?${params.toString()}` : ""}`;
-        console.log('useThemes: Fetching from', url);
         
         const response = await fetch(url, {
           headers,
           credentials: 'include',
         });
         
-        console.log('useThemes: Response status', response.status, response.statusText);
-        
         if (!response.ok) {
           const errorText = await response.text();
-          console.error('useThemes: Error response', errorText);
           throw new Error(`Failed to fetch themes: ${response.status} ${response.statusText}`);
         }
         
         const data = await response.json();
-        console.log('useThemes: Received data', Array.isArray(data) ? `${data.length} themes` : 'not an array', data);
         
         // Ensure we return an array
         if (!Array.isArray(data)) {
-          console.error('useThemes: Response is not an array', data);
           return [];
         }
         
         return data as Theme[];
       } catch (error) {
-        console.error('useThemes: Error in queryFn', error);
         throw error;
       }
     },

@@ -266,11 +266,16 @@ export function ThemeStylingPanel({ styling, onChange }: ThemeStylingPanelProps)
                     type="color"
                     value={styling.background.gradientStops?.[0]?.color || '#FFFFFF'}
                     onChange={(e) => {
-                      const stops = styling.background.gradientStops || [
+                      const existingStops = styling.background.gradientStops || [
                         { color: '#FFFFFF', position: 0 },
                         { color: '#F3F4F6', position: 100 },
                       ];
-                      stops[0].color = e.target.value;
+                      // Create new array and objects to avoid mutation
+                      const stops = existingStops.map((stop, index) => 
+                        index === 0 
+                          ? { ...stop, color: e.target.value }
+                          : { ...stop }
+                      );
                       updateBackground({ gradientStops: stops });
                     }}
                     className="w-20 h-10"
@@ -278,11 +283,16 @@ export function ThemeStylingPanel({ styling, onChange }: ThemeStylingPanelProps)
                   <Input
                     value={styling.background.gradientStops?.[0]?.color || '#FFFFFF'}
                     onChange={(e) => {
-                      const stops = styling.background.gradientStops || [
+                      const existingStops = styling.background.gradientStops || [
                         { color: '#FFFFFF', position: 0 },
                         { color: '#F3F4F6', position: 100 },
                       ];
-                      stops[0].color = e.target.value;
+                      // Create new array and objects to avoid mutation
+                      const stops = existingStops.map((stop, index) => 
+                        index === 0 
+                          ? { ...stop, color: e.target.value }
+                          : { ...stop }
+                      );
                       updateBackground({ gradientStops: stops });
                     }}
                     className="flex-1"
@@ -296,11 +306,16 @@ export function ThemeStylingPanel({ styling, onChange }: ThemeStylingPanelProps)
                     type="color"
                     value={styling.background.gradientStops?.[1]?.color || '#F3F4F6'}
                     onChange={(e) => {
-                      const stops = styling.background.gradientStops || [
+                      const existingStops = styling.background.gradientStops || [
                         { color: '#FFFFFF', position: 0 },
                         { color: '#F3F4F6', position: 100 },
                       ];
-                      stops[1].color = e.target.value;
+                      // Create new array and objects to avoid mutation
+                      const stops = existingStops.map((stop, index) => 
+                        index === 1 
+                          ? { ...stop, color: e.target.value }
+                          : { ...stop }
+                      );
                       updateBackground({ gradientStops: stops });
                     }}
                     className="w-20 h-10"
@@ -308,11 +323,16 @@ export function ThemeStylingPanel({ styling, onChange }: ThemeStylingPanelProps)
                   <Input
                     value={styling.background.gradientStops?.[1]?.color || '#F3F4F6'}
                     onChange={(e) => {
-                      const stops = styling.background.gradientStops || [
+                      const existingStops = styling.background.gradientStops || [
                         { color: '#FFFFFF', position: 0 },
                         { color: '#F3F4F6', position: 100 },
                       ];
-                      stops[1].color = e.target.value;
+                      // Create new array and objects to avoid mutation
+                      const stops = existingStops.map((stop, index) => 
+                        index === 1 
+                          ? { ...stop, color: e.target.value }
+                          : { ...stop }
+                      );
                       updateBackground({ gradientStops: stops });
                     }}
                     className="flex-1"

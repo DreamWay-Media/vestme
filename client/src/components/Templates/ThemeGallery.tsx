@@ -11,9 +11,10 @@ import type { Theme } from "@/hooks/useThemes";
 
 interface ThemeGalleryProps {
   onSelectTheme?: (theme: Theme) => void;
+  selectedThemeId?: string | null;
 }
 
-export function ThemeGallery({ onSelectTheme }: ThemeGalleryProps) {
+export function ThemeGallery({ onSelectTheme, selectedThemeId }: ThemeGalleryProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedTheme, setSelectedTheme] = useState<Theme | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -22,21 +23,6 @@ export function ThemeGallery({ onSelectTheme }: ThemeGalleryProps) {
   const { data: themes, isLoading, error } = useThemes({
     search: searchTerm || undefined,
   });
-  
-  // Debug logging
-  console.log('ThemeGallery - themes:', themes, 'isLoading:', isLoading, 'error:', error);
-  console.log('ThemeGallery - themes type:', typeof themes, 'isArray:', Array.isArray(themes), 'length:', themes?.length);
-  
-  // Additional debugging
-  useEffect(() => {
-    if (themes) {
-      console.log('ThemeGallery - themes changed:', {
-        count: themes.length,
-        names: themes.map(t => t.name),
-        enabled: themes.filter(t => t.isEnabled).length,
-      });
-    }
-  }, [themes]);
   
   const handleThemeClick = (theme: Theme) => {
     if (theme.isLocked) {
@@ -113,6 +99,7 @@ export function ThemeGallery({ onSelectTheme }: ThemeGalleryProps) {
               key={theme.id}
               theme={theme}
               onClick={() => handleThemeClick(theme)}
+              isSelected={selectedThemeId === theme.id}
             />
           ))}
         </div>

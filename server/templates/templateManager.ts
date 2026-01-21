@@ -256,10 +256,12 @@ export class TemplateManager {
         }
 
         // Update template from JSON file (preserving usage stats and customization timestamp)
+        // Explicitly exclude accessTier - templates inherit from theme
+        const { accessTier, ...updateData } = templateData as any;
         await db
           .update(slideTemplates)
           .set({
-            ...templateData,
+            ...updateData,
             updatedAt: new Date(),
             // Preserve usage stats and customization status
             usageCount: existing.usageCount,
@@ -305,8 +307,34 @@ export class TemplateManager {
    */
   async rebuildCache() {
     try {
+      // Explicitly select only columns that exist in the schema
+      // This avoids any issues with removed columns like access_tier
       const allTemplates = await db
-        .select()
+        .select({
+          id: slideTemplates.id,
+          slug: slideTemplates.slug,
+          name: slideTemplates.name,
+          category: slideTemplates.category,
+          description: slideTemplates.description,
+          thumbnail: slideTemplates.thumbnail,
+          themeId: slideTemplates.themeId,
+          layout: slideTemplates.layout,
+          defaultStyling: slideTemplates.defaultStyling,
+          contentSchema: slideTemplates.contentSchema,
+          positioningRules: slideTemplates.positioningRules,
+          isDefault: slideTemplates.isDefault,
+          isEnabled: slideTemplates.isEnabled,
+          displayOrder: slideTemplates.displayOrder,
+          isSystem: slideTemplates.isSystem,
+          userId: slideTemplates.userId,
+          tags: slideTemplates.tags,
+          version: slideTemplates.version,
+          customizedByAdmin: slideTemplates.customizedByAdmin,
+          usageCount: slideTemplates.usageCount,
+          lastUsedAt: slideTemplates.lastUsedAt,
+          createdAt: slideTemplates.createdAt,
+          updatedAt: slideTemplates.updatedAt,
+        })
         .from(slideTemplates)
         .where(eq(slideTemplates.isEnabled, true));
 
@@ -318,6 +346,7 @@ export class TemplateManager {
       console.log(`Cache rebuilt with ${this.templateCache.size} templates`);
     } catch (error) {
       console.error('Error rebuilding cache:', error);
+      throw error; // Re-throw to surface the error during initialization
     }
   }
 
@@ -560,7 +589,8 @@ export class TemplateManager {
     defaultStyling?: any;
     contentSchema?: any;
     positioningRules?: any;
-    accessTier?: 'free' | 'premium';
+    // accessTier removed - templates inherit access tier from their theme
+    // To change access tier, update the theme's accessTier or move template to different theme
     themeId?: string; // Allow moving templates between themes
     isDefault?: boolean;
     isEnabled?: boolean;
@@ -609,7 +639,7 @@ export class TemplateManager {
       if (updates.defaultStyling !== undefined) updateData.defaultStyling = updates.defaultStyling;
       if (updates.contentSchema !== undefined) updateData.contentSchema = updates.contentSchema;
       if (updates.positioningRules !== undefined) updateData.positioningRules = updates.positioningRules;
-      if (updates.accessTier !== undefined) updateData.accessTier = updates.accessTier;
+      // accessTier removed - templates inherit from theme. Update theme.accessTier instead.
       if (updates.isDefault !== undefined) updateData.isDefault = updates.isDefault;
       if (updates.isEnabled !== undefined) updateData.isEnabled = updates.isEnabled;
       if (updates.displayOrder !== undefined) updateData.displayOrder = updates.displayOrder;

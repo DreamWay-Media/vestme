@@ -8,9 +8,10 @@ interface ThemeCardProps {
   theme: Theme;
   onClick: () => void;
   className?: string;
+  isSelected?: boolean;
 }
 
-export function ThemeCard({ theme, onClick, className }: ThemeCardProps) {
+export function ThemeCard({ theme, onClick, className, isSelected = false }: ThemeCardProps) {
   const isLocked = theme.isLocked ?? false;
   
   return (
@@ -18,6 +19,7 @@ export function ThemeCard({ theme, onClick, className }: ThemeCardProps) {
       className={cn(
         "cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1",
         isLocked && "opacity-75 hover:opacity-90",
+        isSelected && "ring-2 ring-blue-500 ring-offset-2 shadow-lg",
         className
       )}
       onClick={onClick}

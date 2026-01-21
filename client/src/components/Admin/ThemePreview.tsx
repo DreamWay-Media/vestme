@@ -8,7 +8,11 @@ interface ThemePreviewProps {
 
 export function ThemePreview({ styling, themeName = "Theme Preview" }: ThemePreviewProps) {
   const backgroundStyle =
-    styling.background.type === 'gradient' && styling.background.gradientStops
+    styling.background.type === 'gradient' && 
+    styling.background.gradientStops && 
+    styling.background.gradientStops.length >= 2 &&
+    styling.background.gradientStops[0]?.color &&
+    styling.background.gradientStops[1]?.color
       ? {
           background: `linear-gradient(135deg, ${styling.background.gradientStops[0].color} 0%, ${styling.background.gradientStops[1].color} 100%)`,
         }

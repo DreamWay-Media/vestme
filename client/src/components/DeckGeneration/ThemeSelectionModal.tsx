@@ -39,7 +39,7 @@ export function ThemeSelectionModal({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="mt-4">
-          {open && <ThemeGallery onSelectTheme={handleThemeSelect} />}
+          {open && <ThemeGallery onSelectTheme={handleThemeSelect} selectedThemeId={selectedThemeId} />}
         </div>
       </DialogContent>
     </Dialog>

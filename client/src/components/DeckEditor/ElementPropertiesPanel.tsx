@@ -18,7 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { WysiwygEditor } from "@/components/WysiwygEditor";
 import { MediaLibraryPicker } from "@/components/MediaLibrary/MediaLibraryPicker";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Image, Palette, Type, Hash } from "lucide-react";
 
 interface ElementPropertiesPanelProps {
@@ -42,6 +42,15 @@ export function ElementPropertiesPanel({
   const [localStyling, setLocalStyling] = useState(element.styling || {});
   const [localConfig, setLocalConfig] = useState(element.config || {});
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
+
+  // Sync local state with props when element changes
+  // This ensures that when a different element is selected, the panel shows the correct properties
+  // elementId is the primary indicator - when it changes, we know a different element was selected
+  useEffect(() => {
+    setLocalContent(content || '');
+    setLocalStyling(element.styling || {});
+    setLocalConfig(element.config || {});
+  }, [elementId, content, element.styling, element.config]);
 
   const handleContentChange = (newContent: any) => {
     setLocalContent(newContent);
