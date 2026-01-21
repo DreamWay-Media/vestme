@@ -77,13 +77,16 @@ export async function analyzeBusinessFromData(data: any) {
 async function generateTemplateBasedSlides(
   businessProfile: any,
   brandingInfo: any,
-  templateManager: any
+  templateManager: any,
+  themeId?: string,
+  projectId?: string,
+  userId?: string,
+  availableMedia?: Array<{ url: string; name: string; type: string }>
 ) {
   console.log('🎨 Starting template-based slide generation');
-  
-  // Fetch all available templates
-  const allTemplates = await templateManager.getAllTemplates();
-  console.log(`Found ${allTemplates.length} templates`);
+  if (themeId) {
+    console.log(`🎨 Using theme: ${themeId}`);
+  }
   
   // Define the pitch deck structure - what slides we want to create
   const deckStructure = [
@@ -99,57 +102,199 @@ async function generateTemplateBasedSlides(
     { slideType: 'closing', templateCategory: 'closing', title: 'Investment Opportunity' },
   ];
   
-  // Group templates by category
-  const templatesByCategory: Record<string, any[]> = {};
-  for (const template of allTemplates) {
-    if (!templatesByCategory[template.category]) {
-      templatesByCategory[template.category] = [];
+  // Get templates - either from theme or all templates
+  let allTemplates: any[] = [];
+  let templatesByCategory: Record<string, any[]> = {};
+  
+  if (themeId) {
+    // Get templates from specified theme
+    console.log(`🔍 Fetching templates for theme: ${themeId}`);
+    const themeTemplates = await templateManager.getTemplatesByTheme(themeId);
+    console.log(`📦 Found ${themeTemplates.length} templates in theme ${themeId}`);
+    
+    if (themeTemplates.length === 0) {
+      console.warn(`⚠️ WARNING: Theme ${themeId} has no templates! Falling back to default theme templates.`);
+      
+      // Fallback: Try to get templates from default theme
+      const themes = await templateManager.getThemes({ isEnabled: true });
+      const defaultTheme = themes.find(t => t.isDefault);
+      
+      if (defaultTheme && defaultTheme.id !== themeId) {
+        console.log(`📦 Falling back to default theme: ${defaultTheme.name} (${defaultTheme.id})`);
+        const defaultThemeTemplates = await templateManager.getTemplatesByTheme(defaultTheme.id);
+        console.log(`📦 Found ${defaultThemeTemplates.length} templates in default theme`);
+        
+        if (defaultThemeTemplates.length > 0) {
+          allTemplates = defaultThemeTemplates;
+          console.log(`✅ Using ${defaultThemeTemplates.length} templates from default theme`);
+        } else {
+          // Last resort: get all templates
+          console.log(`⚠️ Default theme also has no templates, using all available templates`);
+          allTemplates = await templateManager.getAllTemplates();
+        }
+      } else {
+        // No default theme or same theme, get all templates
+        console.log(`⚠️ No default theme found or same as selected, using all available templates`);
+        allTemplates = await templateManager.getAllTemplates();
+      }
+      
+      if (allTemplates.length === 0) {
+        throw new Error(`No templates available in the system. Please create at least one template.`);
+      }
+    } else {
+      allTemplates = themeTemplates;
     }
-    templatesByCategory[template.category].push(template);
+    
+    // Group templates by category
+    for (const template of allTemplates) {
+      if (!templatesByCategory[template.category]) {
+        templatesByCategory[template.category] = [];
+      }
+      templatesByCategory[template.category].push(template);
+    }
+    
+    console.log('Templates by category (from theme):', Object.keys(templatesByCategory).map(cat => `${cat}: ${templatesByCategory[cat].length}`));
+  } else {
+    // Use default theme or all templates
+    // Try to get default theme first
+    const themes = await templateManager.getThemes({ isEnabled: true });
+    const defaultTheme = themes.find(t => t.isDefault);
+    
+    if (defaultTheme) {
+      console.log(`Using default theme: ${defaultTheme.name}`);
+      const themeTemplates = await templateManager.getTemplatesByTheme(defaultTheme.id);
+      allTemplates = themeTemplates;
+      
+      // Group templates by category
+      for (const template of allTemplates) {
+        if (!templatesByCategory[template.category]) {
+          templatesByCategory[template.category] = [];
+        }
+        templatesByCategory[template.category].push(template);
+      }
+    } else {
+      // Fallback to all templates
+      allTemplates = await templateManager.getAllTemplates();
+      console.log(`Found ${allTemplates.length} templates (no default theme)`);
+      
+      // Group templates by category
+      for (const template of allTemplates) {
+        if (!templatesByCategory[template.category]) {
+          templatesByCategory[template.category] = [];
+        }
+        templatesByCategory[template.category].push(template);
+      }
+    }
+    
+    console.log('Templates by category:', Object.keys(templatesByCategory).map(cat => `${cat}: ${templatesByCategory[cat].length}`));
   }
   
-  console.log('Templates by category:', Object.keys(templatesByCategory).map(cat => `${cat}: ${templatesByCategory[cat].length}`));
-  
-  // Generate content for each slide using AI
-  const slides = [];
-  for (let i = 0; i < deckStructure.length; i++) {
-    const slideSpec = deckStructure[i];
-    const availableTemplates = templatesByCategory[slideSpec.templateCategory] || [];
-    
-    if (availableTemplates.length === 0) {
-      console.warn(`⚠️ No templates found for category: ${slideSpec.templateCategory}, skipping slide: ${slideSpec.title}`);
-      continue;
+    // Get theme metadata for styling if themeId is provided
+    let themeMetadata: any = null;
+    if (themeId) {
+      const theme = await templateManager.getTheme(themeId);
+      if (theme?.metadata) {
+        themeMetadata = theme.metadata;
+        console.log('🎨 Using theme styling from metadata:', {
+          colorScheme: themeMetadata.colorScheme,
+          typography: themeMetadata.typography,
+          style: themeMetadata.style
+        });
+      }
     }
     
-    // Select the most appropriate template (for now, use the first one or default)
-    const selectedTemplate = availableTemplates.find(t => t.isDefault) || availableTemplates[0];
-    
-    console.log(`📄 Generating slide ${i + 1}/${deckStructure.length}: "${slideSpec.title}" using template "${selectedTemplate.name}"`);
-    
-    // Generate content for this slide using AI
-    const slideContent = await generateSlideContentForTemplate({
-      templateCategory: selectedTemplate.category,
-      templateName: selectedTemplate.name,
-      businessProfile,
-      slideType: slideSpec.slideType,
-      slideTitle: slideSpec.title,
-      existingContent: null,
-    });
-    
-    // Apply the template to create the slide
-    const appliedSlide = await templateManager.applyTemplate(
-      selectedTemplate.id,
-      'system', // userId
-      slideContent,
-      brandingInfo,
-      {} // no overrides
-    );
-    
-    // Add order and ensure proper structure
-    appliedSlide.order = i + 1;
-    appliedSlide.title = slideContent.title || slideSpec.title;
-    
-    slides.push(appliedSlide);
+    // Generate content for each slide using AI
+    const slides = [];
+    for (let i = 0; i < deckStructure.length; i++) {
+      const slideSpec = deckStructure[i];
+      let availableTemplates = templatesByCategory[slideSpec.templateCategory] || [];
+      
+      // If no templates in theme for this category, fallback to all templates
+      if (availableTemplates.length === 0 && themeId) {
+        console.log(`⚠️ No templates in theme for category: ${slideSpec.templateCategory}, falling back to all templates`);
+        const allTemplatesFallback = await templateManager.getAllTemplates({
+          category: slideSpec.templateCategory,
+        });
+        availableTemplates = allTemplatesFallback;
+      }
+      
+      if (availableTemplates.length === 0) {
+        console.warn(`⚠️ No templates found for category: ${slideSpec.templateCategory}, skipping slide: ${slideSpec.title}`);
+        console.warn(`   Available categories: ${Object.keys(templatesByCategory).join(', ')}`);
+        continue;
+      }
+      
+      // Select the most appropriate template (for now, use the first one or default)
+      const selectedTemplate = availableTemplates.find(t => t.isDefault) || availableTemplates[0];
+      
+      console.log(`📄 Generating slide ${i + 1}/${deckStructure.length}: "${slideSpec.title}" using template "${selectedTemplate.name}"`);
+      
+      // Count image fields in template for media library selection
+      const imageElements = (selectedTemplate.layout?.elements || []).filter((el: any) => 
+        el.type === 'image' && el.config?.mediaType !== 'logo'
+      );
+      const requiredImageCount = imageElements.length;
+      
+      // Generate content for this slide using AI
+      // Pass layout elements so element-specific AI prompts can be used
+      const slideContent = await generateSlideContentForTemplate({
+        templateCategory: selectedTemplate.category,
+        templateName: selectedTemplate.name,
+        businessProfile,
+        slideType: slideSpec.slideType,
+        slideTitle: slideSpec.title,
+        existingContent: null,
+        availableMedia: availableMedia || [], // Pass available images for AI selection
+        requiredImageCount: requiredImageCount > 0 ? requiredImageCount : undefined, // Tell AI how many images to select
+        layoutElements: selectedTemplate.layout?.elements || [], // Pass layout elements with element-specific prompts
+        templateSchema: selectedTemplate.contentSchema, // Pass schema for fallback field prompts
+      });
+      
+      // Apply the template to create the slide
+      try {
+        console.log(`  📝 Applying template "${selectedTemplate.name}" (ID: ${selectedTemplate.id})`);
+        
+        // Merge theme metadata with brandingInfo for styling
+        const enhancedBrandingInfo = brandingInfo ? {
+          ...brandingInfo,
+          // Override with theme metadata if available
+          ...(themeMetadata?.colorScheme && {
+            primaryColor: themeMetadata.colorScheme.primary || brandingInfo.primaryColor,
+            secondaryColor: themeMetadata.colorScheme.secondary || brandingInfo.secondaryColor,
+            accentColor: themeMetadata.colorScheme.accent || brandingInfo.accentColor,
+          }),
+          ...(themeMetadata?.typography && {
+            fontFamily: themeMetadata.typography.fontFamily || brandingInfo.fontFamily,
+          }),
+          themeMetadata, // Include full theme metadata for template application
+        } : (themeMetadata ? { themeMetadata } : null);
+        
+        const appliedSlide = await templateManager.applyTemplate(
+          selectedTemplate.id,
+          'system', // userId
+          slideContent,
+          enhancedBrandingInfo,
+          {} // no overrides
+        );
+      
+      if (!appliedSlide) {
+        throw new Error(`Template application returned null for template ${selectedTemplate.id}`);
+      }
+      
+      // Add order and ensure proper structure
+      appliedSlide.order = i + 1;
+      appliedSlide.title = slideContent.title || slideSpec.title;
+      
+      slides.push(appliedSlide);
+      console.log(`  ✅ Slide ${i + 1} created successfully`);
+    } catch (applyError) {
+      console.error(`  ❌ Error applying template "${selectedTemplate.name}":`, applyError);
+      if (applyError instanceof Error) {
+        console.error(`     Error message: ${applyError.message}`);
+      }
+      // Continue with next slide instead of failing completely
+      console.warn(`  ⚠️ Skipping slide "${slideSpec.title}" due to template application error`);
+    }
   }
   
   console.log(`✅ Generated ${slides.length} slides using templates`);
@@ -554,14 +699,15 @@ CRITICAL RULES:
 }
 
 export async function generatePitchDeckSlides(data: any) {
-  const { businessProfile, brandingInfo, templateManager } = data;
+  const { businessProfile, brandingInfo, templateManager, themeId, projectId, userId, availableMedia } = data;
   
   console.log('generatePitchDeckSlides called with:', {
     hasBusinessProfile: !!businessProfile,
     businessProfileKeys: businessProfile ? Object.keys(businessProfile) : [],
     hasBrandingInfo: !!brandingInfo,
     brandingInfoKeys: brandingInfo ? Object.keys(brandingInfo) : [],
-    hasTemplateManager: !!templateManager
+    hasTemplateManager: !!templateManager,
+    themeId: themeId || 'none'
   });
   
   if (!businessProfile) {
@@ -570,7 +716,7 @@ export async function generatePitchDeckSlides(data: any) {
   
   // If templateManager is provided, use template-based generation
   if (templateManager) {
-    return await generateTemplateBasedSlides(businessProfile, brandingInfo, templateManager);
+    return await generateTemplateBasedSlides(businessProfile, brandingInfo, templateManager, themeId);
   }
   
   // Otherwise fall back to legacy generation

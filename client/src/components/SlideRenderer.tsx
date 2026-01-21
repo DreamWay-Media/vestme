@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 
 interface LayoutElement {
   id: string;
-  type: 'text' | 'image' | 'shape' | 'data';
+  type: 'text' | 'image' | 'shape' | 'data' | 'logo' | 'bullets' | 'richText';
   zone: {
     x: string | number;
     y: string | number;
@@ -59,11 +59,26 @@ interface SlideRendererProps {
     layoutElements?: LayoutElement[];
   };
   isCompact?: boolean;
+  // Inline editing props
+  isEditing?: boolean;
+  selectedElementId?: string | null;
+  onElementClick?: (elementId: string, element: LayoutElement, content: any, event: React.MouseEvent) => void;
+  onElementUpdate?: (elementId: string, updates: { content?: any; styling?: any; config?: any }) => void;
+  onCanvasClick?: () => void;
 }
 
-export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) {
+export function SlideRenderer({
+  slide,
+  isCompact = false,
+  isEditing = false,
+  selectedElementId = null,
+  onElementClick,
+  onElementUpdate,
+  onCanvasClick
+}: SlideRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  const lastScaleRef = useRef(1);
 
   // Calculate scale when container size changes
   useEffect(() => {
@@ -71,35 +86,66 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
 
     const updateScale = () => {
       if (!containerRef.current) return;
-      // Use clientWidth/clientHeight to get inner dimensions (excluding border)
-      // This prevents clipping when the container has a border
-      const width = containerRef.current.clientWidth;
-      const height = containerRef.current.clientHeight;
 
-      const scaleX = width / 1920;
-      const scaleY = height / 1080;
-      const newScale = Math.min(scaleX, scaleY);
-      setScale(newScale);
+      // Get the actual available space - use the container's dimensions
+      // The containerRef is on the root div which has w-full h-full, filling the parent
+      const rect = containerRef.current.getBoundingClientRect();
+      const width = rect.width;
+      const height = rect.height;
+
+      // Also check parent for debugging
+      const parentElement = containerRef.current.parentElement;
+      const parentRect = parentElement?.getBoundingClientRect();
+      const parentWidth = parentRect?.width || 0;
+      const parentHeight = parentRect?.height || 0;
+
+
+      // Only update if dimensions are valid and scale actually changed significantly
+      // Ensure we have reasonable dimensions (at least 100px) before calculating scale
+      if (width >= 100 && height >= 100) {
+        // Calculate scale to fit container exactly
+        // Scale is the ratio: containerSize / designSize
+        // Example: If container is 640px wide, scale = 640/1920 = 0.333
+        // This is NOT a multiplier we're adding - it's the mathematical ratio needed
+        const scaleX = width / 1920;
+        const scaleY = height / 1080;
+        // Use the smaller scale to ensure it fits in both dimensions
+        const newScale = Math.min(scaleX, scaleY);
+
+
+        // Only update if scale changed by more than 0.01 to prevent jitter
+        if (Math.abs(newScale - lastScaleRef.current) > 0.01) {
+          setScale(newScale);
+          lastScaleRef.current = newScale;
+        }
+      } else {
+      }
     };
 
-    updateScale();
+    // Use requestAnimationFrame for smoother updates
+    let rafId: number;
+    const scheduleUpdate = () => {
+      rafId = requestAnimationFrame(updateScale);
+    };
 
-    // Also update after a short delay to catch any layout shifts
-    const timer = setTimeout(updateScale, 100);
+    scheduleUpdate();
 
     // Update on window resize
-    window.addEventListener('resize', updateScale);
+    window.addEventListener('resize', scheduleUpdate);
 
     // Use ResizeObserver for container size changes
-    const resizeObserver = new ResizeObserver(updateScale);
-    resizeObserver.observe(containerRef.current);
+    const resizeObserver = new ResizeObserver(scheduleUpdate);
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
 
     return () => {
-      clearTimeout(timer);
-      window.removeEventListener('resize', updateScale);
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', scheduleUpdate);
       resizeObserver.disconnect();
     };
   }, []);
+
 
   // Sanitize HTML to prevent XSS attacks
   const sanitizeHtml = (html: string) => {
@@ -198,37 +244,66 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
   // NEW: Check if slide has layoutElements from design studio
   // If yes, use the new element-by-element renderer for perfect parity
   if (slide.layoutElements && slide.layoutElements.length > 0) {
-
     // Design studio canvas dimensions
     const DESIGN_WIDTH = 1920;
     const DESIGN_HEIGHT = 1080;
 
+
     return (
       <div
         ref={containerRef}
-        className={`relative overflow-hidden w-full h-full rounded border ${isCompact ? 'h-24' : ''}`}
-        style={slideStyle}
+        className={`relative w-full h-full rounded border ${isCompact ? 'h-24' : ''}`}
+        style={{
+          ...slideStyle,
+          overflow: 'hidden', // Critical: hide any overflow at root level
+          position: 'relative',
+        }}
+        onClick={onCanvasClick}
       >
-        {/* Scaling wrapper to fit 1920x1080 canvas into container */}
-        <div className="w-full h-full relative flex items-center justify-center">
-          {/* Wrapper with scaled dimensions to prevent overflow clipping */}
+        {/* Scaling wrapper - match design studio approach exactly */}
+        <div
+          className="absolute inset-0"
+          style={{
+            overflow: 'hidden',
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            // Use translateZ(0) to create new stacking context for proper overflow clipping
+            // This is the recommended solution for transform: scale() overflow issues
+            transform: 'translateZ(0)',
+          }}
+        >
+          {/* Canvas container - sized to exact scaled dimensions (match design studio) */}
           <div
+            ref={(el) => {
+            }}
             style={{
+              // Match design studio: container = width * scale (no multiplier)
               width: `${DESIGN_WIDTH * scale}px`,
               height: `${DESIGN_HEIGHT * scale}px`,
+              maxWidth: '100%',
+              maxHeight: '100%',
               position: 'relative',
+              overflow: 'hidden', // Clip content to this exact size
+              flexShrink: 0,
+              boxSizing: 'border-box',
             }}
           >
-            {/* Actual canvas at 1920x1080, scaled down */}
+            {/* Inner canvas at design size - scaled to fit container (EXACT match to design studio) */}
             <div
+              ref={(el) => {
+              }}
               style={{
                 width: `${DESIGN_WIDTH}px`,
                 height: `${DESIGN_HEIGHT}px`,
+                position: 'relative', // Must be relative for absolutely positioned children
+                backgroundColor: slide.styling?.backgroundColor || '#FFFFFF',
+                // Use transform: scale() exactly like design studio
                 transform: `scale(${scale})`,
                 transformOrigin: 'top left',
-                position: 'absolute',
-                top: 0,
-                left: 0,
+                willChange: 'transform',
               }}
             >
               <AllElementsRenderer
@@ -240,6 +315,10 @@ export function SlideRenderer({ slide, isCompact = false }: SlideRendererProps) 
                   brandColors: brandColors,
                 }}
                 isCompact={isCompact}
+                isEditing={isEditing}
+                selectedElementId={selectedElementId}
+                onElementClick={onElementClick}
+                onElementUpdate={onElementUpdate}
               />
             </div>
           </div>

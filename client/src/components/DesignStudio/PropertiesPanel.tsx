@@ -23,16 +23,16 @@ import { Trash2, Copy, Lock, Unlock } from 'lucide-react';
 
 export function PropertiesPanel() {
   const { selectedElementIds, template, getElementById, deleteElement, duplicateElement } = useDesignStudioStore();
-  
+
   // Get first selected element
-  const selectedElement = selectedElementIds.length === 1 
+  const selectedElement = selectedElementIds.length === 1
     ? getElementById(selectedElementIds[0])
     : null;
-  
+
   if (!selectedElement) {
     return <NoSelection />;
   }
-  
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -62,7 +62,7 @@ export function PropertiesPanel() {
           {selectedElement.type} Element
         </p>
       </div>
-      
+
       {/* Properties */}
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-6">
@@ -72,15 +72,15 @@ export function PropertiesPanel() {
               <TabsTrigger value="style">Style</TabsTrigger>
               <TabsTrigger value="content">Content</TabsTrigger>
             </TabsList>
-            
+
             <TabsContent value="layout" className="space-y-4 mt-4">
               <LayoutProperties element={selectedElement} />
             </TabsContent>
-            
+
             <TabsContent value="style" className="space-y-4 mt-4">
               <StyleProperties element={selectedElement} />
             </TabsContent>
-            
+
             <TabsContent value="content" className="space-y-4 mt-4">
               <ContentProperties element={selectedElement} />
             </TabsContent>
@@ -93,13 +93,13 @@ export function PropertiesPanel() {
 
 function NoSelection() {
   const { template, updateTemplateInfo } = useDesignStudioStore();
-  
+
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 border-b">
         <h2 className="text-lg font-semibold">Canvas Settings</h2>
       </div>
-      
+
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-4">
           <div className="space-y-2">
@@ -122,9 +122,9 @@ function NoSelection() {
               />
             </div>
           </div>
-          
+
           <Separator />
-          
+
           <div className="text-center text-sm text-muted-foreground py-8">
             Select an element to edit its properties
           </div>
@@ -136,7 +136,7 @@ function NoSelection() {
 
 function LayoutProperties({ element }: { element: any }) {
   const { updateElement } = useDesignStudioStore();
-  
+
   return (
     <>
       <div className="grid grid-cols-2 gap-3">
@@ -161,7 +161,7 @@ function LayoutProperties({ element }: { element: any }) {
           />
         </div>
       </div>
-      
+
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label>Width</Label>
@@ -190,7 +190,7 @@ function LayoutProperties({ element }: { element: any }) {
           />
         </div>
       </div>
-      
+
       <div className="space-y-2">
         <Label>Z-Index (Layer)</Label>
         <Input
@@ -207,7 +207,7 @@ function LayoutProperties({ element }: { element: any }) {
 
 function StyleProperties({ element }: { element: any }) {
   const { updateElementStyle, updateElementConfig } = useDesignStudioStore();
-  
+
   if (element.type === 'text') {
     return (
       <>
@@ -218,7 +218,7 @@ function StyleProperties({ element }: { element: any }) {
             onChange={(e) => updateElementStyle(element.id, { fontSize: e.target.value })}
           />
         </div>
-        
+
         <div className="space-y-2">
           <Label>Font Weight</Label>
           <Select
@@ -236,7 +236,7 @@ function StyleProperties({ element }: { element: any }) {
             </SelectContent>
           </Select>
         </div>
-        
+
         <div className="space-y-2">
           <Label>Color</Label>
           <div className="flex gap-2">
@@ -253,7 +253,7 @@ function StyleProperties({ element }: { element: any }) {
             />
           </div>
         </div>
-        
+
         <div className="space-y-2">
           <Label>Text Align</Label>
           <Select
@@ -274,7 +274,7 @@ function StyleProperties({ element }: { element: any }) {
       </>
     );
   }
-  
+
   if (element.type === 'shape') {
     return (
       <>
@@ -294,7 +294,7 @@ function StyleProperties({ element }: { element: any }) {
             />
           </div>
         </div>
-        
+
         <div className="space-y-2">
           <Label>Stroke Color</Label>
           <div className="flex gap-2">
@@ -311,7 +311,7 @@ function StyleProperties({ element }: { element: any }) {
             />
           </div>
         </div>
-        
+
         <div className="space-y-2">
           <Label>Stroke Width</Label>
           <Input
@@ -323,7 +323,7 @@ function StyleProperties({ element }: { element: any }) {
       </>
     );
   }
-  
+
   if (element.type === 'image') {
     return (
       <>
@@ -334,7 +334,7 @@ function StyleProperties({ element }: { element: any }) {
             onChange={(e) => updateElementStyle(element.id, { borderRadius: e.target.value })}
           />
         </div>
-        
+
         <div className="space-y-2">
           <Label>Opacity</Label>
           <Input
@@ -349,7 +349,7 @@ function StyleProperties({ element }: { element: any }) {
       </>
     );
   }
-  
+
   return (
     <div className="text-sm text-muted-foreground">
       No style properties available
@@ -359,7 +359,7 @@ function StyleProperties({ element }: { element: any }) {
 
 function ContentProperties({ element }: { element: any }) {
   const { updateElementConfig } = useDesignStudioStore();
-  
+
   if (element.type === 'text') {
     return (
       <>
@@ -370,7 +370,7 @@ function ContentProperties({ element }: { element: any }) {
             onChange={(e) => updateElementConfig(element.id, { fieldId: e.target.value })}
           />
         </div>
-        
+
         <div className="space-y-2">
           <Label>Label</Label>
           <Input
@@ -378,7 +378,7 @@ function ContentProperties({ element }: { element: any }) {
             onChange={(e) => updateElementConfig(element.id, { label: e.target.value })}
           />
         </div>
-        
+
         <div className="space-y-2">
           <Label>Placeholder</Label>
           <Input
@@ -386,7 +386,7 @@ function ContentProperties({ element }: { element: any }) {
             onChange={(e) => updateElementConfig(element.id, { placeholder: e.target.value })}
           />
         </div>
-        
+
         <div className="space-y-2">
           <Label>Default Value</Label>
           {element.config.multiline ? (
@@ -402,7 +402,7 @@ function ContentProperties({ element }: { element: any }) {
             />
           )}
         </div>
-        
+
         <div className="flex items-center justify-between">
           <Label>Required</Label>
           <Switch
@@ -410,7 +410,7 @@ function ContentProperties({ element }: { element: any }) {
             onCheckedChange={(checked) => updateElementConfig(element.id, { required: checked })}
           />
         </div>
-        
+
         <div className="space-y-2">
           <Label>Max Length</Label>
           <Input
@@ -419,14 +419,14 @@ function ContentProperties({ element }: { element: any }) {
             onChange={(e) => updateElementConfig(element.id, { maxLength: parseInt(e.target.value) || 100 })}
           />
         </div>
-        
+
         <Separator className="my-4" />
-        
+
         <AIPromptSection element={element} />
       </>
     );
   }
-  
+
   if (element.type === 'image') {
     return (
       <>
@@ -437,12 +437,12 @@ function ContentProperties({ element }: { element: any }) {
             onChange={(e) => updateElementConfig(element.id, { fieldId: e.target.value })}
           />
         </div>
-        
+
         <div className="space-y-2">
           <Label>Media Type</Label>
           <Select
             value={element.config.mediaType}
-            onValueChange={(value) => updateElementConfig(element.id, { mediaType: value })}
+            onValueChange={(value) => updateElementConfig(element.id, { mediaType: value as any })}
           >
             <SelectTrigger>
               <SelectValue />
@@ -459,7 +459,7 @@ function ContentProperties({ element }: { element: any }) {
             </SelectContent>
           </Select>
         </div>
-        
+
         <div className="space-y-2">
           <Label>Tags (comma-separated)</Label>
           <Input
@@ -469,12 +469,12 @@ function ContentProperties({ element }: { element: any }) {
             })}
           />
         </div>
-        
+
         <div className="space-y-2">
           <Label>Object Fit</Label>
           <Select
             value={element.config.objectFit}
-            onValueChange={(value) => updateElementConfig(element.id, { objectFit: value })}
+            onValueChange={(value) => updateElementConfig(element.id, { objectFit: value as any })}
           >
             <SelectTrigger>
               <SelectValue />
@@ -486,7 +486,7 @@ function ContentProperties({ element }: { element: any }) {
             </SelectContent>
           </Select>
         </div>
-        
+
         <div className="space-y-2">
           <Label>Fallback URL</Label>
           <Input
@@ -495,14 +495,14 @@ function ContentProperties({ element }: { element: any }) {
             placeholder="https://..."
           />
         </div>
-        
+
         <Separator className="my-4" />
-        
+
         <AIPromptSection element={element} />
       </>
     );
   }
-  
+
   if (element.type === 'data') {
     return (
       <>
@@ -513,7 +513,7 @@ function ContentProperties({ element }: { element: any }) {
             onChange={(e) => updateElementConfig(element.id, { fieldId: e.target.value })}
           />
         </div>
-        
+
         <div className="space-y-2">
           <Label>Data Path</Label>
           <Input
@@ -522,12 +522,12 @@ function ContentProperties({ element }: { element: any }) {
             placeholder="businessProfile.revenue"
           />
         </div>
-        
+
         <div className="space-y-2">
           <Label>Format</Label>
           <Select
             value={element.config.format}
-            onValueChange={(value) => updateElementConfig(element.id, { format: value })}
+            onValueChange={(value) => updateElementConfig(element.id, { format: value as any })}
           >
             <SelectTrigger>
               <SelectValue />
@@ -540,7 +540,7 @@ function ContentProperties({ element }: { element: any }) {
             </SelectContent>
           </Select>
         </div>
-        
+
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
             <Label>Prefix</Label>
@@ -557,36 +557,36 @@ function ContentProperties({ element }: { element: any }) {
             />
           </div>
         </div>
-        
+
         <Separator className="my-4" />
-        
+
         <AIPromptSection element={element} />
       </>
     );
   }
-  
+
   if (element.type === 'shape') {
     return (
       <>
         <div className="text-sm text-muted-foreground mb-4">
           Shapes can use AI prompts for dynamic styling or data-driven visual properties.
         </div>
-        
+
         <Separator className="my-4" />
-        
+
         <AIPromptSection element={element} />
       </>
     );
   }
-  
+
   return (
     <>
       <div className="text-sm text-muted-foreground mb-4">
         Configure AI content generation for this element
       </div>
-      
+
       <Separator className="my-4" />
-      
+
       <AIPromptSection element={element} />
     </>
   );
@@ -595,7 +595,7 @@ function ContentProperties({ element }: { element: any }) {
 // AI Prompt Section Component
 function AIPromptSection({ element }: { element: any }) {
   const { updateElementAIPrompt } = useDesignStudioStore();
-  
+
   const aiPrompt = element.aiPrompt || {
     enabled: false,
     prompt: '',
@@ -603,11 +603,11 @@ function AIPromptSection({ element }: { element: any }) {
     fallback: '',
     maxTokens: 100,
   };
-  
+
   const handleUpdate = (updates: Partial<typeof aiPrompt>) => {
     updateElementAIPrompt(element.id, { ...aiPrompt, ...updates });
   };
-  
+
   return (
     <div className="space-y-4 border rounded-lg p-4 bg-muted/30">
       <div className="flex items-center justify-between">
@@ -622,7 +622,7 @@ function AIPromptSection({ element }: { element: any }) {
           onCheckedChange={(checked) => handleUpdate({ enabled: checked })}
         />
       </div>
-      
+
       {aiPrompt.enabled && (
         <>
           <div className="space-y-2">
@@ -638,7 +638,7 @@ function AIPromptSection({ element }: { element: any }) {
               Describe what content should be generated for this field
             </p>
           </div>
-          
+
           <div className="space-y-2">
             <Label>Context to Include</Label>
             <div className="space-y-2">
@@ -650,7 +650,7 @@ function AIPromptSection({ element }: { element: any }) {
                     handleUpdate({
                       context: checked
                         ? [...context, 'businessProfile']
-                        : context.filter(c => c !== 'businessProfile')
+                        : context.filter((c: string) => c !== 'businessProfile')
                     });
                   }}
                 />
@@ -664,7 +664,7 @@ function AIPromptSection({ element }: { element: any }) {
                     handleUpdate({
                       context: checked
                         ? [...context, 'brandKit']
-                        : context.filter(c => c !== 'brandKit')
+                        : context.filter((c: string) => c !== 'brandKit')
                     });
                   }}
                 />
@@ -672,7 +672,7 @@ function AIPromptSection({ element }: { element: any }) {
               </div>
             </div>
           </div>
-          
+
           <div className="space-y-2">
             <Label>Fallback Text</Label>
             <Input
@@ -682,7 +682,7 @@ function AIPromptSection({ element }: { element: any }) {
               className="text-sm"
             />
           </div>
-          
+
           <div className="space-y-2">
             <Label>Max Tokens</Label>
             <Input

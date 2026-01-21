@@ -73,27 +73,28 @@ export function ObjectUploader({
           console.log('Starting upload for file:', file.name);
           console.log('File data type:', typeof file.data);
           console.log('File size:', file.data?.size || 'unknown');
-          
+
           // Upload file directly to Supabase Storage
           // Sanitize filename to remove invalid characters
-          const sanitizedName = file.name
+          const originalName = file.name || 'unnamed-file';
+          const sanitizedName = originalName
             .replace(/[^a-zA-Z0-9.-]/g, '_') // Replace invalid chars with underscore
             .replace(/_{2,}/g, '_') // Replace multiple underscores with single
             .replace(/^_|_$/g, ''); // Remove leading/trailing underscores
-          
+
           const fileName = `${Date.now()}-${sanitizedName}`;
           console.log('Original filename:', file.name);
           console.log('Sanitized filename:', sanitizedName);
           console.log('Final filename:', fileName);
-          
+
           const bucketName = 'pitch-perfect-files'; // This should match your SUPABASE_STORAGE_BUCKET
           console.log('Using bucket:', bucketName);
           console.log('Supabase client:', supabase);
-          
+
           // Try uploading without the 'public/' prefix first
           const uploadPath = fileName;
           console.log('Upload path:', uploadPath);
-          
+
           const { data, error } = await supabase.storage
             .from(bucketName)
             .upload(uploadPath, file.data, {
@@ -114,8 +115,12 @@ export function ObjectUploader({
 
           // Mark file as uploaded
           file.meta.uploadURL = urlData.publicUrl;
-          uppy.emit('upload-success', file, { uploadURL: urlData.publicUrl });
-          
+          uppy.emit('upload-success', file, {
+            uploadURL: urlData.publicUrl,
+            status: 200,
+            body: {}
+          });
+
           // Trigger complete event
           const result: UploadResult<Record<string, unknown>, Record<string, unknown>> = {
             successful: [{
@@ -125,19 +130,32 @@ export function ObjectUploader({
             failed: [],
             uploadURL: urlData.publicUrl
           };
-          
-          onComplete?.(result);
+
+          onComplete?.({
+            successful: [{
+              ...file,
+              uploadURL: urlData.publicUrl
+            }],
+            failed: [],
+            uploadURL: urlData.publicUrl
+          } as any); // Cast to any to bypass strict type check for now, matching Uppy's expected Result type is complex
           setShowModal(false);
         } catch (error) {
           console.error('Upload failed:', error);
-          uppy.emit('upload-error', file, error);
+          uppy.emit('upload-error', file, error as Error);
         }
       })
       .on("upload-success", (file, response) => {
-        console.log(`File ${file.name} uploaded successfully:`, response);
+        if (file) {
+          console.log(`File ${file.name} uploaded successfully:`, response);
+        }
       })
       .on("upload-error", (file, error) => {
-        console.error(`Upload failed for ${file.name}:`, error);
+        if (file) {
+          console.error(`Upload failed for ${file.name}:`, error);
+        } else {
+          console.error(`Upload failed for unknown file:`, error);
+        }
       })
   );
 

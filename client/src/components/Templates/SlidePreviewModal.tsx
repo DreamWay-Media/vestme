@@ -18,7 +18,7 @@ import { SlideRenderer } from "@/components/SlideRenderer";
 import type { Template } from "@/hooks/useTemplates";
 import { supabase } from "@/lib/supabase";
 
-interface TemplatePreviewModalProps {
+interface SlidePreviewModalProps {
   template: Template;
   brandKit?: any;
   deckId?: string;
@@ -28,7 +28,7 @@ interface TemplatePreviewModalProps {
   onApply?: (content: any) => void;
 }
 
-export function TemplatePreviewModal({
+export function SlidePreviewModal({
   template,
   brandKit,
   deckId,
@@ -688,7 +688,7 @@ export function TemplatePreviewModal({
       });
 
       toast({
-        title: "Template Applied",
+        title: "Slide Applied",
         description: `${template.name} has been added to your deck`,
       });
 
@@ -698,14 +698,14 @@ export function TemplatePreviewModal({
 
       if (error.upgradeRequired) {
         toast({
-          title: "Premium Template",
-          description: "This template requires a premium subscription",
+          title: "Premium Slide",
+          description: "This slide requires a premium subscription",
           variant: "destructive",
         });
       } else {
         toast({
           title: "Error",
-          description: error.message || "Failed to apply template",
+          description: error.message || "Failed to apply slide",
           variant: "destructive",
         });
       }
@@ -815,7 +815,7 @@ export function TemplatePreviewModal({
                 if (filteredFields.length === 0) {
                   return (
                     <p className="text-sm text-gray-500">
-                      No customization fields available for this template.
+                      No customization fields available for this slide.
                     </p>
                   );
                 }
@@ -1029,7 +1029,7 @@ export function TemplatePreviewModal({
                 disabled={isApplying}
                 className="flex-1"
               >
-                {isApplying ? "Applying..." : "Apply Template"}
+                {isApplying ? "Applying..." : "Apply Slide"}
               </Button>
             </div>
           </div>

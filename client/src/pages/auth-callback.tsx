@@ -13,15 +13,19 @@ export const AuthCallback: React.FC = () => {
         const hash = window.location.hash;
         const searchParams = new URLSearchParams(window.location.search);
         
-        // Check if there's an error
-        const error = searchParams.get('error');
-        const errorDescription = searchParams.get('error_description');
+        // Check for errors in both query params and hash
+        const error = searchParams.get('error') || (hash.includes('error=') ? new URLSearchParams(hash.substring(1)).get('error') : null);
+        const errorDescription = searchParams.get('error_description') || (hash.includes('error_description=') ? new URLSearchParams(hash.substring(1)).get('error_description') : null);
         
         if (error) {
           setError(errorDescription || error);
           setTimeout(() => setLocation('/'), 3000);
           return;
         }
+
+        // Supabase automatically handles the hash and sets the session
+        // We just need to wait a moment for it to process
+        await new Promise(resolve => setTimeout(resolve, 500));
 
         // Handle the OAuth callback
         const { data, error: authError } = await supabase.auth.getSession();
@@ -34,8 +38,8 @@ export const AuthCallback: React.FC = () => {
         }
 
         if (data.session) {
-          // Successfully authenticated
-          setLocation('/dashboard');
+          // Successfully authenticated - redirect to root which shows Dashboard for authenticated users
+          setLocation('/');
         } else {
           setError('No session found. Please try logging in again.');
           setTimeout(() => setLocation('/'), 3000);
@@ -48,7 +52,7 @@ export const AuthCallback: React.FC = () => {
     };
 
     handleAuthCallback();
-  }, [navigate]);
+  }, [setLocation]);
 
   if (error) {
     return (

@@ -16,10 +16,12 @@ import { WebsiteCrawler } from "./services/websiteCrawler";
 import { BusinessResearcher } from "./services/businessResearcher";
 import { generateBrandKitSuggestions, extractBrandLogos } from "./services/brandKit";
 import { BrandAnalyzer } from "./services/brandAnalyzer";
-import { insertProjectSchema, insertBrandKitSchema, insertDeckSchema, insertCrmContactSchema, insertCampaignSchema, insertAudienceSchema } from "@shared/schema";
+import { insertProjectSchema, insertBrandKitSchema, insertDeckSchema, insertCrmContactSchema, insertCampaignSchema, insertAudienceSchema, themes } from "@shared/schema";
 import { templateManager } from "./templates/templateManager";
 import { subscriptionService } from "./services/subscriptionService";
 import { rateLimiters } from "./middleware/rateLimiter";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
 
 // Helper function to extract string value from potential object or string
 const extractStringValueUtil = (value: any): string => {
@@ -37,18 +39,18 @@ const sanitizeBusinessProfile = (obj: any): any => {
   if (obj === null || obj === undefined) {
     return obj;
   }
-  
+
   if (Array.isArray(obj)) {
     return obj.map(item => sanitizeBusinessProfile(item));
   }
-  
+
   if (typeof obj === 'object') {
     // Check if this looks like a nested object that should be a string
     // (has estimate, methodology, value, description keys)
     if (obj.estimate !== undefined || obj.methodology !== undefined) {
       return extractStringValueUtil(obj);
     }
-    
+
     // Otherwise recursively sanitize all properties
     const sanitized: any = {};
     for (const key in obj) {
@@ -58,15 +60,21 @@ const sanitizeBusinessProfile = (obj: any): any => {
     }
     return sanitized;
   }
-  
+
   return obj;
 };
+
+enum ObjectPermission {
+  READ = 'read',
+  WRITE = 'write',
+  DELETE = 'delete'
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint for DigitalOcean
   app.get('/health', (req, res) => {
-    res.status(200).json({ 
-      status: 'healthy', 
+    res.status(200).json({
+      status: 'healthy',
       timestamp: new Date().toISOString(),
       uptime: process.uptime()
     });
@@ -76,7 +84,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/templates/thumbnails/:filename', (req, res) => {
     const { filename } = req.params;
     const templateName = filename.replace('.png', '').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-    
+
     // Generate SVG placeholder
     const svg = `
       <svg width="400" height="225" xmlns="http://www.w3.org/2000/svg">
@@ -88,7 +96,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         <text x="200" y="200" font-family="Arial, sans-serif" font-size="14" fill="#6b7280" text-anchor="middle">${templateName}</text>
       </svg>
     `;
-    
+
     res.setHeader('Content-Type', 'image/svg+xml');
     res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
     res.send(svg);
@@ -149,11 +157,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const fileName = req.params.fileName;
       console.log(`PDF request for: ${fileName}`);
-      
+
       // Check if PDF exists in cache
       (global as any).pdfCache = (global as any).pdfCache || new Map();
       let pdfBuffer: any = (global as any).pdfCache.get(fileName);
-      
+
       if (pdfBuffer) {
         // Normalize to Buffer if it's Uint8Array
         if (pdfBuffer && !(Buffer.isBuffer(pdfBuffer))) {
@@ -165,16 +173,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.error(`Invalid PDF buffer for: ${fileName}`);
           return res.status(500).json({ message: "Invalid PDF file" });
         }
-        
+
         // Check if buffer starts with PDF header
         const pdfHeader = pdfBuffer.slice(0, 4);
         if (pdfHeader.toString() !== '%PDF') {
           console.error(`Corrupted PDF file (invalid header): ${fileName}`);
           return res.status(500).json({ message: "Corrupted PDF file" });
         }
-        
+
         console.log(`Serving valid PDF: ${fileName} (${pdfBuffer.length} bytes)`);
-        
+
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
         res.setHeader('Content-Length', pdfBuffer.length);
@@ -183,10 +191,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`PDF not found in cache: ${fileName}`);
         const availablePdfs = Array.from(((global as any).pdfCache || new Map()).keys());
         console.log('Available PDFs:', availablePdfs);
-        
+
         // PDF not found, return error
-        res.status(404).json({ 
-          message: "PDF not found. Please regenerate the deck to create a new PDF." 
+        res.status(404).json({
+          message: "PDF not found. Please regenerate the deck to create a new PDF."
         });
       }
     } catch (error) {
@@ -252,7 +260,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // For Supabase, we'll store the file path directly
       // The documentURL should be the file path in Supabase Storage
       const objectPath = req.body.documentURL;
-      
+
       res.status(200).json({
         objectPath: objectPath,
       });
@@ -306,12 +314,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!project || project.userId !== req.user.id) {
         return res.status(404).json({ message: "Project not found" });
       }
-      
+
       // Sanitize business profile to handle any existing nested objects
       if (project.businessProfile) {
         project.businessProfile = sanitizeBusinessProfile(project.businessProfile);
       }
-      
+
       res.json(project);
     } catch (error) {
       console.error("Error fetching project:", error);
@@ -328,7 +336,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Validate the update data using the schema
       const updateData = insertProjectSchema.partial().parse(req.body);
-      
+
       const updatedProject = await storage.updateProject(req.params.id, updateData);
       res.json(updatedProject);
     } catch (error) {
@@ -361,7 +369,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.id;
       const { documents } = req.body;
       const project = await storage.getProject(req.params.id);
-      
+
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "Project not found" });
       }
@@ -373,7 +381,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let websiteContent = '';
       let crawledData = null;
-      
+
       // Crawl website if URL provided
       if (project.websiteUrl) {
         try {
@@ -394,7 +402,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         uploadedDocuments: documents || [],
         hasDocuments: Boolean(documents && documents.length > 0)
       };
-      
+
       const businessProfile = await analyzeProjectWithEnhancedResearch(projectWithDocuments);
 
       // Update project with business profile
@@ -411,7 +419,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.logActivity({
         userId,
         projectId: project.id,
-        action: 'business_analyzed', 
+        action: 'business_analyzed',
         description: `Enhanced business research completed for ${project.name}${documents && documents.length > 0 ? ` with ${documents.length} documents` : ''}`,
         metadata: { projectId: project.id, documentCount: documents?.length || 0 }
       });
@@ -431,7 +439,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const project = await storage.getProject(req.params.id);
-      
+
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "Project not found" });
       }
@@ -467,14 +475,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/projects/:id/process-logo', isAuthenticated, async (req: any, res) => {
     try {
       const { logoUrl } = req.body;
-      
+
       if (!logoUrl) {
         return res.status(400).json({ error: "Logo URL is required" });
       }
 
       const objectStorageService = new ObjectStorageService();
       const objectPath = objectStorageService.normalizeObjectEntityPath(logoUrl);
-      
+
       // Set public ACL for logo
       if (objectPath.startsWith('/objects/')) {
         await objectStorageService.trySetObjectEntityAclPolicy(logoUrl, {
@@ -482,7 +490,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           visibility: "public" as const
         });
       }
-      
+
       res.json({ objectPath });
     } catch (error) {
       console.error("Error processing logo:", error);
@@ -495,14 +503,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const project = await storage.getProject(req.params.id);
-      
+
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "Project not found" });
       }
 
       // Get business profile to extract website design elements
       const businessProfile = project.businessProfile || {};
-      
+
       console.log('Brand kit generation - business profile:', {
         hasBusinessProfile: !!businessProfile,
         hasWebsiteContent: !!(businessProfile as any)?.websiteContent,
@@ -512,31 +520,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
         logoUrls: (businessProfile as any)?.websiteContent?.designElements?.logoUrls || [],
         keyImages: (businessProfile as any)?.websiteContent?.designElements?.keyImages || []
       });
-      
+
       // Generate brand kit suggestions using website design elements
       const suggestions = generateBrandKitSuggestions(businessProfile);
 
       // Get the first extracted logo URL if available
       const extractedLogoUrl = (businessProfile as any)?.websiteContent?.designElements?.logoUrls?.[0] || null;
-      
-      console.log('Logo URL for brand kit:', {
+
+      // Handle logo: either from media library (logoAssetId) or from URL (logoUrl)
+      let logoAssetId: string | null = null;
+      let logoUrl: string | null = null;
+
+      const { mediaManager } = await import('./services/mediaManager');
+
+      if (req.body.logoAssetId) {
+        // Logo selected from media library
+        const asset = await mediaManager.getMediaAsset(req.body.logoAssetId);
+        if (asset && asset.projectId === req.params.id) {
+          logoAssetId = asset.id;
+          logoUrl = asset.storageUrl;
+          console.log('✅ Using logo from media library:', logoAssetId);
+        }
+      } else if (req.body.logoUrl || extractedLogoUrl) {
+        // Logo URL provided - download and store in media library
+        const logoUrlToStore = req.body.logoUrl || extractedLogoUrl;
+        console.log('📥 Storing logo in media library:', logoUrlToStore);
+        
+        const storedAssetId = await mediaManager.downloadAndStoreLogo(
+          req.params.id,
+          userId,
+          logoUrlToStore
+        );
+
+        if (storedAssetId) {
+          logoAssetId = storedAssetId;
+          const asset = await mediaManager.getMediaAsset(storedAssetId);
+          if (asset) {
+            logoUrl = asset.storageUrl;
+          } else {
+            logoUrl = logoUrlToStore; // Fallback to original URL
+          }
+          console.log('✅ Logo stored in media library:', logoAssetId);
+        } else {
+          // Failed to store, use original URL as fallback
+          logoUrl = logoUrlToStore;
+          console.warn('⚠️  Failed to store logo in media library, using original URL');
+        }
+      }
+
+      console.log('Logo for brand kit:', {
+        logoAssetId,
+        logoUrl,
         requestedLogoUrl: req.body.logoUrl,
-        extractedLogoUrl: extractedLogoUrl,
-        finalLogoUrl: req.body.logoUrl || extractedLogoUrl
+        extractedLogoUrl: extractedLogoUrl
       });
-      
+
       const brandKitData = insertBrandKitSchema.parse({
         name: req.body.name || `${project.name} Brand Kit`,
         primaryColor: req.body.primaryColor || suggestions.primaryColor,
         secondaryColor: req.body.secondaryColor || suggestions.secondaryColor,
         accentColor: req.body.accentColor || suggestions.accentColor,
         fontFamily: req.body.fontFamily || suggestions.fontFamily,
-        logoUrl: req.body.logoUrl || extractedLogoUrl,
+        logoUrl: logoUrl,
+        logoAssetId: logoAssetId,
         projectId: req.params.id
       });
 
       const brandKit = await storage.createBrandKit(brandKitData);
-      
+
       // Update project status
       await storage.updateProject(req.params.id, { status: 'brand_kit' });
 
@@ -551,7 +602,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Extract logo information for response
       const logoInfo = extractBrandLogos(businessProfile);
-      
+
       res.json({
         ...brandKit,
         suggestions: {
@@ -570,7 +621,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const project = await storage.getProject(req.params.id);
-      
+
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "Project not found" });
       }
@@ -584,11 +635,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // AI Brand Analysis from Website
-  app.post('/api/projects/:id/analyze-brand', isAuthenticated, async (req: any, res) => {
+  app.post('/api/projects/:id/analyze-brand', isAuthenticated, rateLimiters.extract, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const project = await storage.getProject(req.params.id);
-      
+
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "Project not found" });
       }
@@ -598,16 +649,110 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log(`Starting AI brand analysis for: ${project.name}`);
+      
+      // Check quota before attempting analysis
+      const { quotaManager } = await import("./services/openaiQuotaManager");
+      const quotaCheck = quotaManager.canMakeRequest(5000);
+      
+      if (!quotaCheck.allowed) {
+        console.log(`Quota check failed: ${quotaCheck.reason}, creating default brand kit`);
+        // Automatically create default brand kit
+        const businessProfile = project.businessProfile || {};
+        const suggestions = generateBrandKitSuggestions(businessProfile);
+        const extractedLogoUrl = (businessProfile as any)?.websiteContent?.designElements?.logoUrls?.[0] || null;
+
+        // Handle logo: download and store in media library if available
+        let logoAssetId: string | null = null;
+        let logoUrl: string | null = null;
+
+        const { mediaManager } = await import('./services/mediaManager');
+
+        if (extractedLogoUrl) {
+          console.log('📥 Storing extracted logo in media library:', extractedLogoUrl);
+          const storedAssetId = await mediaManager.downloadAndStoreLogo(
+            req.params.id,
+            userId,
+            extractedLogoUrl
+          );
+
+          if (storedAssetId) {
+            logoAssetId = storedAssetId;
+            const asset = await mediaManager.getMediaAsset(storedAssetId);
+            logoUrl = asset?.storageUrl || extractedLogoUrl;
+            console.log('✅ Logo stored in media library:', logoAssetId);
+          } else {
+            logoUrl = extractedLogoUrl; // Fallback to original URL
+            console.warn('⚠️  Failed to store logo in media library, using original URL');
+          }
+        }
+
+        const defaultBrandKitData = insertBrandKitSchema.parse({
+          name: `Brand Kit for ${project.name}`,
+          primaryColor: suggestions.primaryColor,
+          secondaryColor: suggestions.secondaryColor,
+          accentColor: suggestions.accentColor,
+          fontFamily: suggestions.fontFamily,
+          logoUrl: logoUrl,
+          logoAssetId: logoAssetId,
+          projectId: req.params.id
+        });
+
+        const brandKit = await storage.createBrandKit(defaultBrandKitData);
+        await storage.updateProject(req.params.id, { status: project.status === 'discovery' ? 'brand_kit' : project.status });
+
+        await storage.logActivity({
+          userId,
+          projectId: project.id,
+          action: 'brand_kit_created',
+          description: `Brand kit created automatically (quota limit reached) for ${project.name}`,
+          metadata: { brandKitId: brandKit.id, autoCreated: true, reason: 'quota_limit' }
+        });
+
+        return res.json({
+          ...brandKit,
+          message: "Brand kit created automatically. AI analysis is currently limited to prevent quota exhaustion.",
+          autoCreated: true,
+          suggestions: {
+            reasoning: suggestions.reasoning || "Created with default brand kit settings based on your business profile"
+          }
+        });
+      }
+
       const brandAnalyzer = new BrandAnalyzer();
       const brandExtraction = await brandAnalyzer.extractBrandFromWebsite(project.websiteUrl);
-      
+
       console.log('Brand extraction results:', {
         colors: brandExtraction.colors,
         fonts: brandExtraction.typography,
         logo: brandExtraction.logo,
         logoUrl: brandExtraction.logo.logoUrl
       });
-      
+
+      // Handle logo: download and store in media library if available
+      let logoAssetId: string | null = null;
+      let logoUrl: string | null = null;
+
+      const { mediaManager } = await import('./services/mediaManager');
+
+      if (brandExtraction.logo.logoUrl) {
+        console.log('📥 Storing extracted logo in media library:', brandExtraction.logo.logoUrl);
+        const storedAssetId = await mediaManager.downloadAndStoreLogo(
+          req.params.id,
+          userId,
+          brandExtraction.logo.logoUrl
+        );
+
+        if (storedAssetId) {
+          logoAssetId = storedAssetId;
+          const asset = await mediaManager.getMediaAsset(storedAssetId);
+          logoUrl = asset?.storageUrl || brandExtraction.logo.logoUrl;
+          console.log('✅ Logo stored in media library:', logoAssetId);
+        } else {
+          logoUrl = brandExtraction.logo.logoUrl; // Fallback to original URL
+          console.warn('⚠️  Failed to store logo in media library, using original URL');
+        }
+      }
+
       // Create brand kit from extracted data
       const brandKitData = insertBrandKitSchema.parse({
         name: `AI-Generated Brand Kit for ${project.name}`,
@@ -615,12 +760,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         secondaryColor: brandExtraction.colors.secondary,
         accentColor: brandExtraction.colors.accent,
         fontFamily: brandExtraction.typography.primaryFont,
-        logoUrl: brandExtraction.logo.logoUrl || null,
+        logoUrl: logoUrl,
+        logoAssetId: logoAssetId,
         projectId: req.params.id
       });
 
       const brandKit = await storage.createBrandKit(brandKitData);
-      
+
       // Update the business profile with extracted website design elements
       const currentBusinessProfile = project.businessProfile || {};
       const updatedBusinessProfile = {
@@ -635,13 +781,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       };
-      
+
       // Update project with enhanced business profile
-      await storage.updateProject(req.params.id, { 
+      await storage.updateProject(req.params.id, {
         businessProfile: updatedBusinessProfile,
         status: project.status === 'discovery' ? 'brand_kit' : project.status
       });
-      
+
       console.log('Updated business profile with website elements:', {
         colors: updatedBusinessProfile.websiteContent.designElements.colors,
         fonts: updatedBusinessProfile.websiteContent.designElements.fonts,
@@ -655,8 +801,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         projectId: project.id,
         action: 'ai_brand_analysis',
         description: `AI brand analysis completed for ${project.name} from website`,
-        metadata: { 
-          brandKitId: brandKit.id, 
+        metadata: {
+          brandKitId: brandKit.id,
           websiteUrl: project.websiteUrl,
           colorsExtracted: brandExtraction.colors.brandColors.length,
           logoFound: !!brandExtraction.logo.logoUrl
@@ -668,10 +814,111 @@ export async function registerRoutes(app: Express): Promise<Server> {
         analysis: brandExtraction,
         message: "Brand analysis completed successfully"
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error analyzing brand from website:", error);
+      
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ message: `Brand analysis failed: ${errorMessage}` });
+      
+      // Check for specific error types to return appropriate status codes
+      // Check both the error message and error properties
+      const isQuotaError = errorMessage.includes('quota') || 
+                          errorMessage.includes('429') ||
+                          error?.code === 'insufficient_quota' ||
+                          error?.type === 'insufficient_quota' ||
+                          error?.status === 429;
+      
+      if (isQuotaError) {
+        // Automatically create a default brand kit when AI fails
+        try {
+          console.log('AI analysis failed due to quota, creating default brand kit automatically');
+          const businessProfile = project.businessProfile || {};
+          const suggestions = generateBrandKitSuggestions(businessProfile);
+          const extractedLogoUrl = (businessProfile as any)?.websiteContent?.designElements?.logoUrls?.[0] || null;
+
+          // Handle logo: download and store in media library if available
+          let logoAssetId: string | null = null;
+          let logoUrl: string | null = null;
+
+          const { mediaManager } = await import('./services/mediaManager');
+
+          if (extractedLogoUrl) {
+            console.log('📥 Storing extracted logo in media library:', extractedLogoUrl);
+            const storedAssetId = await mediaManager.downloadAndStoreLogo(
+              req.params.id,
+              userId,
+              extractedLogoUrl
+            );
+
+            if (storedAssetId) {
+              logoAssetId = storedAssetId;
+              const asset = await mediaManager.getMediaAsset(storedAssetId);
+              logoUrl = asset?.storageUrl || extractedLogoUrl;
+              console.log('✅ Logo stored in media library:', logoAssetId);
+            } else {
+              logoUrl = extractedLogoUrl; // Fallback to original URL
+              console.warn('⚠️  Failed to store logo in media library, using original URL');
+            }
+          }
+
+          const defaultBrandKitData = insertBrandKitSchema.parse({
+            name: `Brand Kit for ${project.name}`,
+            primaryColor: suggestions.primaryColor,
+            secondaryColor: suggestions.secondaryColor,
+            accentColor: suggestions.accentColor,
+            fontFamily: suggestions.fontFamily,
+            logoUrl: logoUrl,
+            logoAssetId: logoAssetId,
+            projectId: req.params.id
+          });
+
+          const brandKit = await storage.createBrandKit(defaultBrandKitData);
+          await storage.updateProject(req.params.id, { status: project.status === 'discovery' ? 'brand_kit' : project.status });
+
+          await storage.logActivity({
+            userId,
+            projectId: project.id,
+            action: 'brand_kit_created',
+            description: `Brand kit created automatically (AI analysis unavailable) for ${project.name}`,
+            metadata: { brandKitId: brandKit.id, autoCreated: true, reason: 'quota_exceeded' }
+          });
+
+          return res.json({
+            ...brandKit,
+            message: "Brand kit created automatically using default settings. AI analysis was unavailable due to API quota limits.",
+            autoCreated: true,
+            suggestions: {
+              reasoning: suggestions.reasoning || "Created with default brand kit settings based on your business profile"
+            }
+          });
+        } catch (fallbackError) {
+          console.error("Error creating fallback brand kit:", fallbackError);
+          // If fallback creation fails, return the quota error
+          return res.status(429).json({ 
+            message: errorMessage.includes('OpenAI API quota') 
+              ? errorMessage 
+              : 'OpenAI API quota exceeded. Please check your OpenAI account billing and plan limits. The brand analysis feature requires an active OpenAI API subscription with available credits.',
+            error: 'QUOTA_EXCEEDED'
+          });
+        }
+      }
+      
+      const isAuthError = errorMessage.includes('API key') || 
+                          errorMessage.includes('authentication') ||
+                          error?.status === 401;
+      
+      if (isAuthError) {
+        return res.status(500).json({ 
+          message: errorMessage.includes('API authentication') 
+            ? errorMessage 
+            : 'OpenAI API authentication failed. Please check your API key configuration.',
+          error: 'API_CONFIGURATION_ERROR'
+        });
+      }
+      
+      res.status(500).json({ 
+        message: errorMessage,
+        error: 'BRAND_ANALYSIS_FAILED'
+      });
     }
   });
 
@@ -680,7 +927,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const project = await storage.getProject(req.params.id);
-      
+
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "Project not found" });
       }
@@ -701,6 +948,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Get themeId from request body (optional, defaults to default theme)
+      const themeId = req.body.themeId || null;
+
       // Generate slides using AI with latest business profile and brand kit
       const brandingInfo = brandKit ? {
         primaryColor: brandKit.primaryColor || undefined,
@@ -711,22 +961,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
         brandAssets: brandKit.brandAssets || undefined
       } : undefined;
 
-      const slides = await generatePitchDeckSlides({
-        businessProfile: project.businessProfile as any,
-        brandingInfo,
-        templateManager // Pass template manager for template-based generation
+      console.log('🚀 Starting deck generation:', {
+        projectId: req.params.id,
+        hasBusinessProfile: !!project.businessProfile,
+        hasBrandKit: !!brandKit,
+        themeId: themeId || 'none (will use default)'
       });
+
+      // Fetch available media from the project's media library
+      let availableMedia: Array<{ url: string; name: string; type: string }> = [];
+      try {
+        const mediaResult = await storage.getProjectMedia(req.params.id, req.user.id);
+        availableMedia = mediaResult.media.map((m: any) => ({
+          url: m.url,
+          name: m.name || 'Untitled',
+          type: m.contentType || 'image',
+        }));
+        console.log(`📸 Found ${availableMedia.length} media assets for AI selection`);
+      } catch (error) {
+        console.warn('⚠️ Could not fetch media library:', error);
+        // Continue without media - not a fatal error
+      }
+
+      let slides;
+      try {
+        slides = await generatePitchDeckSlides({
+          businessProfile: project.businessProfile as any,
+          brandingInfo,
+          templateManager, // Pass template manager for template-based generation
+          themeId, // Pass themeId for theme-based generation
+          projectId: req.params.id, // Pass projectId for media library access
+          userId: req.user.id, // Pass userId for media library access
+          availableMedia // Pass available images for AI selection
+        });
+        console.log(`✅ Generated ${slides?.length || 0} slides`);
+      } catch (genError) {
+        console.error('❌ Error in generatePitchDeckSlides:', genError);
+        if (genError instanceof Error) {
+          console.error('Error message:', genError.message);
+          console.error('Error stack:', genError.stack);
+        }
+        throw genError;
+      }
+
+      if (!slides || slides.length === 0) {
+        throw new Error('No slides were generated. Please check that your theme has templates available.');
+      }
 
       const deckData = insertDeckSchema.parse({
         projectId: req.params.id,
         brandKitId: brandKit?.id || null,
+        themeId: themeId || null,
         title: `${project.name} Pitch Deck`,
         slides,
         status: 'generated'
       });
 
       const deck = await storage.createDeck(deckData);
-      
+
       // Note: PDF generation is now handled separately when user clicks Export PDF button
       // This improves performance and user experience by not blocking deck generation
 
@@ -744,8 +1036,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(deck);
     } catch (error) {
-      console.error("Error generating deck:", error);
-      res.status(500).json({ message: "Failed to generate pitch deck" });
+      console.error("❌ Error generating deck:", error);
+      if (error instanceof Error) {
+        console.error("Error message:", error.message);
+        console.error("Error stack:", error.stack);
+        res.status(500).json({
+          message: "Failed to generate pitch deck",
+          error: error.message
+        });
+      } else {
+        res.status(500).json({ message: "Failed to generate pitch deck" });
+      }
+    }
+  });
+
+  // Regenerate deck with new theme
+  app.post('/api/decks/:deckId/regenerate-with-theme', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { deckId } = req.params;
+      const { themeId } = req.body;
+
+      if (!themeId) {
+        return res.status(400).json({ message: "themeId is required" });
+      }
+
+      // Get the deck
+      const deck = await storage.getDeck(deckId);
+      if (!deck) {
+        return res.status(404).json({ message: "Deck not found" });
+      }
+
+      // Get the project to verify ownership
+      const project = await storage.getProject(deck.projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(403).json({ message: "Not authorized to regenerate this deck" });
+      }
+
+      if (!project.businessProfile) {
+        return res.status(400).json({ message: "Business analysis must be completed first" });
+      }
+
+      // Get brand kit
+      let brandKit = null;
+      if (deck.brandKitId) {
+        brandKit = await storage.getBrandKit(deck.brandKitId);
+      } else {
+        const brandKits = await storage.getProjectBrandKits(deck.projectId);
+        if (brandKits && brandKits.length > 0) {
+          brandKit = brandKits[0];
+        }
+      }
+
+      // Generate slides using AI with new theme
+      const brandingInfo = brandKit ? {
+        primaryColor: brandKit.primaryColor || undefined,
+        secondaryColor: brandKit.secondaryColor || undefined,
+        accentColor: brandKit.accentColor || undefined,
+        fontFamily: brandKit.fontFamily || undefined,
+        logoUrl: brandKit.logoUrl || undefined,
+        brandAssets: brandKit.brandAssets || undefined
+      } : undefined;
+
+      const slides = await generatePitchDeckSlides({
+        businessProfile: project.businessProfile as any,
+        brandingInfo,
+        templateManager,
+        themeId
+      });
+
+      // Update deck with new slides and themeId
+      await storage.updateDeck(deckId, {
+        slides,
+        themeId: themeId || null,
+        updatedAt: new Date()
+      });
+
+      // Get updated deck
+      const updatedDeck = await storage.getDeck(deckId);
+
+      // Log activity
+      await storage.logActivity({
+        userId,
+        projectId: project.id,
+        action: 'deck_regenerated_with_theme',
+        description: `Pitch deck regenerated with new theme for ${project.name}`,
+        metadata: { deckId: deck.id, themeId }
+      });
+
+      res.json(updatedDeck);
+    } catch (error) {
+      console.error("Error regenerating deck with theme:", error);
+      res.status(500).json({ message: "Failed to regenerate deck with theme" });
     }
   });
 
@@ -754,7 +1136,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const project = await storage.getProject(req.params.id);
-      
+
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "Project not found" });
       }
@@ -776,13 +1158,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = (req as any).user.id;
       const deckId = req.params.deckId;
       const { slideOrders } = req.body;
-      
+
       // Get the deck first to verify ownership
       const deck = await storage.getDeck(deckId);
       if (!deck) {
         return res.status(404).json({ error: 'Deck not found' });
       }
-      
+
       // Get the project to verify user ownership
       const project = await storage.getProject(deck.projectId);
       if (!project || project.userId !== userId) {
@@ -791,13 +1173,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get current slides
       const slides = Array.isArray(deck.slides) ? [...deck.slides] : [];
-      
+
       // Create a map of slideId to new order for quick lookup
       const orderMap = new Map();
       slideOrders.forEach(({ slideId, order }: { slideId: string; order: number }) => {
         orderMap.set(slideId, order);
       });
-      
+
       // Update the order property for each slide
       const updatedSlides = slides.map(slide => {
         const newOrder = orderMap.get(slide.id);
@@ -806,13 +1188,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         return slide;
       });
-      
+
       // Sort slides by the new order
       updatedSlides.sort((a, b) => (a.order || 0) - (b.order || 0));
-      
+
       // Update the deck with the reordered slides
       await storage.updateDeck(deckId, { slides: updatedSlides });
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error('Error reordering slides:', error);
@@ -826,37 +1208,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.id;
       const { deckId, slideId } = req.params;
       const updates = req.body;
-      
+
       // Get the deck first to verify ownership
       const deck = await storage.getDeck(deckId);
       if (!deck) {
         return res.status(404).json({ message: "Deck not found" });
       }
-      
+
       // Get the project to verify user ownership
       const project = await storage.getProject(deck.projectId);
       if (!project || project.userId !== userId) {
         return res.status(403).json({ message: "Not authorized to edit this deck" });
       }
-      
+
       // Find and update the specific slide
       const slides = Array.isArray(deck.slides) ? deck.slides : [];
       const slideIndex = slides.findIndex(slide => slide.id === slideId);
-      
+
       if (slideIndex === -1) {
         return res.status(404).json({ message: "Slide not found" });
       }
-      
+
       // Update the slide with the new data - only allow specific properties for security
-      const { title, content, layout, styling, backgroundColor, textColor, positionedElements } = updates;
-      
+      const { title, content, layout, styling, backgroundColor, textColor, positionedElements, layoutElements, templateId, templateVersion } = updates;
+
       // Log what we're updating for debugging
       console.log('=== SERVER SLIDE UPDATE DEBUG ===');
       console.log('Full updates object received:', JSON.stringify(updates, null, 2));
       console.log('Extracted positionedElements:', positionedElements);
       console.log('Extracted positionedElements type:', typeof positionedElements);
       console.log('Extracted positionedElements keys:', positionedElements ? Object.keys(positionedElements) : 'undefined');
-      
+
       console.log('Updating slide with properties:', {
         title: title !== undefined,
         content: content !== undefined,
@@ -866,7 +1248,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         textColor: textColor !== undefined,
         positionedElements: positionedElements !== undefined
       });
-      
+
       if (backgroundColor !== undefined) {
         console.log('Background color update:', backgroundColor);
       }
@@ -876,28 +1258,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (positionedElements !== undefined) {
         console.log('Positioned elements update:', positionedElements);
       }
-      
-      slides[slideIndex] = { 
-        ...slides[slideIndex], 
+
+      // CRITICAL: Merge content instead of replacing to preserve _elementContent
+      const mergedContent = content !== undefined 
+        ? {
+            ...slides[slideIndex].content, // Preserve existing content
+            ...content, // Apply updates
+            // Ensure _elementContent is merged, not replaced
+            _elementContent: {
+              ...(slides[slideIndex].content?._elementContent || {}),
+              ...(content._elementContent || {})
+            }
+          }
+        : slides[slideIndex].content;
+
+      slides[slideIndex] = {
+        ...slides[slideIndex],
         ...(title !== undefined && { title }),
-        ...(content !== undefined && { content }),
+        ...(content !== undefined && { content: mergedContent }),
         ...(layout !== undefined && { layout }),
         ...(styling !== undefined && { styling }),
         ...(backgroundColor !== undefined && { backgroundColor }),
         ...(textColor !== undefined && { textColor }),
-        ...(positionedElements !== undefined && { positionedElements })
+        ...(positionedElements !== undefined && { positionedElements }),
+        ...(layoutElements !== undefined && { layoutElements }),
+        ...(templateId !== undefined && { templateId }),
+        ...(templateVersion !== undefined && { templateVersion })
       };
-      
+
       // Log the final slide object for debugging
       console.log('=== FINAL SLIDE OBJECT DEBUG ===');
       console.log('Final slide object to be saved:', JSON.stringify(slides[slideIndex], null, 2));
       console.log('Final slide positionedElements:', slides[slideIndex].positionedElements);
       console.log('Final slide positionedElements type:', typeof slides[slideIndex].positionedElements);
       console.log('Final slide positionedElements keys:', slides[slideIndex].positionedElements ? Object.keys(slides[slideIndex].positionedElements) : 'undefined');
-      
+
       // Update the deck with the modified slides
       const updatedDeck = await storage.updateDeck(deckId, { slides });
-      
+
       // Log the updated deck for debugging
       console.log('=== UPDATED DECK DEBUG ===');
       console.log('Updated deck slides count:', Array.isArray(updatedDeck.slides) ? updatedDeck.slides.length : 'not an array');
@@ -908,29 +1306,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         console.log('Updated slide not found or slides is not an array');
       }
-      
+
       // Log activity with rich text formatting info
       const activityDescription = `Updated slide "${updates.title || slides[slideIndex].title}" in deck "${deck.title}"`;
       const hasRichContent = updates.content && (
-        updates.content.titleHtml || 
-        updates.content.descriptionHtml || 
-        updates.content.bulletPointsHtml || 
+        updates.content.titleHtml ||
+        updates.content.descriptionHtml ||
+        updates.content.bulletPointsHtml ||
         updates.content.callToActionHtml
       );
-      
+
       await storage.logActivity({
         userId,
         projectId: project.id,
         action: 'slide_updated',
         description: hasRichContent ? `${activityDescription} with rich text formatting` : activityDescription,
-        metadata: { 
-          deckId, 
-          slideId, 
+        metadata: {
+          deckId,
+          slideId,
           slideTitle: updates.title || slides[slideIndex].title,
           hasRichFormatting: Boolean(hasRichContent)
         }
       });
-      
+
       res.json({ success: true, deck: updatedDeck });
     } catch (error) {
       console.error("Error updating slide:", error);
@@ -943,7 +1341,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const deckId = req.params.id;
-      
+
       const deck = await storage.getDeck(deckId);
       if (!deck) {
         return res.status(404).json({ message: "Deck not found" });
@@ -990,7 +1388,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const deckId = req.params.id;
-      
+
       const deck = await storage.getDeck(deckId);
       if (!deck) {
         return res.status(403).json({ message: "Not authorized to regenerate PDF for this deck" });
@@ -1056,7 +1454,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const project = await storage.getProject(req.params.id);
-      
+
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "Project not found" });
       }
@@ -1066,21 +1464,89 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Brand kit not found" });
       }
 
-      const updateData = {
+      // Handle logo: either from media library (logoAssetId) or from URL (logoUrl)
+      let logoAssetId: string | null = null;
+      let logoUrl: string | null = null;
+
+      const { mediaManager } = await import('./services/mediaManager');
+
+      if (req.body.logoAssetId !== undefined) {
+        // Logo selected from media library or being cleared
+        if (req.body.logoAssetId) {
+          const asset = await mediaManager.getMediaAsset(req.body.logoAssetId);
+          if (asset && asset.projectId === req.params.id) {
+            logoAssetId = asset.id;
+            logoUrl = asset.storageUrl;
+            console.log('✅ Using logo from media library:', logoAssetId);
+          }
+        } else {
+          // Clearing logo
+          logoAssetId = null;
+          logoUrl = null;
+          console.log('🗑️  Clearing logo from brand kit');
+        }
+      } else if (req.body.logoUrl !== undefined) {
+        // Logo URL provided - download and store in media library if it's a new URL
+        if (req.body.logoUrl) {
+          // Check if this URL is already in media library
+          const existingAssetId = await mediaManager.findAssetBySourceUrl(req.params.id, req.body.logoUrl);
+          
+          if (existingAssetId) {
+            logoAssetId = existingAssetId;
+            const asset = await mediaManager.getMediaAsset(existingAssetId);
+            logoUrl = asset?.storageUrl || req.body.logoUrl;
+            console.log('✅ Using existing logo from media library:', logoAssetId);
+          } else {
+            // Download and store new logo
+            console.log('📥 Storing new logo in media library:', req.body.logoUrl);
+            const storedAssetId = await mediaManager.downloadAndStoreLogo(
+              req.params.id,
+              userId,
+              req.body.logoUrl
+            );
+
+            if (storedAssetId) {
+              logoAssetId = storedAssetId;
+              const asset = await mediaManager.getMediaAsset(storedAssetId);
+              logoUrl = asset?.storageUrl || req.body.logoUrl;
+              console.log('✅ Logo stored in media library:', logoAssetId);
+            } else {
+              // Failed to store, use original URL as fallback
+              logoUrl = req.body.logoUrl;
+              console.warn('⚠️  Failed to store logo in media library, using original URL');
+            }
+          }
+        } else {
+          // Clearing logo
+          logoAssetId = null;
+          logoUrl = null;
+        }
+      } else {
+        // Keep existing logo
+        logoAssetId = brandKit.logoAssetId || null;
+        logoUrl = brandKit.logoUrl || null;
+      }
+
+      const updateData: any = {
         name: req.body.name,
         primaryColor: req.body.primaryColor,
         secondaryColor: req.body.secondaryColor,
         accentColor: req.body.accentColor,
         fontFamily: req.body.fontFamily,
-        logoUrl: req.body.logoUrl,
         brandAssets: req.body.brandAssets
       };
-      
+
+      // Only update logo fields if they were provided
+      if (req.body.logoAssetId !== undefined || req.body.logoUrl !== undefined) {
+        updateData.logoAssetId = logoAssetId;
+        updateData.logoUrl = logoUrl;
+      }
+
       console.log('Updating brand kit with data:', updateData);
       console.log('brandAssets being sent:', req.body.brandAssets);
 
       const updatedBrandKit = await storage.updateBrandKit(req.params.brandKitId, updateData);
-      
+
       console.log('Brand kit updated successfully');
       console.log('Updated brand kit data:', updatedBrandKit);
       console.log('brandAssets after update:', updatedBrandKit.brandAssets);
@@ -1133,30 +1599,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const { csvData, contacts } = req.body;
-      
+
       let contactsToImport = [];
-      
+
       if (csvData) {
         // Parse CSV data
         const lines = csvData.trim().split('\n');
         if (lines.length < 2) {
           return res.status(400).json({ message: "CSV data must have at least a header row and one data row" });
         }
-        
+
         const headers = lines[0].split(',').map((h: string) => h.trim().toLowerCase());
         const requiredHeaders = ['firstname', 'lastname', 'email'];
         const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
-        
+
         if (missingHeaders.length > 0) {
-          return res.status(400).json({ 
-            message: `Missing required headers: ${missingHeaders.join(', ')}` 
+          return res.status(400).json({
+            message: `Missing required headers: ${missingHeaders.join(', ')}`
           });
         }
-        
+
         for (let i = 1; i < lines.length; i++) {
           const values = lines[i].split(',').map((v: string) => v.trim().replace(/^"|"$/g, ''));
           const contact: any = { userId };
-          
+
           headers.forEach((header: string, index: number) => {
             const value = values[index] || '';
             switch (header) {
@@ -1186,7 +1652,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 break;
             }
           });
-          
+
           if (contact.firstName && contact.lastName && contact.email) {
             contactsToImport.push(contact);
           }
@@ -1196,10 +1662,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         return res.status(400).json({ message: "Either csvData or contacts array is required" });
       }
-      
+
       let imported = 0;
       const errors = [];
-      
+
       for (const contactData of contactsToImport) {
         try {
           const validatedData = insertCrmContactSchema.parse(contactData);
@@ -1210,7 +1676,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           errors.push(`${contactData.firstName} ${contactData.lastName}: ${(error as Error).message}`);
         }
       }
-      
+
       // Log activity
       await storage.logActivity({
         userId,
@@ -1218,10 +1684,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description: `Imported ${imported} contacts`,
         metadata: { imported, errors: errors.length }
       });
-      
-      res.json({ 
-        imported, 
-        errors: errors.length, 
+
+      res.json({
+        imported,
+        errors: errors.length,
         errorDetails: errors.slice(0, 10) // Limit error details
       });
     } catch (error) {
@@ -1261,22 +1727,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Object storage routes for file uploads
-  app.get("/objects/:objectPath(*)", isAuthenticated, async (req, res) => {
-    const userId = (req.user as any)?.claims?.sub;
+  app.get("/objects/:objectPath(*)", isAuthenticated, async (req: any, res) => {
     const objectStorageService = new ObjectStorageService();
     try {
-      const objectFile = await objectStorageService.getObjectEntityFile(
-        req.path,
+      const objectPath = req.params.objectPath;
+
+      const canAccess = await objectStorageService.canAccessObjectEntity(
+        objectPath,
+        req.user
       );
-      const canAccess = await objectStorageService.canAccessObjectEntity({
-        objectFile,
-        userId: userId,
-        requestedPermission: ObjectPermission.READ,
-      });
+
       if (!canAccess) {
         return res.sendStatus(401);
       }
-      objectStorageService.downloadObject(objectFile, res);
+
+      const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
+
+      // If objectFile is returned as buffer, send it directly
+      if (objectFile) {
+        res.setHeader('Content-Type', 'application/octet-stream'); // Or guess type
+        res.send(objectFile);
+      } else {
+        res.sendStatus(404);
+      }
     } catch (error) {
       console.error("Error checking object access:", error);
       if (error instanceof ObjectNotFoundError) {
@@ -1286,13 +1759,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
   app.post("/api/objects/upload", isAuthenticated, async (req, res) => {
     const objectStorageService = new ObjectStorageService();
-    const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+    // Assuming we generate a filename here or get from body. Let's start with simple random.
+    const fileName = `${randomUUID()}-${Date.now()}`;
+    const uploadURL = await objectStorageService.getObjectEntityUploadURL(fileName, 'application/octet-stream');
     res.json({ uploadURL });
   });
 
-  app.put("/api/project-files", isAuthenticated, async (req, res) => {
+  app.put("/api/project-files", isAuthenticated, async (req: any, res) => {
     if (!req.body.fileURL || !req.body.projectId) {
       return res.status(400).json({ error: "fileURL and projectId are required" });
     }
@@ -1334,12 +1810,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      
+
       const contact = await storage.getContact(id);
       if (!contact || contact.userId !== userId) {
         return res.status(404).json({ message: "Contact not found" });
       }
-      
+
       res.json(contact);
     } catch (error) {
       console.error("Error fetching contact:", error);
@@ -1355,7 +1831,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId,
       });
       const contact = await storage.createContact(contactData);
-      
+
       // Log activity
       await storage.logActivity({
         userId,
@@ -1363,7 +1839,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description: `Added new contact: ${contact.firstName} ${contact.lastName}`,
         metadata: { contactId: contact.id }
       });
-      
+
       res.json(contact);
     } catch (error) {
       console.error("Error creating contact:", error);
@@ -1375,13 +1851,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      
+
       // Verify contact belongs to user
       const contact = await storage.getContact(id);
       if (!contact || contact.userId !== userId) {
         return res.status(404).json({ message: "Contact not found" });
       }
-      
+
       const updatedContact = await storage.updateContact(id, req.body);
       res.json(updatedContact);
     } catch (error) {
@@ -1394,15 +1870,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      
+
       // Verify contact belongs to user
       const contact = await storage.getContact(id);
       if (!contact || contact.userId !== userId) {
         return res.status(404).json({ message: "Contact not found" });
       }
-      
+
       await storage.deleteContact(id);
-      
+
       // Log activity
       await storage.logActivity({
         userId,
@@ -1410,7 +1886,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description: `Deleted contact: ${contact.firstName} ${contact.lastName}`,
         metadata: { contactId: contact.id }
       });
-      
+
       res.json({ message: "Contact deleted successfully" });
     } catch (error) {
       console.error("Error deleting contact:", error);
@@ -1434,12 +1910,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      
+
       const audience = await storage.getAudience(id);
       if (!audience || audience.userId !== userId) {
         return res.status(404).json({ message: "Audience not found" });
       }
-      
+
       res.json(audience);
     } catch (error) {
       console.error("Error fetching audience:", error);
@@ -1450,9 +1926,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/crm/audiences', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      
+
       let contactIds: string[] = [];
-      
+
       // If specific contact IDs are provided (selected contacts), use those
       if (req.body.filterCriteria?.contactIds && Array.isArray(req.body.filterCriteria.contactIds)) {
         contactIds = req.body.filterCriteria.contactIds;
@@ -1461,15 +1937,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const filteredContacts = await storage.getContactsByFilter(userId, req.body.filterCriteria);
         contactIds = filteredContacts.map(contact => contact.id);
       }
-      
+
       const audienceData = insertAudienceSchema.parse({
         ...req.body,
         userId,
         contactIds,
       });
-      
+
       const audience = await storage.createAudience(audienceData);
-      
+
       // Log activity
       await storage.logActivity({
         userId,
@@ -1477,7 +1953,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description: `Created audience: ${audience.name} with ${contactIds.length} contacts`,
         metadata: { audienceId: audience.id, contactCount: contactIds.length }
       });
-      
+
       res.json(audience);
     } catch (error) {
       console.error("Error creating audience:", error);
@@ -1489,15 +1965,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      
+
       // Verify audience belongs to user
       const audience = await storage.getAudience(id);
       if (!audience || audience.userId !== userId) {
         return res.status(404).json({ message: "Audience not found" });
       }
-      
+
       let contactIds: string[] = [];
-      
+
       // Frontend sends selected contact IDs directly as filterCriteria array
       if (req.body.filterCriteria && Array.isArray(req.body.filterCriteria)) {
         // This is the case when editing audience - frontend sends selected contact IDs as array
@@ -1510,15 +1986,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const filteredContacts = await storage.getContactsByFilter(userId, req.body.filterCriteria);
         contactIds = filteredContacts.map(contact => contact.id);
       }
-      
+
       const updateData = {
         ...req.body,
         contactIds,
         filterCriteria: req.body.filterCriteria
       };
-      
+
       const updatedAudience = await storage.updateAudience(id, updateData);
-      
+
       // Log activity
       await storage.logActivity({
         userId,
@@ -1526,7 +2002,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description: `Updated audience: ${updatedAudience.name} with ${updateData.contactIds?.length || 0} contacts`,
         metadata: { audienceId: updatedAudience.id, contactCount: updateData.contactIds?.length || 0 }
       });
-      
+
       res.json(updatedAudience);
     } catch (error) {
       console.error("Error updating audience:", error);
@@ -1538,15 +2014,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      
+
       // Verify audience belongs to user
       const audience = await storage.getAudience(id);
       if (!audience || audience.userId !== userId) {
         return res.status(404).json({ message: "Audience not found" });
       }
-      
+
       await storage.deleteAudience(id);
-      
+
       // Log activity
       await storage.logActivity({
         userId,
@@ -1554,7 +2030,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description: `Deleted audience: ${audience.name}`,
         metadata: { audienceId: audience.id }
       });
-      
+
       res.json({ message: "Audience deleted successfully" });
     } catch (error) {
       console.error("Error deleting audience:", error);
@@ -1579,13 +2055,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { projectId } = req.params;
       const userId = req.user.id;
-      
+
       // Verify project belongs to user
       const project = await storage.getProject(projectId);
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "Project not found" });
       }
-      
+
       const campaigns = await storage.getProjectCampaigns(projectId);
       res.json(campaigns);
     } catch (error) {
@@ -1598,18 +2074,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      
+
       const campaign = await storage.getCampaign(id);
       if (!campaign) {
         return res.status(404).json({ message: "Campaign not found" });
       }
-      
+
       // Verify user owns the project this campaign belongs to
       const project = await storage.getProject(campaign.projectId);
       if (!project || project.userId !== userId) {
         return res.status(403).json({ message: "Not authorized to view this campaign" });
       }
-      
+
       res.json(campaign);
     } catch (error) {
       console.error("Error fetching campaign:", error);
@@ -1622,19 +2098,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { projectId } = req.params;
       const userId = req.user.id;
       const { audienceId, ...campaignBody } = req.body;
-      
+
       // Verify project belongs to user
       const project = await storage.getProject(projectId);
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "Project not found" });
       }
-      
+
       // Get the project's deck
       const decks = await storage.getProjectDecks(projectId);
       if (decks.length === 0) {
         return res.status(400).json({ message: "Project must have a deck before creating campaigns" });
       }
-      
+
       // Verify audience belongs to user (if provided)
       let contactIds: string[] = [];
       if (audienceId) {
@@ -1644,33 +2120,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         contactIds = audience.contactIds || [];
       }
-      
+
       const campaignData = insertCampaignSchema.parse({
         ...campaignBody,
         projectId,
         deckId: decks[0].id, // Use the latest deck
       });
-      
+
       const campaign = await storage.createCampaign(campaignData);
-      
+
       // Add campaign recipients if audience is selected
       if (contactIds.length > 0) {
         await storage.addCampaignRecipients(campaign.id, contactIds);
       }
-      
+
       // Log activity
       await storage.logActivity({
         userId,
         projectId,
         action: "campaign_created",
         description: `Created campaign: ${campaign.name}${audienceId ? ` with ${contactIds.length} recipients` : ''}`,
-        metadata: { 
+        metadata: {
           campaignId: campaign.id,
           audienceId,
           recipientCount: contactIds.length
         }
       });
-      
+
       res.json({ ...campaign, recipientCount: contactIds.length });
     } catch (error) {
       console.error("Error creating campaign:", error);
@@ -1682,20 +2158,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      
+
       const campaign = await storage.getCampaign(id);
       if (!campaign) {
         return res.status(404).json({ message: "Campaign not found" });
       }
-      
+
       // Verify user owns the project this campaign belongs to
       const project = await storage.getProject(campaign.projectId);
       if (!project || project.userId !== userId) {
         return res.status(403).json({ message: "Not authorized to update this campaign" });
       }
-      
+
       const updatedCampaign = await storage.updateCampaign(id, req.body);
-      
+
       // Log activity
       await storage.logActivity({
         userId,
@@ -1704,7 +2180,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description: `Updated campaign: ${updatedCampaign.name}`,
         metadata: { campaignId: campaign.id }
       });
-      
+
       res.json(updatedCampaign);
     } catch (error) {
       console.error("Error updating campaign:", error);
@@ -1716,18 +2192,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      
+
       const campaign = await storage.getCampaign(id);
       if (!campaign) {
         return res.status(404).json({ message: "Campaign not found" });
       }
-      
+
       // Verify user owns the project this campaign belongs to
       const project = await storage.getProject(campaign.projectId);
       if (!project || project.userId !== userId) {
         return res.status(403).json({ message: "Not authorized to view this campaign" });
       }
-      
+
       // Return campaign statistics
       res.json({
         sentCount: campaign.sentCount || 0,
@@ -1745,13 +2221,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { projectId } = req.params;
       const userId = req.user.id;
-      
+
       // Verify project belongs to user
       const project = await storage.getProject(projectId);
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "Project not found" });
       }
-      
+
       const analytics = await storage.getProjectAnalytics(projectId);
       res.json(analytics);
     } catch (error) {
@@ -1765,34 +2241,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { projectId } = req.params;
       const { text, context } = req.body;
       const userId = req.user.id;
-      
+
       console.log('=== AI IMPROVE TEXT REQUEST ===');
       console.log('Project ID:', projectId);
       console.log('Text:', text);
       console.log('Context:', context);
       console.log('User ID:', userId);
-      
+
       // Verify project belongs to user
       const project = await storage.getProject(projectId);
       if (!project || project.userId !== userId) {
         console.log('Project not found or unauthorized');
         return res.status(404).json({ message: "Project not found" });
       }
-      
+
       console.log('Project found:', project.id);
       console.log('Business profile exists:', !!project.businessProfile);
-      
+
       const { improveSlideText } = await import('./services/openai');
       const result = await improveSlideText({
         text,
         context,
         businessProfile: project.businessProfile
       });
-      
+
       console.log('AI improvement result:', result);
       console.log('Result type:', typeof result);
       console.log('Result keys:', Object.keys(result));
-      
+
       // Ensure we return the result in the expected format
       res.json({ improvedText: result.improvedText });
     } catch (error) {
@@ -1805,18 +2281,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      
+
       const campaign = await storage.getCampaign(id);
       if (!campaign) {
         return res.status(404).json({ message: "Campaign not found" });
       }
-      
+
       // Verify user owns the project this campaign belongs to
       const project = await storage.getProject(campaign.projectId);
       if (!project || project.userId !== userId) {
         return res.status(403).json({ message: "Not authorized to view this campaign" });
       }
-      
+
       const recipients = await storage.getCampaignRecipients(id);
       res.json(recipients);
     } catch (error) {
@@ -1829,36 +2305,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      
+
       const campaign = await storage.getCampaign(id);
       if (!campaign) {
         return res.status(404).json({ message: "Campaign not found" });
       }
-      
+
       // Verify user owns the project this campaign belongs to
       const project = await storage.getProject(campaign.projectId);
       if (!project || project.userId !== userId) {
         return res.status(403).json({ message: "Not authorized to send this campaign" });
       }
-      
+
       // Get campaign recipients
       const recipients = await storage.getCampaignRecipients(id);
-      
+
       if (recipients.length === 0) {
         return res.status(400).json({ message: "Campaign has no recipients. Please select an audience first." });
       }
-      
+
       // Update campaign status and sent count
       await storage.updateCampaign(id, {
         status: 'sent',
         sentCount: recipients.length
       });
-      
+
       // Update all recipients status to 'sent'
       for (const recipient of recipients) {
         await storage.updateRecipientStatus(id, recipient.contactId, 'sent');
       }
-      
+
       // Log activity
       await storage.logActivity({
         userId,
@@ -1867,9 +2343,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description: `Sent campaign: ${campaign.name} to ${recipients.length} recipients`,
         metadata: { campaignId: campaign.id, recipientCount: recipients.length }
       });
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: `Campaign sent to ${recipients.length} recipients`,
         sentCount: recipients.length
       });
@@ -1884,7 +2360,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const deckId = req.params.deckId;
       const slideData = req.body || {};
-      
+
       const deck = await storage.getDeck(deckId);
       if (!deck) {
         return res.status(404).json({ error: 'Deck not found' });
@@ -1918,7 +2394,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updatedSlides = [...existingSlides, newSlide];
 
       await storage.updateDeck(deckId, { slides: updatedSlides });
-      
+
       res.json(newSlide);
     } catch (error) {
       console.error('Error creating slide:', error);
@@ -1930,7 +2406,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete(`/api/decks/:deckId/slides/:slideId`, isAuthenticated, async (req, res) => {
     try {
       const { deckId, slideId } = req.params;
-      
+
       const deck = await storage.getDeck(deckId);
       if (!deck) {
         return res.status(404).json({ error: 'Deck not found' });
@@ -1938,20 +2414,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get the current slides array
       const currentSlides = Array.isArray(deck.slides) ? deck.slides : [];
-      
+
       // Find and remove the slide with the specified ID
       const updatedSlides = currentSlides.filter((slide: any) => slide.id !== slideId);
-      
+
       // Check if the slide was actually found and removed
       if (updatedSlides.length === currentSlides.length) {
         return res.status(404).json({ error: 'Slide not found' });
       }
-      
+
       // Update the deck with the new slides array
       await storage.updateDeck(deckId, { slides: updatedSlides });
-      
+
       console.log(`Slide ${slideId} deleted from deck ${deckId}. Slides: ${currentSlides.length} -> ${updatedSlides.length}`);
-      
+
       res.json({ success: true, message: 'Slide deleted successfully' });
     } catch (error) {
       console.error('Error deleting slide:', error);
@@ -1967,14 +2443,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/templates', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const { category, tags, search } = req.query;
-      
+      const { category, tags, search, themeId } = req.query;
+
+      // If themeId is provided, get templates from that theme
+      if (themeId) {
+        const templates = await templateManager.getTemplatesByTheme(themeId as string, userId);
+
+        // Apply additional filters
+        let filtered = templates;
+        if (category) {
+          filtered = filtered.filter((t: any) => t.category === category);
+        }
+        if (tags) {
+          const tagArray = (tags as string).split(',');
+          filtered = filtered.filter((t: any) =>
+            t.tags?.some((tag: string) => tagArray.includes(tag))
+          );
+        }
+        if (search) {
+          const term = (search as string).toLowerCase();
+          filtered = filtered.filter((t: any) =>
+            t.name.toLowerCase().includes(term) ||
+            (t.description && t.description.toLowerCase().includes(term))
+          );
+        }
+
+        return res.json(filtered);
+      }
+
+      // Otherwise, use existing template endpoint
       const templates = await templateManager.getTemplatesForUser(userId, {
         category: category as string,
         tags: tags ? (tags as string).split(',') : undefined,
         searchTerm: search as string,
       });
-      
+
       res.json(templates);
     } catch (error) {
       console.error('Error fetching templates:', error);
@@ -1986,19 +2489,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/templates/:templateId', isAuthenticated, async (req: any, res) => {
     try {
       const template = await templateManager.getTemplate(req.params.templateId);
-      
+
       if (!template) {
         return res.status(404).json({ error: 'Template not found' });
       }
-      
-      // Check access control
+
+      // Get theme for access control
+      const [theme] = await db
+        .select()
+        .from(themes)
+        .where(eq(themes.id, template.themeId))
+        .limit(1);
+
+      if (!theme) {
+        return res.status(404).json({ error: 'Theme not found for template' });
+      }
+
+      // Check access control (based on theme)
       const userTier = await subscriptionService.getUserTier(req.user.id);
-      const isLocked = templateManager.isTemplateLocked(template, userTier);
-      
+      const isLocked = templateManager.isTemplateLockedByTheme(theme.accessTier, userTier);
+
       res.json({
         ...template,
         isLocked,
-        requiresUpgrade: template.accessTier === 'premium' && userTier === 'free',
+        requiresUpgrade: theme.accessTier === 'premium' && userTier === 'free',
       });
     } catch (error) {
       console.error('Error fetching template:', error);
@@ -2023,31 +2537,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { templateId, content, overrides } = req.body;
       const deckId = req.params.deckId;
       const userId = req.user.id;
-      
+
       if (!templateId) {
         return res.status(400).json({ error: 'Template ID is required' });
       }
-      
+
       const deck = await storage.getDeck(deckId);
       if (!deck) {
         return res.status(404).json({ error: 'Deck not found' });
       }
-      
+
       // Get project for business profile
       const project = await storage.getProject(deck.projectId);
       if (!project) {
         return res.status(404).json({ error: 'Project not found' });
       }
-      
+
       // Get brand kit
       const brandKit = deck.brandKitId ? await storage.getBrandKit(deck.brandKitId) : null;
-      
+
       // Get template information
       const template = await templateManager.getTemplate(templateId);
       if (!template) {
         return res.status(404).json({ error: 'Template not found' });
       }
-      
+
       // Helper to check if content is meaningful
       const hasContent = (obj: any): boolean => {
         if (!obj || typeof obj !== 'object') return false;
@@ -2056,10 +2570,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return val !== null && val !== undefined && String(val).trim() !== '';
         });
       };
-      
+
       // Check if template uses new layout.elements format (from design studio)
       const isVisualTemplate = template.layout?.elements && Array.isArray(template.layout.elements);
-      
+
       // Generate AI content if no meaningful content provided AND not a visual template
       let slideContent = content;
       if (!hasContent(content) && !isVisualTemplate) {
@@ -2071,7 +2585,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             businessProfile: project.businessProfile,
             existingContent: null
           });
-          
+
           console.log('AI generated content for new slide:', aiContent);
           slideContent = aiContent;
         } catch (aiError) {
@@ -2084,44 +2598,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log('Visual template detected - using placeholder content from schema');
         slideContent = { title: template.name };
       }
-      
+
       // Pass businessProfile via content for AI generation
       const contentWithProfile = {
         ...slideContent,
         _businessProfile: project.businessProfile // Hidden field for context
       };
-      
+
       // Apply template
       const newSlide = await templateManager.applyTemplate(
         templateId,
         userId,
         contentWithProfile,
-        brandKit,
+        brandKit || null,
         overrides
       );
-      
+
       // Add to deck
       const existingSlides = Array.isArray(deck.slides) ? [...deck.slides] : [];
       const nextOrder = existingSlides.length > 0
         ? Math.max(...existingSlides.map((s: any) => s.order || 0)) + 1
         : 1;
-      
+
       newSlide.order = nextOrder;
       const updatedSlides = [...existingSlides, newSlide];
-      
+
       await storage.updateDeck(deckId, { slides: updatedSlides });
-      
+
       res.json(newSlide);
     } catch (error: any) {
       console.error('Error applying template:', error);
-      
+
       if (error.message.includes('premium subscription')) {
-        return res.status(403).json({ 
+        return res.status(403).json({
           error: error.message,
-          upgradeRequired: true 
+          upgradeRequired: true
         });
       }
-      
+
       res.status(500).json({ error: 'Failed to apply template' });
     }
   });
@@ -2132,69 +2646,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { templateId, content, overrides } = req.body;
       const { deckId, slideId } = req.params;
       const userId = req.user.id;
-      
+
       console.log('=== APPLY TEMPLATE TO SLIDE ===');
       console.log('Template ID:', templateId);
       console.log('Deck ID:', deckId);
       console.log('Slide ID:', slideId);
       console.log('User ID:', userId);
-      
+
       if (!templateId) {
         console.error('Missing template ID');
         return res.status(400).json({ error: 'Template ID is required' });
       }
-      
+
       const deck = await storage.getDeck(deckId);
       if (!deck) {
         console.error('Deck not found:', deckId);
         return res.status(404).json({ error: 'Deck not found' });
       }
-      
+
       // Verify ownership
       const project = await storage.getProject(deck.projectId);
       if (!project || project.userId !== userId) {
         console.error('Not authorized. Project userId:', project?.userId, 'Request userId:', userId);
         return res.status(403).json({ error: 'Not authorized to edit this deck' });
       }
-      
+
       // Find the slide
       const existingSlides = Array.isArray(deck.slides) ? [...deck.slides] : [];
       console.log('Total slides in deck:', existingSlides.length);
       console.log('Looking for slide ID:', slideId);
       console.log('Available slide IDs:', existingSlides.map((s: any) => s.id));
-      
+
       const slideIndex = existingSlides.findIndex((s: any) => s.id === slideId);
-      
+
       if (slideIndex === -1) {
         console.error('Slide not found. Available IDs:', existingSlides.map((s: any) => s.id));
         return res.status(404).json({ error: 'Slide not found' });
       }
-      
+
       const existingSlide = existingSlides[slideIndex];
       console.log('Found slide at index:', slideIndex);
-      
+
       // Get brand kit
       const brandKit = deck.brandKitId ? await storage.getBrandKit(deck.brandKitId) : null;
       console.log('Brand kit ID:', deck.brandKitId);
-      
+
       // Get template information
       const template = await templateManager.getTemplate(templateId);
       if (!template) {
         console.error('Template not found:', templateId);
         return res.status(404).json({ error: 'Template not found' });
       }
-      
-      console.log('Template info:', { 
-        name: template.name, 
-        category: template.category 
+
+      console.log('Template info:', {
+        name: template.name,
+        category: template.category
       });
       console.log('Content received from frontend:', JSON.stringify(content, null, 2));
       console.log('Project has businessProfile:', !!project.businessProfile);
       if (project.businessProfile) {
         console.log('Business profile keys:', Object.keys(project.businessProfile));
-        console.log('Company name:', project.businessProfile.companyName || project.businessProfile.businessName);
+        const bp = project.businessProfile as any;
+        console.log('Company name:', bp.companyName || bp.businessName);
       }
-      
+
       // Helper to check if content is meaningful
       const hasContent = (obj: any): boolean => {
         if (!obj || typeof obj !== 'object') return false;
@@ -2203,10 +2718,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return val !== null && val !== undefined && String(val).trim() !== '';
         });
       };
-      
+
       // Check if template uses new layout.elements format (from design studio)
       const isVisualTemplate = template.layout?.elements && Array.isArray(template.layout.elements);
-      
+
       // Generate AI content if no meaningful content provided AND not a visual template
       let slideContent = content;
       if (!hasContent(content) && !isVisualTemplate) {
@@ -2218,7 +2733,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             businessProfile: project.businessProfile,
             existingContent: existingSlide.content
           });
-          
+
           console.log('AI generated content:', aiContent);
           slideContent = aiContent;
         } catch (aiError) {
@@ -2231,23 +2746,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log('Visual template detected - using placeholder content from schema');
         slideContent = { title: template.name };
       }
-      
+
       console.log('Applying template with content:', JSON.stringify(slideContent, null, 2));
-      
+
+      // Get theme metadata if deck has a theme
+      let themeMetadata: any = null;
+      if (deck.themeId) {
+        const theme = await templateManager.getTheme(deck.themeId);
+        if (theme?.metadata) {
+          themeMetadata = theme.metadata;
+          console.log('🎨 Using theme styling for edit:', {
+            colorScheme: themeMetadata.colorScheme,
+            typography: themeMetadata.typography
+          });
+        }
+      }
+
+      // Enhance brandKit with theme metadata
+      const enhancedBrandKit = brandKit ? {
+        ...brandKit,
+        themeMetadata, // Include theme metadata for styling
+      } : (themeMetadata ? { themeMetadata } : null);
+
       // Pass businessProfile via content for AI generation
       const contentWithProfile = {
         ...slideContent,
         _businessProfile: project.businessProfile // Hidden field for context
       };
-      
+
       const updatedSlide = await templateManager.applyTemplate(
         templateId,
         userId,
         contentWithProfile,
-        brandKit,
+        enhancedBrandKit as any,
         overrides
       );
-      
+
       console.log('Template applied successfully');
       console.log('Updated slide preview:', JSON.stringify({
         id: updatedSlide.id,
@@ -2260,38 +2794,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
         hasPositionedElements: !!updatedSlide.positionedElements,
         positionedElementsKeys: updatedSlide.positionedElements ? Object.keys(updatedSlide.positionedElements) : []
       }, null, 2));
-      
+
       // Preserve slide ID and order
       updatedSlide.id = slideId;
       updatedSlide.order = existingSlide.order;
-      
+
+      // CRITICAL: Ensure layoutElements are preserved in the saved slide
+      // If the updated slide has layoutElements, make sure they're included
+      if (updatedSlide.layoutElements) {
+        console.log(`✅ Preserving ${updatedSlide.layoutElements.length} layout elements in saved slide`);
+      } else {
+        console.warn(`⚠️ Updated slide does not have layoutElements - template might not be using new format`);
+      }
+
       // Replace the slide
       existingSlides[slideIndex] = updatedSlide;
-      
+
       console.log('Updating deck with modified slides...');
+      console.log('Slide being saved has layoutElements:', !!updatedSlide.layoutElements);
       await storage.updateDeck(deckId, { slides: existingSlides });
-      
+
       console.log('✓ Template applied to slide successfully');
       console.log('=== FINAL SLIDE DATA BEING RETURNED TO CLIENT ===');
       console.log('Slide ID:', updatedSlide.id);
+      console.log('Has layoutElements:', !!updatedSlide.layoutElements);
+      console.log('LayoutElements count:', updatedSlide.layoutElements?.length || 0);
       console.log('Content:', JSON.stringify(updatedSlide.content, null, 2));
       console.log('Positioned elements:', JSON.stringify(updatedSlide.positionedElements, null, 2));
       console.log('Styling keys:', Object.keys(updatedSlide.styling || {}));
-      
-      res.json(updatedSlide);
+
+      // CRITICAL: Ensure layoutElements are included in the response
+      const responseSlide = {
+        ...updatedSlide,
+        layoutElements: updatedSlide.layoutElements || undefined // Explicitly include layoutElements
+      };
+
+      res.json(responseSlide);
     } catch (error: any) {
       console.error('=== ERROR APPLYING TEMPLATE TO SLIDE ===');
       console.error('Error message:', error.message);
       console.error('Error stack:', error.stack);
-      
+
       if (error.message && error.message.includes('premium subscription')) {
-        return res.status(403).json({ 
+        return res.status(403).json({
           error: error.message,
-          upgradeRequired: true 
+          upgradeRequired: true
         });
       }
-      
-      res.status(500).json({ 
+
+      res.status(500).json({
         error: error.message || 'Failed to apply template to slide',
         details: error.toString()
       });
@@ -2303,31 +2854,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { slideId, deckId, name, description } = req.body;
       const userId = req.user.id;
-      
+
       if (!slideId || !deckId || !name) {
         return res.status(400).json({ error: 'Missing required fields' });
       }
-      
+
       const deck = await storage.getDeck(deckId);
       if (!deck) {
         return res.status(404).json({ error: 'Deck not found' });
       }
-      
-      const slide = Array.isArray(deck.slides) 
+
+      const slide = Array.isArray(deck.slides)
         ? deck.slides.find((s: any) => s.id === slideId)
         : null;
-      
+
       if (!slide) {
         return res.status(404).json({ error: 'Slide not found' });
       }
-      
+
       const template = await templateManager.createCustomTemplate(
         userId,
         slide,
         name,
         description
       );
-      
+
       res.json(template);
     } catch (error) {
       console.error('Error creating template from slide:', error);
@@ -2341,7 +2892,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.id;
       const tier = await subscriptionService.getUserTier(userId);
       const subscription = await subscriptionService.getActiveSubscription(userId);
-      
+
       res.json({
         tier,
         subscription,
@@ -2350,6 +2901,135 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error fetching subscription:', error);
       res.status(500).json({ error: 'Failed to fetch subscription' });
+    }
+  });
+
+  // ============================================================================
+  // THEME ROUTES
+  // ============================================================================
+
+  // Get all themes for current user (with access control)
+  app.get('/api/themes', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { tags, search } = req.query;
+
+      console.log('\n=== THEMES API CALL START ===');
+      console.log('User ID:', userId);
+      console.log('Query params:', { tags, search });
+
+      // TEMPORARY: Get ALL themes first (including disabled) to debug
+      const allThemesRaw = await templateManager.getThemes({});
+      console.log('\n[DEBUG] All themes in DB (no filters):', allThemesRaw.length);
+      if (allThemesRaw.length > 0) {
+        console.log('[DEBUG] All theme names:', allThemesRaw.map(t => ({
+          id: t.id,
+          name: t.name,
+          isEnabled: t.isEnabled,
+          accessTier: t.accessTier
+        })));
+        console.log('[DEBUG] Enabled themes:', allThemesRaw.filter(t => t.isEnabled).length);
+        console.log('[DEBUG] Disabled themes:', allThemesRaw.filter(t => !t.isEnabled).length);
+      } else {
+        console.log('[WARNING] No themes found in database at all!');
+        // Return empty array early
+        return res.json([]);
+      }
+
+      // Now get themes with user access control (only enabled)
+      let themes: any[] = [];
+      try {
+        themes = await templateManager.getThemesForUser(userId, {
+          tags: tags ? (tags as string).split(',') : undefined,
+          searchTerm: search as string,
+        });
+        console.log('\n[DEBUG] Themes after user filtering:', themes?.length || 0, 'themes');
+      } catch (getThemesError) {
+        console.error('[ERROR] Error in getThemesForUser:', getThemesError);
+        themes = [];
+      }
+
+      if (themes && themes.length > 0) {
+        console.log('[DEBUG] Theme names returned:', themes.map(t => ({ name: t.name, isLocked: t.isLocked })));
+      } else {
+        console.log('[WARNING] No themes returned after filtering!');
+        console.log('[DEBUG] Attempting to return all enabled themes without user filtering...');
+
+        // FALLBACK: If no themes returned, try getting just enabled themes without user filtering
+        const enabledThemes = allThemesRaw.filter(t => t.isEnabled);
+        if (enabledThemes.length > 0) {
+          console.log('[DEBUG] Found', enabledThemes.length, 'enabled themes, returning them');
+          try {
+            const userTier = await subscriptionService.getUserTier(userId);
+            const isPremium = userTier !== 'free';
+            console.log('[DEBUG] User tier:', userTier, 'isPremium:', isPremium);
+            themes = enabledThemes.map(theme => ({
+              ...theme,
+              isLocked: theme.accessTier === 'premium' && !isPremium,
+              requiresUpgrade: theme.accessTier === 'premium' && !isPremium,
+            }));
+            console.log('[DEBUG] Returning', themes.length, 'themes with access control flags');
+          } catch (subError) {
+            console.error('[ERROR] Error getting user subscription, returning all enabled themes:', subError);
+            // If subscription check fails, return all enabled themes (they'll be marked as locked if premium)
+            themes = enabledThemes.map(theme => ({
+              ...theme,
+              isLocked: theme.accessTier === 'premium', // Assume not premium if we can't check
+              requiresUpgrade: theme.accessTier === 'premium',
+            }));
+          }
+        } else {
+          console.log('[WARNING] No enabled themes found in database!');
+        }
+      }
+      console.log('\n=== THEMES API CALL END ===\n');
+
+      res.json(themes || []);
+    } catch (error) {
+      console.error('\n[ERROR] Error fetching themes:', error);
+      if (error instanceof Error) {
+        console.error('[ERROR] Error message:', error.message);
+        console.error('[ERROR] Error stack:', error.stack);
+      }
+      res.status(500).json({ error: 'Failed to fetch themes', details: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  });
+
+  // Get single theme by ID
+  app.get('/api/themes/:themeId', isAuthenticated, async (req: any, res) => {
+    try {
+      const theme = await templateManager.getTheme(req.params.themeId);
+
+      if (!theme) {
+        return res.status(404).json({ error: 'Theme not found' });
+      }
+
+      // Check access control
+      const userTier = await subscriptionService.getUserTier(req.user.id);
+      const isPremium = userTier !== 'free';
+      const isLocked = theme.accessTier === 'premium' && !isPremium;
+
+      res.json({
+        ...theme,
+        isLocked,
+        requiresUpgrade: theme.accessTier === 'premium' && !isPremium,
+      });
+    } catch (error) {
+      console.error('Error fetching theme:', error);
+      res.status(500).json({ error: 'Failed to fetch theme' });
+    }
+  });
+
+  // Get theme with all associated templates
+  app.get('/api/themes/:themeId/templates', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const templates = await templateManager.getTemplatesByTheme(req.params.themeId, userId);
+
+      res.json(templates);
+    } catch (error) {
+      console.error('Error fetching theme templates:', error);
+      res.status(500).json({ error: 'Failed to fetch theme templates' });
     }
   });
 
@@ -2368,14 +3048,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/templates', isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const { category, tags, search, isEnabled } = req.query;
-      
+
       const templates = await templateManager.getAllTemplates({
         category: category as string,
         tags: tags ? (tags as string).split(',') : undefined,
         searchTerm: search as string,
         isEnabled: isEnabled !== undefined ? isEnabled === 'true' : undefined,
       });
-      
+
       res.json(templates);
     } catch (error) {
       console.error('Error fetching all templates:', error);
@@ -2388,11 +3068,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { templateId } = req.params;
       const template = await templateManager.getTemplate(templateId);
-      
+
       if (!template) {
         return res.status(404).json({ error: 'Template not found' });
       }
-      
+
       res.json(template);
     } catch (error) {
       console.error('Error fetching template:', error);
@@ -2405,16 +3085,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.id;
       const templateData = req.body;
-      
+
       // Validate required fields
       if (!templateData.name || !templateData.category) {
-        return res.status(400).json({ 
-          error: 'Missing required fields: name and category are required' 
+        return res.status(400).json({
+          error: 'Missing required fields: name and category are required'
         });
       }
-      
+
+      // themeId is optional - will be assigned to default theme if not provided
       const newTemplate = await templateManager.createCustomTemplate(userId, templateData);
-      
+
       res.json(newTemplate);
     } catch (error: any) {
       console.error('Error creating template:', error);
@@ -2428,20 +3109,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { templateId } = req.params;
       const updates = req.body;
-      
+
       // Validate template ID
       if (!templateId) {
         return res.status(400).json({ error: 'Template ID is required' });
       }
-      
+
       // Update template with all provided fields
       await templateManager.updateTemplate(templateId, updates);
-      
+
       res.json({ success: true, message: 'Template updated successfully' });
     } catch (error: any) {
       console.error('Error updating template:', error);
-      res.status(error.message === 'Template not found' ? 404 : 500).json({ 
-        error: error.message || 'Failed to update template' 
+      res.status(error.message === 'Template not found' ? 404 : 500).json({
+        error: error.message || 'Failed to update template'
       });
     }
   });
@@ -2458,16 +3139,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update template enabled status only (BUG FIX 3: separate from access tier)
+  app.put('/api/admin/templates/:templateId/enabled', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { templateId } = req.params;
+      const { isEnabled } = req.body;
+
+      if (isEnabled === undefined) {
+        return res.status(400).json({ error: 'isEnabled is required' });
+      }
+
+      await templateManager.updateTemplateEnabled(templateId, isEnabled);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error updating template enabled status:', error);
+      res.status(500).json({ error: 'Failed to update template enabled status' });
+    }
+  });
+
   // Update template access tier
   app.put('/api/admin/templates/:templateId/access', isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       const { templateId } = req.params;
       const { accessTier, isEnabled } = req.body;
-      
+
       if (!accessTier || isEnabled === undefined) {
         return res.status(400).json({ error: 'accessTier and isEnabled are required' });
       }
-      
+
       await templateManager.updateTemplateAccess(templateId, accessTier, isEnabled);
       res.json({ success: true });
     } catch (error) {
@@ -2495,9 +3194,113 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     } catch (error: any) {
       console.error('Error deleting template:', error);
-      res.status(error.message.includes('Cannot delete') ? 403 : 500).json({ 
-        error: error.message || 'Failed to delete template' 
+      res.status(error.message.includes('Cannot delete') ? 403 : 500).json({
+        error: error.message || 'Failed to delete template'
       });
+    }
+  });
+
+  // ============================================================================
+  // ADMIN THEME ROUTES (require admin role)
+  // ============================================================================
+
+  // Get all themes (admin view, no access control filtering)
+  app.get('/api/admin/themes', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { tags, search, isEnabled } = req.query;
+
+      const themes = await templateManager.getThemes({
+        tags: tags ? (tags as string).split(',') : undefined,
+        searchTerm: search as string,
+        isEnabled: isEnabled !== undefined ? isEnabled === 'true' : undefined,
+      });
+
+      res.json(themes);
+    } catch (error) {
+      console.error('Error fetching all themes:', error);
+      res.status(500).json({ error: 'Failed to fetch themes' });
+    }
+  });
+
+  // Get single theme by ID (admin view with full details)
+  app.get('/api/admin/themes/:themeId', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { themeId } = req.params;
+      const theme = await templateManager.getThemeWithTemplates(themeId);
+
+      if (!theme) {
+        return res.status(404).json({ error: 'Theme not found' });
+      }
+
+      res.json(theme);
+    } catch (error) {
+      console.error('Error fetching theme:', error);
+      res.status(500).json({ error: 'Failed to fetch theme' });
+    }
+  });
+
+  // Create new theme (admin only)
+  app.post('/api/admin/themes', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const themeData = req.body;
+
+      if (!themeData.name || !themeData.slug) {
+        return res.status(400).json({ error: 'Missing required fields: name and slug are required' });
+      }
+
+      const newTheme = await templateManager.createTheme(themeData);
+      res.json(newTheme);
+    } catch (error: any) {
+      console.error('Error creating theme:', error);
+      res.status(500).json({ error: error.message || 'Failed to create theme' });
+    }
+  });
+
+  // Update theme (admin only)
+  app.put('/api/admin/themes/:themeId', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { themeId } = req.params;
+      const themeData = req.body;
+
+      console.log('Updating theme:', themeId, 'with data:', JSON.stringify(themeData, null, 2));
+
+      const updatedTheme = await templateManager.updateTheme(themeId, themeData);
+
+      if (!updatedTheme) {
+        console.error('Theme update returned null for themeId:', themeId);
+        return res.status(404).json({ error: 'Theme not found' });
+      }
+
+      res.json(updatedTheme);
+    } catch (error: any) {
+      console.error('Error updating theme:', error);
+      console.error('Error stack:', error.stack);
+      const errorMessage = error.message || error.code || 'Failed to update theme';
+      res.status(500).json({ error: errorMessage });
+    }
+  });
+
+  // Delete theme (admin only)
+  app.delete('/api/admin/themes/:themeId', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { themeId } = req.params;
+      // TODO: Implement theme deletion logic
+      res.status(501).json({ error: 'Theme deletion not yet implemented' });
+    } catch (error) {
+      console.error('Error deleting theme:', error);
+      res.status(500).json({ error: 'Failed to delete theme' });
+    }
+  });
+
+  // Reload themes from filesystem
+  app.post('/api/admin/themes/reload', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      // Reload both templates and themes
+      await templateManager.initialize();
+      res.json({ success: true, message: 'Themes reloaded successfully' });
+    } catch (error) {
+      console.error('Error reloading themes:', error);
+      res.status(500).json({ error: 'Failed to reload themes' });
     }
   });
 
@@ -2505,18 +3308,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/generate-template-content', isAuthenticated, async (req: any, res) => {
     try {
       const { templateCategory, templateName, businessProfile, projectId, templateSchema, layoutElements } = req.body;
-      
+
       if (!businessProfile) {
         return res.status(400).json({ error: 'Business profile is required' });
       }
-      
+
       if (!templateCategory || !templateName) {
         return res.status(400).json({ error: 'Template category and name are required' });
       }
-      
+
       console.log(`Generating AI content for template: ${templateName} (${templateCategory})`);
       console.log(`Layout elements provided: ${layoutElements?.length || 0}`);
-      
+
       // Count how many image fields are in the template (use layout elements if available, fallback to schema)
       let imageFieldCount = 0;
       if (layoutElements && Array.isArray(layoutElements)) {
@@ -2535,7 +3338,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }).length;
       }
       console.log(`Template has ${imageFieldCount} image fields`);
-      
+
       // Fetch available media from the project's media library (if projectId provided)
       let availableMedia: Array<{ url: string; name: string; type: string }> = [];
       if (projectId) {
@@ -2552,7 +3355,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Continue without media - not a fatal error
         }
       }
-      
+
       // Call OpenAI to generate content with image selection
       const generatedContent = await openai.generateSlideContentForTemplate({
         templateCategory,
@@ -2564,9 +3367,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         templateSchema, // Pass schema for backward compatibility
         layoutElements, // Pass layout elements with element-specific prompts (NEW)
       });
-      
+
       console.log('Generated content:', generatedContent);
-      
+
       res.json(generatedContent);
     } catch (error: any) {
       console.error('Error generating template content:', error);
@@ -2580,7 +3383,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== Media Management Endpoints ====================
-  
+
   /**
    * Get all media assets for a project
    */
@@ -2588,19 +3391,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { projectId } = req.params;
       const userId = req.user.id;
-      
+
       // Verify user has access to project
       const project = await storage.getProject(projectId);
       if (!project || project.userId !== userId) {
         return res.status(404).json({ error: 'Project not found' });
       }
-      
+
       const { mediaManager } = await import('./services/mediaManager');
       const assets = await mediaManager.getProjectMedia(projectId);
-      
+
       // Get storage quota info
       const quotaInfo = await mediaManager.checkStorageQuota(projectId, 0);
-      
+
       res.json({
         assets,
         quota: quotaInfo
@@ -2610,7 +3413,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: error.message || 'Failed to fetch media assets' });
     }
   });
-  
+
   /**
    * Upload media to project (with rate limiting and security validation)
    */
@@ -2619,23 +3422,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { projectId } = req.params;
       const userId = req.user.id;
       const { file, filename, fileType, tags, description, altText } = req.body;
-      
+
       if (!file || !filename || !fileType) {
         return res.status(400).json({ error: 'Missing required fields: file, filename, fileType' });
       }
-      
+
       // Verify user has access to project
       const project = await storage.getProject(projectId);
       if (!project || project.userId !== userId) {
         return res.status(404).json({ error: 'Project not found' });
       }
-      
+
       // Convert base64 to buffer
       const base64Data = file.replace(/^data:image\/\w+;base64,/, '');
       const buffer = Buffer.from(base64Data, 'base64');
-      
+
       const { mediaManager } = await import('./services/mediaManager');
-      
+
       // First, upload the image to get a public URL
       console.log(`📤 Uploading image: ${filename}`);
       let asset = await mediaManager.uploadMedia({
@@ -2649,25 +3452,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description,
         altText
       });
-      
+
       // Analyze with AI to get proper tags and description
       console.log(`🤖 Analyzing uploaded image with AI: ${asset.storageUrl}`);
       try {
         const { analyzeImageWithAI } = await import('./services/openai');
         const aiTags = await analyzeImageWithAI(asset.storageUrl);
-        
+
         // Generate AI description if not provided
         let aiDescription = description;
         if (!aiDescription && aiTags.length > 0) {
           // Create a simple description from tags
           aiDescription = `Image containing: ${aiTags.join(', ')}`;
         }
-        
+
         // Combine user tags with AI tags (remove duplicates)
-        const combinedTags = [...new Set([...(tags || []), ...aiTags])];
-        
+        const combinedTags = Array.from(new Set([...(tags || []), ...aiTags]));
+
         console.log(`✅ AI analysis complete. Tags: ${combinedTags.join(', ')}`);
-        
+
         // Update the asset with AI-generated tags and description
         asset = await mediaManager.updateMediaMetadata(
           projectId,
@@ -2681,14 +3484,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.warn(`AI analysis failed for uploaded image, continuing with manual tags:`, aiError.message);
         // Continue without AI tags if analysis fails
       }
-      
+
       res.json(asset);
     } catch (error: any) {
       console.error('Error uploading media:', error);
       res.status(500).json({ error: error.message || 'Failed to upload media' });
     }
   });
-  
+
   /**
    * Extract images from website (with rate limiting)
    */
@@ -2697,23 +3500,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { projectId } = req.params;
       const userId = req.user.id;
       const { websiteUrl, maxImages = 20 } = req.body;
-      
+
       if (!websiteUrl) {
         return res.status(400).json({ error: 'Website URL is required' });
       }
-      
+
       // Verify user has access to project
       const project = await storage.getProject(projectId);
       if (!project || project.userId !== userId) {
         return res.status(404).json({ error: 'Project not found' });
       }
-      
+
       const { mediaManager } = await import('./services/mediaManager');
-      
+
       // Extract images
       console.log(`🔍 Extracting images from ${websiteUrl} for project ${projectId}`);
       const extractedImages = await mediaManager.extractImagesFromWebsite(websiteUrl);
-      
+
       // Save extracted images
       console.log(`💾 Saving ${Math.min(extractedImages.length, maxImages)} images to project`);
       const result = await mediaManager.saveExtractedImages(
@@ -2722,7 +3525,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         extractedImages,
         maxImages
       );
-      
+
       res.json({
         message: `Successfully extracted ${result.saved.length} images`,
         saved: result.saved,
@@ -2734,7 +3537,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: error.message || 'Failed to extract images' });
     }
   });
-  
+
   /**
    * Update media asset metadata
    */
@@ -2743,21 +3546,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { assetId } = req.params;
       const userId = req.user.id;
       const { tags, description, altText } = req.body;
-      
+
       const { mediaManager } = await import('./services/mediaManager');
       const updated = await mediaManager.updateMediaMetadata(assetId, userId, {
         tags,
         description,
         altText
       });
-      
+
       res.json(updated);
     } catch (error: any) {
       console.error('Error updating media metadata:', error);
       res.status(500).json({ error: error.message || 'Failed to update media' });
     }
   });
-  
+
   /**
    * Delete media asset
    */
@@ -2765,10 +3568,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { assetId } = req.params;
       const userId = req.user.id;
-      
+
       const { mediaManager } = await import('./services/mediaManager');
       await mediaManager.deleteMedia(assetId, userId);
-      
+
       res.json({ success: true, message: 'Media deleted successfully' });
     } catch (error: any) {
       console.error('Error deleting media:', error);
@@ -2786,14 +3589,14 @@ async function analyzeProjectWithEnhancedResearch(project: any) {
     const websiteCrawler = new WebsiteCrawler();
     const businessResearcher = new BusinessResearcher();
     const financialAnalyzer = new FinancialAnalyzer();
-    
+
     let websiteData = null;
     let marketAnalysis = null;
     let competitorAnalysis = null;
     let businessResearch = null;
     let businessInsights = null;
     let financialAnalysis = null;
-    
+
     // Crawl website if URL provided
     if (project.websiteUrl) {
       try {
@@ -2852,7 +3655,7 @@ async function analyzeProjectWithEnhancedResearch(project: any) {
       const businessModel = businessResearch?.businessModel?.revenueStreams?.[0] || 'SaaS/Subscription';
       const targetMarket = marketAnalysis?.targetCustomers?.primarySegment || 'Technology companies';
       const marketSize = marketAnalysis?.marketSize?.totalAddressableMarket || 'Large addressable market';
-      
+
       financialAnalysis = await financialAnalyzer.generateRevenueProjections(
         businessModel,
         targetMarket,
@@ -2870,7 +3673,7 @@ async function analyzeProjectWithEnhancedResearch(project: any) {
       industry: project.industry || industry,
       description: project.description || description,
       website: project.websiteUrl,
-      
+
       // Enhanced research data
       websiteData,
       marketAnalysis,
@@ -2878,7 +3681,7 @@ async function analyzeProjectWithEnhancedResearch(project: any) {
       businessResearch,
       businessInsights,
       financialAnalysis,
-      
+
       // Core business information (derived from research)
       businessDescription: businessInsights?.businessDescription || websiteData?.keyData?.companyInfo || description || 'Innovative technology company',
       problemStatement: businessInsights?.problemStatement || 'Solving key market challenges through innovative technology',
@@ -2889,7 +3692,7 @@ async function analyzeProjectWithEnhancedResearch(project: any) {
       teamSize: 'Startup (5-20 employees)',
       stage: 'Growth Stage',
       fundingGoal: '$1M - $5M Series A',
-      
+
       // Additional insights
       marketOpportunity: extractStringValueUtil(marketAnalysis?.marketSize?.totalAddressableMarket) || 'Large addressable market',
       competitiveAdvantage: businessInsights?.competitiveAdvantages || competitorAnalysis?.competitiveAdvantages || ['Unique technology', 'Strong team'],
@@ -2898,7 +3701,7 @@ async function analyzeProjectWithEnhancedResearch(project: any) {
       keyMetrics: ['Revenue growth', 'Customer acquisition', 'User engagement'],
       riskFactors: businessResearch?.riskAnalysis?.marketRisks || ['Market competition', 'Technology risks'],
       growthStrategy: businessInsights?.goToMarketStrategy || ['Product development', 'Market expansion'],
-      
+
       // Financial projections and analysis
       revenueProjections: financialAnalysis?.revenueProjections || null,
       fundingRequirements: financialAnalysis?.fundingRequirements || null,
@@ -2912,7 +3715,7 @@ async function analyzeProjectWithEnhancedResearch(project: any) {
         },
         fundingNeeds: financialAnalysis?.fundingRequirements?.initialCapital || 'To be determined'
       },
-      
+
       // Research metadata
       researchDate: new Date().toISOString(),
       researchSources: [
@@ -2924,10 +3727,10 @@ async function analyzeProjectWithEnhancedResearch(project: any) {
         financialAnalysis ? 'Financial analysis' : null
       ].filter(Boolean)
     };
-    
+
     // Sanitize the entire business profile to convert nested objects to strings
     const sanitizedProfile = sanitizeBusinessProfile(businessProfile);
-    
+
     return sanitizedProfile;
   } catch (error) {
     console.error("Enhanced analysis error:", error);

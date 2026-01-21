@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useParams, Link, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Palette, CheckCircle, Upload, Brain } from "lucide-react";
+import { ArrowLeft, ArrowRight, Palette, CheckCircle, Upload, Brain, Image } from "lucide-react";
 import { ObjectUploader } from "@/components/ObjectUploader";
+import { MediaLibraryPicker } from "@/components/MediaLibrary/MediaLibraryPicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,7 @@ interface BrandKit {
   accentColor: string;
   fontFamily: string;
   logoUrl?: string | null;
+  logoAssetId?: string | null;
   brandAssets?: Array<{
     type: string;
     url: string;
@@ -35,6 +37,7 @@ export default function ProjectBrandKit() {
   const queryClient = useQueryClient();
   const [customizing, setCustomizing] = useState(false);
   const [editingBrandKit, setEditingBrandKit] = useState<Partial<BrandKit> | null>(null);
+  const [showMediaLibraryPicker, setShowMediaLibraryPicker] = useState(false);
 
   const { data: project, isLoading: projectLoading } = useQuery({
     queryKey: ["/api/projects", projectId],
@@ -50,7 +53,8 @@ export default function ProjectBrandKit() {
 
   const generateBrandKitMutation = useMutation({
     mutationFn: async (data: any) => {
-      return await apiRequest("POST", `/api/projects/${projectId}/brand-kit`, data);
+      const response = await apiRequest("POST", `/api/projects/${projectId}/brand-kit`, data);
+      return await response.json();
     },
     onSuccess: (response: any) => {
       console.log('Brand kit generation response:', response);
@@ -84,10 +88,46 @@ export default function ProjectBrandKit() {
     },
   });
 
+  const createBrandKitMutation = useMutation({
+    mutationFn: async (data: Partial<BrandKit>) => {
+      const response = await apiRequest("POST", `/api/projects/${projectId}/brand-kit`, data);
+      return await response.json();
+    },
+    onSuccess: (response: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "brand-kits"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      setCustomizing(false);
+      setEditingBrandKit(null);
+      toast({
+        title: "Brand Kit Created",
+        description: "Your brand kit has been created successfully.",
+      });
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Error",
+        description: "Failed to create brand kit. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const updateBrandKitMutation = useMutation({
     mutationFn: async (data: Partial<BrandKit>) => {
       const brandKitId = activeBrandKit?.id;
-      return await apiRequest("PUT", `/api/projects/${projectId}/brand-kits/${brandKitId}`, data);
+      const response = await apiRequest("PUT", `/api/projects/${projectId}/brand-kits/${brandKitId}`, data);
+      return await response.json();
     },
     onSuccess: (response: any) => {
       console.log('Brand kit update response:', response);
@@ -127,17 +167,20 @@ export default function ProjectBrandKit() {
 
   const analyzeBrandMutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest("POST", `/api/projects/${projectId}/analyze-brand`);
+      const response = await apiRequest("POST", `/api/projects/${projectId}/analyze-brand`);
+      return await response.json();
     },
     onSuccess: (response: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "brand-kits"] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
       toast({
-        title: "AI Brand Analysis Complete",
-        description: response.message || "Brand elements extracted from website successfully.",
+        title: response.autoCreated ? "Brand Kit Created Automatically" : "AI Brand Analysis Complete",
+        description: response.message || (response.autoCreated 
+          ? "Brand kit created automatically using default settings." 
+          : "Brand elements extracted from website successfully."),
       });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       if (isUnauthorizedError(error as Error)) {
         toast({
           title: "Unauthorized",
@@ -149,9 +192,32 @@ export default function ProjectBrandKit() {
         }, 500);
         return;
       }
+      
+      // Check for quota exceeded error
+      const errorResponse = error?.response?.data || error?.data;
+      if (errorResponse?.error === 'QUOTA_EXCEEDED' || errorResponse?.message?.includes('quota')) {
+        toast({
+          title: "API Quota Exceeded",
+          description: "OpenAI API quota has been exceeded. You can still create a brand kit manually using the 'Create Brand Kit Manually' button below.",
+          variant: "destructive",
+          duration: 8000,
+        });
+        return;
+      }
+      
+      // Check for API configuration error
+      if (errorResponse?.error === 'API_CONFIGURATION_ERROR') {
+        toast({
+          title: "API Configuration Error",
+          description: errorResponse?.message || "There's an issue with the API configuration. Please contact support.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
       toast({
         title: "Analysis Failed",
-        description: "Failed to analyze website for brand elements. Please try again.",
+        description: errorResponse?.message || "Failed to analyze website for brand elements. Please try again.",
         variant: "destructive",
       });
     },
@@ -183,6 +249,7 @@ export default function ProjectBrandKit() {
         accentColor: activeBrandKit.accentColor,
         fontFamily: activeBrandKit.fontFamily,
         logoUrl: activeBrandKit.logoUrl,
+        logoAssetId: activeBrandKit.logoAssetId,
         brandAssets: activeBrandKit.brandAssets || [],
         name: activeBrandKit.name,
       });
@@ -192,17 +259,59 @@ export default function ProjectBrandKit() {
 
   const handleSaveBrandKit = () => {
     if (editingBrandKit) {
-      // Ensure logoUrl is properly handled - if it's undefined, it should be explicitly set to null for the server
-      const brandKitData = {
+      // Ensure logoUrl and logoAssetId are properly handled
+      const brandKitData: any = {
         ...editingBrandKit,
-        logoUrl: editingBrandKit.logoUrl === undefined ? null : editingBrandKit.logoUrl
+        logoUrl: editingBrandKit.logoUrl === undefined ? null : editingBrandKit.logoUrl,
+        logoAssetId: editingBrandKit.logoAssetId === undefined ? null : editingBrandKit.logoAssetId
       };
       
       console.log('Saving brand kit with data:', brandKitData);
       console.log('logoUrl being sent:', brandKitData.logoUrl);
+      console.log('logoAssetId being sent:', brandKitData.logoAssetId);
       console.log('brandAssets being sent:', brandKitData.brandAssets);
       
-      updateBrandKitMutation.mutate(brandKitData);
+      // If no brand kit exists, create a new one; otherwise update existing
+      if (!hasBrandKit) {
+        createBrandKitMutation.mutate(brandKitData);
+      } else {
+        updateBrandKitMutation.mutate(brandKitData);
+      }
+    }
+  };
+
+  const handleSelectLogoFromMediaLibrary = async (url: string) => {
+    // Find the asset ID from the media library
+    try {
+      const response = await apiRequest("GET", `/api/projects/${projectId}/media`);
+      const assets = response as any[];
+      const asset = assets.find(a => a.storageUrl === url);
+      
+      if (asset) {
+        setEditingBrandKit(prev => prev ? {
+          ...prev,
+          logoAssetId: asset.id,
+          logoUrl: asset.storageUrl
+        } : null);
+        toast({
+          title: "Logo Selected",
+          description: "Logo selected from media library",
+        });
+      } else {
+        // Fallback to URL if asset not found
+        setEditingBrandKit(prev => prev ? {
+          ...prev,
+          logoUrl: url,
+          logoAssetId: null
+        } : null);
+      }
+    } catch (error) {
+      // Fallback to URL if lookup fails
+      setEditingBrandKit(prev => prev ? {
+        ...prev,
+        logoUrl: url,
+        logoAssetId: null
+      } : null);
     }
   };
 
@@ -248,7 +357,7 @@ export default function ProjectBrandKit() {
       </div>
 
       <div className="max-w-4xl mx-auto space-y-6">
-          {!hasBrandKit ? (
+          {!hasBrandKit && !customizing ? (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -368,6 +477,189 @@ export default function ProjectBrandKit() {
                       {analyzeBrandMutation.isPending ? "Analyzing Website..." : "AI Analyze Website Brand"}
                     </Button>
                   )}
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-background px-2 text-muted-foreground">Or</span>
+                    </div>
+                  </div>
+                  <Button 
+                    onClick={() => {
+                      setEditingBrandKit({
+                        name: `${project?.name || 'Project'} Brand Kit`,
+                        primaryColor: "#3B82F6",
+                        secondaryColor: "#F1F5F9",
+                        accentColor: "#F59E0B",
+                        fontFamily: "Inter"
+                      });
+                      setCustomizing(true);
+                    }}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    <Palette className="h-4 w-4 mr-2" />
+                    Create Brand Kit Manually
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : !hasBrandKit && customizing ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Palette className="h-5 w-5" />
+                  Create Brand Kit
+                </CardTitle>
+                <CardDescription>
+                  Customize your brand kit colors, fonts, and logos
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="brand-name-new">Brand Kit Name</Label>
+                    <Input
+                      id="brand-name-new"
+                      value={editingBrandKit?.name || ""}
+                      onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, name: e.target.value} : null)}
+                      placeholder="Enter brand kit name"
+                    />
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <Label htmlFor="primary-color-new">Primary Color</Label>
+                      <div className="flex gap-2 items-center">
+                        <Input
+                          id="primary-color-new"
+                          type="color"
+                          value={editingBrandKit?.primaryColor || "#3B82F6"}
+                          onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, primaryColor: e.target.value} : null)}
+                          className="w-12 h-8 p-1 border rounded"
+                        />
+                        <Input
+                          value={editingBrandKit?.primaryColor || "#3B82F6"}
+                          onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, primaryColor: e.target.value} : null)}
+                          placeholder="#3B82F6"
+                          className="flex-1"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="secondary-color-new">Secondary Color</Label>
+                      <div className="flex gap-2 items-center">
+                        <Input
+                          id="secondary-color-new"
+                          type="color"
+                          value={editingBrandKit?.secondaryColor || "#F1F5F9"}
+                          onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, secondaryColor: e.target.value} : null)}
+                          className="w-12 h-8 p-1 border rounded"
+                        />
+                        <Input
+                          value={editingBrandKit?.secondaryColor || "#F1F5F9"}
+                          onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, secondaryColor: e.target.value} : null)}
+                          placeholder="#F1F5F9"
+                          className="flex-1"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="accent-color-new">Accent Color</Label>
+                      <div className="flex gap-2 items-center">
+                        <Input
+                          id="accent-color-new"
+                          type="color"
+                          value={editingBrandKit?.accentColor || "#F59E0B"}
+                          onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, accentColor: e.target.value} : null)}
+                          className="w-12 h-8 p-1 border rounded"
+                        />
+                        <Input
+                          value={editingBrandKit?.accentColor || "#F59E0B"}
+                          onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, accentColor: e.target.value} : null)}
+                          placeholder="#F59E0B"
+                          className="flex-1"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="font-family-new">Font Family</Label>
+                    <select
+                      id="font-family-new"
+                      value={editingBrandKit?.fontFamily || "Inter"}
+                      onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, fontFamily: e.target.value} : null)}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="Inter">Inter - Modern & Clean</option>
+                      <option value="Roboto">Roboto - Professional & Readable</option>
+                      <option value="Open Sans">Open Sans - Friendly & Accessible</option>
+                      <option value="Lato">Lato - Warm & Professional</option>
+                      <option value="Poppins">Poppins - Modern & Geometric</option>
+                      <option value="Montserrat">Montserrat - Elegant & Contemporary</option>
+                      <option value="Source Sans Pro">Source Sans Pro - Clean & Versatile</option>
+                      <option value="Nunito">Nunito - Rounded & Friendly</option>
+                      <option value="Work Sans">Work Sans - Modern & Geometric</option>
+                      <option value="Raleway">Raleway - Elegant & Lightweight</option>
+                      <option value="Ubuntu">Ubuntu - Modern & Humanist</option>
+                      <option value="Merriweather">Merriweather - Serif & Readable</option>
+                      <option value="Playfair Display">Playfair Display - Elegant Serif</option>
+                      <option value="Georgia">Georgia - Classic Serif</option>
+                      <option value="Times New Roman">Times New Roman - Traditional Serif</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="logo-url-new">Logo (Optional)</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="logo-url-new"
+                        value={editingBrandKit?.logoUrl || ""}
+                        onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, logoUrl: e.target.value || null, logoAssetId: null} : null)}
+                        placeholder="Enter logo image URL"
+                        className="flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setShowMediaLibraryPicker(true)}
+                        className="flex items-center gap-2"
+                      >
+                        <Image className="h-4 w-4" />
+                        Choose from Media Library
+                      </Button>
+                    </div>
+                    {showMediaLibraryPicker && (
+                      <MediaLibraryPicker
+                        projectId={projectId!}
+                        open={showMediaLibraryPicker}
+                        onClose={() => setShowMediaLibraryPicker(false)}
+                        onSelect={handleSelectLogoFromMediaLibrary}
+                        currentValue={editingBrandKit?.logoUrl}
+                      />
+                    )}
+                  </div>
+                </div>
+                
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={handleSaveBrandKit}
+                    disabled={createBrandKitMutation.isPending}
+                    className="flex-1"
+                  >
+                    {createBrandKitMutation.isPending ? "Creating..." : "Create Brand Kit"}
+                  </Button>
+                  <Button 
+                    variant="outline"
+                    onClick={handleCancelEdit}
+                    disabled={createBrandKitMutation.isPending}
+                  >
+                    Cancel
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -863,10 +1155,12 @@ export default function ProjectBrandKit() {
                     <div className="flex gap-2">
                       <Button 
                         onClick={handleSaveBrandKit}
-                        disabled={updateBrandKitMutation.isPending}
+                        disabled={updateBrandKitMutation.isPending || createBrandKitMutation.isPending}
                         className="flex-1"
                       >
-                        {updateBrandKitMutation.isPending ? "Saving..." : "Save Changes"}
+                        {(updateBrandKitMutation.isPending || createBrandKitMutation.isPending) 
+                          ? (hasBrandKit ? "Saving..." : "Creating...") 
+                          : (hasBrandKit ? "Save Changes" : "Create Brand Kit")}
                       </Button>
                       <Button 
                         variant="outline"

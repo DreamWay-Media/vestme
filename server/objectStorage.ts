@@ -120,7 +120,7 @@ export class ObjectStorageService {
         const { data: urlData } = supabase.storage
           .from(this.bucketName)
           .getPublicUrl(fullPath);
-        
+
         return urlData.publicUrl;
       }
 
@@ -161,8 +161,8 @@ export class ObjectStorageService {
       const { data, error } = await supabase.storage
         .from(this.bucketName)
         .createSignedUploadUrl(fullPath, {
-          expiresIn
-        });
+          upsert: true
+        } as any);
 
       if (error) {
         console.error('Error creating signed upload URL:', error);
@@ -238,10 +238,56 @@ export class ObjectStorageService {
       return false;
     }
   }
-  
+
   // Builds a public URL for a file stored in the bucket (expects a path like 'public/filename.ext')
   getPublicUrl(filePath: string): string {
     return `${supabaseUrl}/storage/v1/object/public/${this.bucketName}/${filePath}`;
+  }
+
+  // --- Entity Compatibility Methods ---
+
+  normalizeObjectEntityPath(path: string): string {
+    // Return path relative to bucket root or specific entity convention
+    // Removing leading slashes
+    return path.replace(/^\/+/, '');
+  }
+
+  async trySetObjectEntityAclPolicy(path: string, policy: any): Promise<void> {
+    // Supabase specific ACL handling or no-op if relying on bucket policies
+    console.log(`Setting ACL policy for ${path}:`, policy);
+    // Real implementation would depend on Supabase RLS or specific metadata
+    return Promise.resolve();
+  }
+
+  async getObjectEntityFile(path: string): Promise<Buffer | null> {
+    try {
+      const { data, error } = await supabase.storage
+        .from(this.bucketName)
+        .download(path);
+
+      if (error || !data) return null;
+
+      const arrayBuffer = await data.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    } catch (e) {
+      console.error('Error getting object entity file:', e);
+      return null;
+    }
+  }
+
+  async canAccessObjectEntity(path: string, user: any): Promise<boolean> {
+    // Implement permission logic based on path and user
+    // For now, allow access if user is authenticated (which they are if this is called)
+    // and relying on RLS policies in Supabase
+    return true;
+  }
+
+  async getObjectEntityUploadURL(fileName: string, contentType: string): Promise<string> {
+    return this.getSignedUploadURL(fileName, contentType);
+  }
+
+  async getObjectEntityDownloadURL(filePath: string): Promise<string> {
+    return this.getSignedDownloadURL(filePath);
   }
 }
 
@@ -265,9 +311,9 @@ export function parseObjectPath(path: string): { bucketName: string; objectName:
   if (parts.length < 2) {
     throw new Error('Invalid object path');
   }
-  
+
   const bucketName = parts[0];
   const objectName = parts.slice(1).join('/');
-  
+
   return { bucketName, objectName };
 }

@@ -1,17 +1,17 @@
-import { Lock, Star, TrendingUp } from "lucide-react";
+import { Lock, Star, Palette } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import type { Template } from "@/hooks/useTemplates";
+import type { Theme } from "@/hooks/useThemes";
 
-interface TemplateCardProps {
-  template: Template;
+interface ThemeCardProps {
+  theme: Theme;
   onClick: () => void;
   className?: string;
 }
 
-export function TemplateCard({ template, onClick, className }: TemplateCardProps) {
-  const isLocked = template.isLocked ?? false;
+export function ThemeCard({ theme, onClick, className }: ThemeCardProps) {
+  const isLocked = theme.isLocked ?? false;
   
   return (
     <Card
@@ -25,19 +25,19 @@ export function TemplateCard({ template, onClick, className }: TemplateCardProps
       <div className="relative">
         {/* Thumbnail */}
         <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden relative">
-          {template.thumbnail ? (
+          {theme.thumbnail ? (
             <img
-              src={template.thumbnail}
-              alt={template.name}
+              src={theme.thumbnail}
+              alt={theme.name}
               className="w-full h-full object-cover"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200">
-              <span className="text-4xl text-gray-400">📄</span>
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-100 to-indigo-200">
+              <Palette className="h-12 w-12 text-purple-400" />
             </div>
           )}
           
-          {/* Lock Overlay for Premium Templates */}
+          {/* Lock Overlay for Premium Themes */}
           {isLocked && (
             <div className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-sm">
               <div className="text-center text-white">
@@ -50,25 +50,24 @@ export function TemplateCard({ template, onClick, className }: TemplateCardProps
           
           {/* Badges */}
           <div className="absolute top-2 left-2 flex gap-1">
-            {template.isDefault && (
+            {theme.isDefault && (
               <Badge variant="default" className="bg-blue-600">
                 <Star className="h-3 w-3 mr-1 fill-current" />
                 Default
               </Badge>
             )}
-            {template.accessTier === 'premium' && !isLocked && (
+            {theme.accessTier === 'premium' && !isLocked && (
               <Badge variant="secondary">
                 Premium
               </Badge>
             )}
           </div>
           
-          {/* Usage Count */}
-          {template.usageCount && template.usageCount > 0 && (
+          {/* Slide Count */}
+          {theme.templates && theme.templates.length > 0 && (
             <div className="absolute bottom-2 right-2">
               <Badge variant="outline" className="bg-white/90 backdrop-blur-sm">
-                <TrendingUp className="h-3 w-3 mr-1" />
-                {template.usageCount}
+                {theme.templates.length} slides
               </Badge>
             </div>
           )}
@@ -76,20 +75,17 @@ export function TemplateCard({ template, onClick, className }: TemplateCardProps
       </div>
       
       <CardHeader className="pb-3">
-        <CardTitle className="text-lg">{template.name}</CardTitle>
-        {template.description && (
+        <CardTitle className="text-lg">{theme.name}</CardTitle>
+        {theme.description && (
           <CardDescription className="line-clamp-2">
-            {template.description}
+            {theme.description}
           </CardDescription>
         )}
       </CardHeader>
       
       <CardContent className="pt-0">
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-xs">
-            {template.category}
-          </Badge>
-          {template.tags && template.tags.slice(0, 2).map((tag) => (
+        <div className="flex items-center gap-2 flex-wrap">
+          {theme.tags && theme.tags.slice(0, 3).map((tag) => (
             <Badge key={tag} variant="outline" className="text-xs">
               {tag}
             </Badge>
@@ -99,4 +95,6 @@ export function TemplateCard({ template, onClick, className }: TemplateCardProps
     </Card>
   );
 }
+
+
 

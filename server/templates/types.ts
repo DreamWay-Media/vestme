@@ -119,18 +119,20 @@ export interface TemplateDefinition {
   category: TemplateCategory;
   tags: string[];
   thumbnail: string;
-  
-  // Access control
-  accessTier: TemplateAccessTier;
+
+  // Theme relationship (required - all templates must belong to a theme)
+  themeId: string; // Theme slug or ID
+
+  // Template settings (access tier inherited from theme)
   isDefault: boolean;
   isEnabled: boolean;
   displayOrder: number;
-  
+
   // Structure
   layout: TemplateLayout;
   styling: TemplateStyling;
   contentSchema: ContentSchema;
-  
+
   // Metadata
   metadata: TemplateMetadata;
 }
@@ -167,5 +169,43 @@ export interface TemplateValidationError {
 export interface TemplateValidationResult {
   valid: boolean;
   errors: TemplateValidationError[];
+}
+
+// Theme interfaces
+export interface ThemeMetadata {
+  author?: string;
+  colorScheme?: string;
+  style?: string;
+  [key: string]: any; // Allow additional metadata fields
+}
+
+export interface ThemeDefinition {
+  id: string;
+  name: string;
+  description: string;
+  accessTier: TemplateAccessTier;
+  isDefault: boolean;
+  isEnabled: boolean;
+  displayOrder: number;
+  templateIds: string[]; // Array of template IDs (slugs) that belong to this theme
+  tags: string[];
+  metadata?: ThemeMetadata;
+}
+
+export interface Theme {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  thumbnail: string | null;
+  accessTier: TemplateAccessTier;
+  isDefault: boolean;
+  isEnabled: boolean;
+  displayOrder: number;
+  tags: string[];
+  metadata?: ThemeMetadata;
+  templates?: TemplateDefinition[]; // Populated when fetching theme with templates
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
 }
 

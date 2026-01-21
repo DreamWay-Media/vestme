@@ -12,7 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { useDesignStudioStore } from '@/stores/designStudioStore';
-import { useGetTemplate, useUpdateTemplate } from '@/hooks/useAdminTemplates';
+import { useGetTemplate, useUpdateTemplate, useCreateTemplate } from '@/hooks/useAdminTemplates';
+import { useGetAdminTheme } from '@/hooks/useAdminThemes';
 import { ElementLibrary } from '@/components/DesignStudio/ElementLibrary';
 import { DesignCanvas } from '@/components/DesignStudio/DesignCanvas';
 import { PropertiesPanel } from '@/components/DesignStudio/PropertiesPanel';
@@ -25,9 +26,25 @@ export default function TemplateDesignStudio() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Check if creating new template (route is /admin/templates/new/design)
+  const isNewTemplate = !templateId || templateId === 'new' || window.location.pathname.includes('/new/design');
+  
+  // Get themeId from query params using URLSearchParams
+  const [themeId, setThemeId] = useState<string | null>(null);
+  
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const themeIdParam = urlParams.get('themeId');
+    setThemeId(themeIdParam);
+  }, []);
+  
+  // Get theme info if themeId is provided
+  const { data: theme } = useGetAdminTheme(themeId);
+
   // Get template from API if editing existing
-  const { data: existingTemplate, isLoading } = useGetTemplate(templateId || '');
+  const { data: existingTemplate, isLoading } = useGetTemplate(isNewTemplate ? null : templateId || null);
   const updateMutation = useUpdateTemplate(templateId || '');
+  const createMutation = useCreateTemplate();
 
   // Design studio state
   const {
@@ -202,19 +219,51 @@ export default function TemplateDesignStudio() {
           exact: true
         });
       } else {
-        // Create new (we'll implement this later)
+        // Create new template
+        if (!apiTemplate.name || !apiTemplate.name.trim()) {
+          toast({
+            title: 'Validation Error',
+            description: 'Slide name is required',
+            variant: 'destructive',
+          });
+          setSaving(false);
+          return;
+        }
+
+        // Get themeId from query params
+        const urlParams = new URLSearchParams(window.location.search);
+        const themeIdParam = urlParams.get('themeId');
+
+        // Include themeId if provided
+        const templateData = {
+          ...apiTemplate,
+          themeId: themeIdParam || undefined,
+        };
+
+        const newTemplate = await createMutation.mutateAsync(templateData);
+
         toast({
-          title: 'Not implemented',
-          description: 'Creating new templates will be implemented in Phase 2',
-          variant: 'destructive',
+          title: 'Slide Created',
+          description: 'Slide has been created successfully',
         });
+
+        // Invalidate all template caches
+        await queryClient.invalidateQueries({ queryKey: ['templates'] });
+        await queryClient.invalidateQueries({ queryKey: ['admin', 'templates'] });
+
+        // Redirect back to theme templates page if themeId was provided, otherwise to template management
+        if (themeIdParam) {
+          setLocation(`/admin/themes/${themeIdParam}/templates`);
+        } else {
+          setLocation('/admin/templates');
+        }
         return;
       }
 
       markClean();
       toast({
         title: 'Saved',
-        description: 'Template saved successfully',
+        description: 'Slide saved successfully',
       });
     } catch (error: any) {
       toast({
@@ -227,13 +276,19 @@ export default function TemplateDesignStudio() {
     }
   };
 
-  // Back to template management
+  // Back to template management or theme templates page
   const handleBack = () => {
     if (isDirty) {
       const confirm = window.confirm('You have unsaved changes. Are you sure you want to leave?');
       if (!confirm) return;
     }
-    setLocation('/admin/templates');
+    
+    // Navigate back to theme templates page if themeId is present, otherwise to template management
+    if (themeId) {
+      setLocation(`/admin/themes/${themeId}/templates`);
+    } else {
+      setLocation('/admin/templates');
+    }
   };
 
   // Preview template
@@ -246,7 +301,8 @@ export default function TemplateDesignStudio() {
     });
   };
 
-  if (isLoading && templateId) {
+
+  if (isLoading && !isNewTemplate) {
     return (
       <div className="flex items-center justify-center h-screen">
         <Loader2 className="w-8 h-8 animate-spin" />
@@ -266,7 +322,7 @@ export default function TemplateDesignStudio() {
             className="gap-2"
           >
             <ArrowLeft className="w-4 h-4" />
-            Templates
+            Slides
           </Button>
 
           <div className="h-6 w-px bg-border" />
@@ -275,7 +331,7 @@ export default function TemplateDesignStudio() {
             value={template.name}
             onChange={(e) => updateTemplateInfo({ name: e.target.value })}
             className="w-64 h-9"
-            placeholder="Template name..."
+            placeholder="Slide name..."
           />
 
           {isDirty && (
@@ -449,7 +505,7 @@ function convertToVisualTemplate(apiTemplate: any): any {
     description: apiTemplate.description || '',
     category: apiTemplate.category,
     tags: apiTemplate.tags || [],
-    accessTier: apiTemplate.accessTier || 'free',
+    accessTier: apiTemplate.themeAccessTier || apiTemplate.accessTier || 'free', // BUG FIX: Templates inherit from theme
     isEnabled: apiTemplate.isEnabled ?? true,
     displayOrder: apiTemplate.displayOrder || 0,
     canvas: {
@@ -470,7 +526,7 @@ function convertToAPITemplate(visualTemplate: any): any {
     description: visualTemplate.description,
     category: visualTemplate.category,
     tags: visualTemplate.tags,
-    accessTier: visualTemplate.accessTier,
+    accessTier: visualTemplate.themeAccessTier || visualTemplate.accessTier, // BUG FIX: Templates inherit from theme
     isEnabled: visualTemplate.isEnabled,
     displayOrder: visualTemplate.displayOrder,
     layout: {
