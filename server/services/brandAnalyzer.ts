@@ -6,20 +6,20 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export interface BrandExtraction {
   colors: {
-    primary: string;
-    secondary: string;
-    accent: string;
+    primary: string | null;
+    secondary: string | null;
+    accent: string | null;
     brandColors: string[];
   };
   typography: {
-    primaryFont: string;
-    secondaryFont: string;
+    primaryFont: string | null;
+    secondaryFont: string | null;
     fontFamilies: string[];
   };
   logo: {
-    logoUrl?: string;
-    logoDescription?: string;
-    brandMark?: string;
+    logoUrl?: string | null;
+    logoDescription?: string | null;
+    brandMark?: string | null;
   };
   brandPersonality: {
     tone: string;
@@ -205,7 +205,23 @@ export class BrandAnalyzer {
         extractedColors.push(...colors);
       }
 
-      // 5. Extract computed styles from key brand elements
+      // 5. Extract colors from meta tags (theme-color)
+      const themeColor = document.querySelector('meta[name="theme-color"]')?.getAttribute('content');
+      if (themeColor) {
+        const colors = this.extractColorsFromCSS(`color: ${themeColor}`);
+        extractedColors.push(...colors);
+        console.log('Found theme-color:', themeColor);
+      }
+
+      // 6. Extract colors from inline SVG elements
+      const svgElements = Array.from(document.querySelectorAll('svg'));
+      svgElements.forEach(svg => {
+        const svgHtml = svg.outerHTML;
+        const svgColors = this.extractColorsFromCSS(svgHtml);
+        extractedColors.push(...svgColors);
+      });
+
+      // 7. Extract computed styles from key brand elements
       const keyElements = document.querySelectorAll('header, nav, .header, .navbar, .hero, .banner, .brand, .logo, h1, h2, .btn, button, a');
       const computedStyles: string[] = [];
       keyElements.forEach((el, index) => {
@@ -229,9 +245,97 @@ export class BrandAnalyzer {
 
       console.log(`Found ${imageElements.length} image elements on the page`);
 
+      // Extract logos from meta tags and structured data FIRST (these are most reliable)
+      const metaLogos: string[] = [];
+      
+      // Check Open Graph image
+      const ogImage = document.querySelector('meta[property="og:image"]')?.getAttribute('content');
+      if (ogImage) {
+        try {
+          const fullOgImage = new URL(ogImage, fullUrl).href;
+          if (!this.isPlaceholderImage(fullOgImage)) {
+            metaLogos.push(fullOgImage);
+            imageDetails.push({
+              src: fullOgImage,
+              alt: 'Open Graph image',
+              className: 'og-image',
+              id: '',
+              isLogo: true,
+              parentContext: 'meta',
+              placement: 'header'
+            });
+            console.log('Found Open Graph image:', fullOgImage);
+          }
+        } catch (e) {
+          // Skip invalid URLs
+        }
+      }
+
+      // Check favicon and icon links
+      const iconLinks = document.querySelectorAll('link[rel*="icon"], link[rel*="apple-touch-icon"]');
+      iconLinks.forEach(link => {
+        const href = link.getAttribute('href');
+        if (href && !href.includes('favicon.ico')) { // Skip default favicon.ico
+          try {
+            const fullIconUrl = new URL(href, fullUrl).href;
+            if (!this.isPlaceholderImage(fullIconUrl) && !metaLogos.includes(fullIconUrl)) {
+              metaLogos.push(fullIconUrl);
+              imageDetails.push({
+                src: fullIconUrl,
+                alt: 'Icon/Favicon',
+                className: link.getAttribute('rel') || 'icon',
+                id: '',
+                isLogo: true,
+                parentContext: 'link',
+                placement: 'header'
+              });
+              console.log('Found icon/favicon:', fullIconUrl);
+            }
+          } catch (e) {
+            // Skip invalid URLs
+          }
+        }
+      });
+
+      // Check JSON-LD structured data for logo
+      const jsonLdScripts = document.querySelectorAll('script[type="application/ld+json"]');
+      jsonLdScripts.forEach(script => {
+        try {
+          const jsonLd = JSON.parse(script.textContent || '{}');
+          // Check various JSON-LD types for logo
+          const logoUrl = jsonLd.logo?.url || 
+                         jsonLd.image?.url || 
+                         jsonLd['@graph']?.find((item: any) => item.logo?.url)?.logo?.url;
+          
+          if (logoUrl) {
+            try {
+              const fullLogoUrl = logoUrl.startsWith('http') ? logoUrl : new URL(logoUrl, fullUrl).href;
+              if (!this.isPlaceholderImage(fullLogoUrl) && !metaLogos.includes(fullLogoUrl)) {
+                metaLogos.push(fullLogoUrl);
+                imageDetails.push({
+                  src: fullLogoUrl,
+                  alt: 'Structured data logo',
+                  className: 'json-ld-logo',
+                  id: '',
+                  isLogo: true,
+                  parentContext: 'json-ld',
+                  placement: 'header'
+                });
+                console.log('Found JSON-LD logo:', fullLogoUrl);
+              }
+            } catch (e) {
+              // Skip invalid URLs
+            }
+          }
+        } catch (e) {
+          // Skip invalid JSON
+        }
+      });
+
       // Process DOM image elements
       imageElements.forEach((img, index) => {
-        const src = img.getAttribute('src') || img.getAttribute('href') || img.getAttribute('data-src');
+        const src = img.getAttribute('src') || img.getAttribute('href') || img.getAttribute('data-src') || 
+                   img.getAttribute('data-lazy-src') || img.getAttribute('data-original');
         const alt = img.getAttribute('alt') || '';
         const className = img.getAttribute('class') || '';
         const id = img.getAttribute('id') || '';
@@ -239,8 +343,16 @@ export class BrandAnalyzer {
         if (src) {
           try {
             const fullSrc = new URL(src, fullUrl).href;
-            const isLogo = this.isLikelyLogo(img, src, alt, className, id);
             const isPlaceholder = this.isPlaceholderImage(src);
+            
+            if (isPlaceholder) {
+              return; // Skip placeholders
+            }
+
+            // Enhanced logo detection
+            const isLogo = this.isLikelyLogo(img, src, alt, className, id) || 
+                          this.isLikelyLogoFromUrl(fullSrc) ||
+                          metaLogos.includes(fullSrc);
 
             if (index < 10) { // Log first 10 images for debugging
               console.log(`Image ${index + 1}:`, {
@@ -425,7 +537,7 @@ export class BrandAnalyzer {
   }
 
   private isLikelyLogo(img: Element, src: string, alt: string, className: string, id: string): boolean {
-    const logoTerms = ['logo', 'brand', 'mark', 'icon'];
+    const logoTerms = ['logo', 'brand', 'mark', 'icon', 'emblem', 'symbol', 'badge'];
     const srcLower = src.toLowerCase();
     const altLower = alt.toLowerCase();
     const classLower = className.toLowerCase();
@@ -444,16 +556,35 @@ export class BrandAnalyzer {
       idLower.includes(term)
     );
 
-    // Check placement context
-    const isInHeader = img.closest('header, nav, .header, .navbar, .logo, .brand') !== null;
+    // Check placement context (logos are often in header/nav/first section)
+    const isInHeader = img.closest('header, nav, .header, .navbar, .logo, .brand, .site-header, .main-header') !== null;
+    const isInFirstSection = img.closest('section:first-of-type, .hero, .banner, .intro') !== null;
+    const isFirstImage = img.parentElement?.querySelector('img') === img; // First image in its container
 
-    // Check dimensions (logos are typically smaller and rectangular)
+    // Check dimensions (logos are typically smaller and often wider than tall)
     const width = img.getAttribute('width');
     const height = img.getAttribute('height');
-    const hasReasonableDimensions = width && height ?
-      (parseInt(width) < 500 && parseInt(height) < 200) : true;
+    let hasReasonableDimensions = true;
+    if (width && height) {
+      const w = parseInt(width);
+      const h = parseInt(height);
+      // Logo is typically: smaller than 500px width, and often wider than tall (or square)
+      hasReasonableDimensions = w < 500 && h < 300 && (w >= h || w / h > 0.7);
+    }
 
-    return hasLogoTerms || (isInHeader && hasReasonableDimensions);
+    // Check if it's an SVG (many logos are SVG)
+    const isSvg = img.tagName.toLowerCase() === 'svg' || srcLower.endsWith('.svg');
+
+    // Multiple indicators increase logo likelihood
+    const indicators = [
+      hasLogoTerms,
+      (isInHeader || isInFirstSection) && hasReasonableDimensions,
+      isFirstImage && hasReasonableDimensions,
+      isSvg && (isInHeader || hasLogoTerms)
+    ];
+
+    // Return true if at least 2 indicators are true, or if it's clearly a logo (has terms + good placement)
+    return indicators.filter(Boolean).length >= 2 || (hasLogoTerms && (isInHeader || isInFirstSection));
   }
 
   private isPlaceholderImage(src: string): boolean {
@@ -577,39 +708,50 @@ export class BrandAnalyzer {
 
   /**
    * Filter out generic/neutral colors and keep only brand colors
+   * Less aggressive filtering to preserve legitimate brand colors
    */
   private filterBrandColors(colors: string[]): string[] {
     const genericColors = new Set([
       '#000000', '#000', '#FFFFFF', '#FFF', '#ffffff', '#fff',
-      '#CCCCCC', '#CCC', '#cccccc', '#ccc',
-      '#808080', '#808080', '#808080',
-      '#F5F5F5', '#f5f5f5', '#EEEEEE', '#eeeeee',
-      '#E0E0E0', '#e0e0e0', '#D3D3D3', '#d3d3d3'
+      // Only filter out pure black and white, not light grays (some brands use them)
     ]);
 
     return colors
       .map(color => {
+        if (!color || typeof color !== 'string') return null;
         // Normalize 3-digit hex to 6-digit
-        if (/^#[0-9A-Fa-f]{3}$/.test(color)) {
+        if (/^#[0-9A-Fa-f]{3}$/i.test(color)) {
           return `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`.toUpperCase();
         }
-        return color.toUpperCase();
+        if (/^#[0-9A-Fa-f]{6}$/i.test(color)) {
+          return color.toUpperCase();
+        }
+        return null;
       })
-      .filter(color => {
-        // Remove generic colors
+      .filter((color): color is string => {
+        if (!color) return false;
+        
+        // Remove only pure black and white
         if (genericColors.has(color)) return false;
         
-        // Remove very light grays (close to white)
+        // Only filter out extremely light/dark grays (almost pure white/black)
+        // Keep light grays as they might be brand colors
         if (color.startsWith('#')) {
           const hex = color.substring(1);
           if (hex.length === 6) {
             const r = parseInt(hex.substring(0, 2), 16);
             const g = parseInt(hex.substring(2, 4), 16);
             const b = parseInt(hex.substring(4, 6), 16);
-            // Remove if all RGB values are very close (grays) and very light/dark
+            
+            // Only filter if it's almost pure white (RGB > 250) or almost pure black (RGB < 5)
+            // AND it's a true gray (all RGB values very close)
             const avg = (r + g + b) / 3;
             const diff = Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(r - b));
-            if (diff < 10 && (avg > 240 || avg < 20)) return false; // Very light or very dark grays
+            
+            // More lenient: only filter near-pure colors that are grays
+            if (diff < 5 && (avg > 250 || avg < 5)) {
+              return false; // Almost pure white or black gray
+            }
           }
         }
         
@@ -663,26 +805,56 @@ export class BrandAnalyzer {
     // Optimize data to reduce token usage and filter out generic colors
     const optimizedStyles = this.optimizeStyles(websiteContent.styles);
     
-    // Filter out generic/neutral colors and normalize hex codes
-    const filteredColors = this.filterBrandColors(websiteContent.extractedColors);
-    
-    // Count color frequency to help AI identify primary colors
+    // IMPORTANT: Count color frequency BEFORE filtering to get accurate usage patterns
+    // Normalize all colors first for accurate counting
+    const normalizeColorForCounting = (color: string): string => {
+      if (!color || typeof color !== 'string') return '';
+      // Normalize 3-digit hex to 6-digit
+      if (/^#[0-9A-Fa-f]{3}$/i.test(color)) {
+        return `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`.toUpperCase();
+      }
+      return color.toUpperCase();
+    };
+
+    // Count frequency from ALL extracted colors (before filtering)
     const colorFrequency = new Map<string, number>();
-    for (const color of filteredColors) {
-      const normalized = color.toUpperCase();
-      colorFrequency.set(normalized, (colorFrequency.get(normalized) || 0) + 1);
+    for (const color of websiteContent.extractedColors) {
+      const normalized = normalizeColorForCounting(color);
+      if (normalized) {
+        colorFrequency.set(normalized, (colorFrequency.get(normalized) || 0) + 1);
+      }
     }
     
-    // Sort colors by frequency (most common first) and take top 20
-    const sortedColorsByFrequency = Array.from(colorFrequency.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([color]) => color)
+    // Now filter colors, but preserve frequency data
+    const filteredColors = this.filterBrandColors(websiteContent.extractedColors);
+    
+    // Sort filtered colors by frequency (most common first) and take top 20
+    // Deduplicate colors after normalization to avoid duplicates in the final list
+    const seenColors = new Set<string>();
+    const sortedColorsByFrequency = filteredColors
+      .map(color => normalizeColorForCounting(color))
+      .filter((color): color is string => {
+        // Only keep colors that are valid, have frequency data, and haven't been seen yet
+        if (!color || !colorFrequency.has(color)) return false;
+        if (seenColors.has(color)) return false; // Deduplicate
+        seenColors.add(color);
+        return true;
+      })
+      .sort((a, b) => (colorFrequency.get(b) || 0) - (colorFrequency.get(a) || 0))
       .slice(0, 20);
     
     const optimizedColors = sortedColorsByFrequency;
     
-    const optimizedFonts = [...new Set(websiteContent.extractedFonts)]
-      .filter(font => !this.isGenericFont(font))
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/1e4bee63-f8e6-4581-b0da-e776ea8c2c17',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'brandAnalyzer.ts:838',message:'optimizedColors after deduplication',data:{optimizedColorsCount:optimizedColors.length,optimizedColors:optimizedColors,hasDuplicates:optimizedColors.length!==new Set(optimizedColors).size},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/1e4bee63-f8e6-4581-b0da-e776ea8c2c17',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'brandAnalyzer.ts:838',message:'optimizedColors created',data:{optimizedColorsCount:optimizedColors.length,optimizedColors:optimizedColors.slice(0,10),totalExtractedColors:websiteContent.extractedColors.length,filteredColorsCount:filteredColors.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
+    
+    const optimizedFonts = Array.from(new Set(websiteContent.extractedFonts))
+      .filter((font): font is string => typeof font === 'string' && !this.isGenericFont(font))
       .slice(0, 10); // Limit to 10 unique fonts
     
     const optimizedImages = websiteContent.imageDetails
@@ -697,6 +869,10 @@ export class BrandAnalyzer {
           return `${idx + 1}. ${color}${frequencyNote}`;
         }).join('\n')
       : 'NO COLORS FOUND - SET ALL COLOR VALUES TO null';
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/1e4bee63-f8e6-4581-b0da-e776ea8c2c17',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'brandAnalyzer.ts:856',message:'color list for AI prompt',data:{colorListLength:colorListWithIndices.length,hasColors:optimizedColors.length>0,colorListPreview:colorListWithIndices.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
 
     const prompt = `You are a strict brand analyzer analyzing the website: ${websiteUrl}. You MUST ONLY use colors and fonts from the EXACT lists provided below. DO NOT invent, guess, or create any colors or fonts.
 
@@ -766,19 +942,16 @@ Return JSON in this EXACT format:
   "reasoning": "Explanation of why these specific colors were chosen based on their actual usage on the website"
 }
 
-CRITICAL RULES - VIOLATION WILL CAUSE REJECTION:
-1. For colors.primary, colors.secondary, colors.accent: Use EXACT hex code from ALLOWED COLORS list OR null. NO OTHER VALUES ALLOWED.
-2. For colors.brandColors: Array of EXACT hex codes from ALLOWED COLORS list ONLY. Empty array [] if no suitable colors.
+CRITICAL RULES:
+1. For colors.primary, colors.secondary, colors.accent: Use ANY valid color format discovered from the website (hex like #FF5733 or #333, RGB like rgb(255,87,51), or RGBa). The system will normalize them automatically. Base selections on actual website usage.
+2. For colors.brandColors: Array of valid color codes discovered from the website. Include all prominent brand colors in any valid format.
 3. For typography fields: Use EXACT font name from ALLOWED FONTS list OR null. NO OTHER VALUES ALLOWED.
-4. If ALLOWED COLORS list says "NO COLORS FOUND", set ALL color fields to null.
+4. If ALLOWED COLORS list shows colors, prioritize those but you can also use other colors you discover from analyzing the website.
 5. If ALLOWED FONTS list says "NO FONTS FOUND", set ALL font fields to null.
-6. DO NOT use colors like #000000, #ffffff, #cccccc unless they are genuinely the brand colors and appear in the ALLOWED COLORS list.
-7. DO NOT invent or approximate colors. If a color is not in the list, use null.
+6. SELECT colors based on their ACTUAL USAGE on the website. Primary should be the most prominent brand color, secondary should complement it, and accent should provide contrast.
+7. You can use colors in hex (#FF5733), 3-digit hex (#333), RGB (rgb(255,87,51)), or RGBa format - all will be normalized automatically.
 8. DO NOT use generic fonts like "sans-serif", "serif", "Arial" unless they are in the ALLOWED FONTS list.
-9. Validate: Every color value must match EXACTLY (case-insensitive) a hex code from the ALLOWED COLORS list.
-10. Validate: Every font value must match EXACTLY a font name from the ALLOWED FONTS list.
-11. SELECT colors based on their ACTUAL USAGE on the website, not randomly. Primary should be the most prominent brand color, secondary should complement it, and accent should provide contrast.
-12. DO NOT hallucinate or guess color usage. Only select colors that you can reasonably infer are the primary, secondary, or accent based on typical website design patterns.`;
+9. Base your color selections on actual website visual analysis and usage patterns.`;
 
     try {
       const response = await openai.chat.completions.create({
@@ -803,68 +976,132 @@ CRITICAL RULES - VIOLATION WILL CAUSE REJECTION:
       quotaManager.recordRequest(tokensUsed);
 
       const result = JSON.parse(response.choices[0].message.content || '{}');
-
-      // Strict validation: normalize colors and check exact matches
-      const normalizeColor = (color: string): string => {
-        if (!color) return '';
-        // Normalize 3-digit hex to 6-digit
-        if (/^#[0-9A-Fa-f]{3}$/.test(color)) {
-          return `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`.toUpperCase();
-        }
-        // Normalize to uppercase for comparison
-        return color.toUpperCase();
-      };
-
-      const normalizedAllowedColors = optimizedColors.map(c => normalizeColor(c));
       
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/1e4bee63-f8e6-4581-b0da-e776ea8c2c17',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'brandAnalyzer.ts:969',message:'AI response received',data:{aiPrimary:result.colors?.primary,aiSecondary:result.colors?.secondary,aiAccent:result.colors?.accent,rawResponse:response.choices[0].message.content?.substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+
+      // Normalize colors - accept any valid hex color discovered from website (no restrictions)
+      const normalizeColor = (color: string): string | null => {
+        if (!color || typeof color !== 'string') return null;
+        const trimmed = color.trim();
+        
+        // Handle hex colors (3 or 6 digits)
+        if (trimmed.startsWith('#')) {
+          const hex = trimmed.replace('#', '');
+          if (/^[0-9A-Fa-f]{3}$/.test(hex)) {
+            // Expand 3-digit hex to 6-digit
+            return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`.toUpperCase();
+          } else if (/^[0-9A-Fa-f]{6}$/.test(hex)) {
+            return `#${hex}`.toUpperCase();
+          }
+        }
+        
+        // Handle RGB/RGBA colors
+        const rgbMatch = trimmed.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+        if (rgbMatch) {
+          const r = parseInt(rgbMatch[1]);
+          const g = parseInt(rgbMatch[2]);
+          const b = parseInt(rgbMatch[3]);
+          if (r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255) {
+            return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`.toUpperCase();
+          }
+        }
+        
+        return null;
+      };
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/1e4bee63-f8e6-4581-b0da-e776ea8c2c17',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'brandAnalyzer.ts:987',message:'AI color validation - before (no restrictions)',data:{aiPrimary:result.colors?.primary,aiSecondary:result.colors?.secondary,aiAccent:result.colors?.accent,aiBrandColors:result.colors?.brandColors},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      
+      // Accept any valid color format - no restrictions on which colors can be used
       const validatedColors = {
-        primary: (() => {
-          const normalized = normalizeColor(result.colors?.primary || '');
-          return normalized && normalizedAllowedColors.includes(normalized) ? normalized : null;
-        })(),
-        secondary: (() => {
-          const normalized = normalizeColor(result.colors?.secondary || '');
-          return normalized && normalizedAllowedColors.includes(normalized) ? normalized : null;
-        })(),
-        accent: (() => {
-          const normalized = normalizeColor(result.colors?.accent || '');
-          return normalized && normalizedAllowedColors.includes(normalized) ? normalized : null;
-        })(),
+        primary: normalizeColor(result.colors?.primary || ''),
+        secondary: normalizeColor(result.colors?.secondary || ''),
+        accent: normalizeColor(result.colors?.accent || ''),
         brandColors: Array.isArray(result.colors?.brandColors) 
           ? result.colors.brandColors
-              .map((color: string) => normalizeColor(color))
-              .filter((color: string) => color && normalizedAllowedColors.includes(color))
+              .map((color: any): string | null => normalizeColor(color))
+              .filter((color: string | null): color is string => color !== null)
           : []
       };
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/1e4bee63-f8e6-4581-b0da-e776ea8c2c17',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'brandAnalyzer.ts:1033',message:'color validation - after (no restrictions)',data:{validatedPrimary:validatedColors.primary,validatedSecondary:validatedColors.secondary,validatedAccent:validatedColors.accent,validatedBrandColorsCount:validatedColors.brandColors.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
 
       // Strict font validation with case-insensitive matching
       const validatedFonts = {
         primaryFont: (() => {
           const font = result.typography?.primaryFont;
-          if (!font) return null;
-          const matched = optimizedFonts.find(f => f.toLowerCase() === font.toLowerCase());
-          return matched || null;
+          if (!font || typeof font !== 'string') return null;
+          const matched = optimizedFonts.find((f: string) => f.toLowerCase() === font.toLowerCase());
+          return matched ? matched : null;
         })(),
         secondaryFont: (() => {
           const font = result.typography?.secondaryFont;
-          if (!font) return null;
-          const matched = optimizedFonts.find(f => f.toLowerCase() === font.toLowerCase());
-          return matched || null;
+          if (!font || typeof font !== 'string') return null;
+          const matched = optimizedFonts.find((f: string) => f.toLowerCase() === font.toLowerCase());
+          return matched ? matched : null;
         })(),
         fontFamilies: Array.isArray(result.typography?.fontFamilies) 
           ? result.typography.fontFamilies
-              .map((font: string) => optimizedFonts.find(f => f.toLowerCase() === font.toLowerCase()))
-              .filter((font: string | undefined): font is string => !!font)
+              .map((font: any) => {
+                if (typeof font !== 'string') return null;
+                return optimizedFonts.find((f: string) => f.toLowerCase() === font.toLowerCase()) || null;
+              })
+              .filter((font: string | null): font is string => typeof font === 'string' && font !== null)
           : []
       };
 
-      return {
+      // Validate logo URL - must be in the candidate list
+      let validatedLogoUrl: string | null = null;
+      if (result.logo?.logoUrl) {
+        // Check if the logo URL is in our image candidates
+        const logoUrlLower = result.logo.logoUrl.toLowerCase();
+        const matchingImage = optimizedImages.find((img: any) => 
+          img.src.toLowerCase() === logoUrlLower || 
+          img.src.toLowerCase().includes(logoUrlLower) ||
+          logoUrlLower.includes(img.src.toLowerCase())
+        );
+        
+        if (matchingImage) {
+          validatedLogoUrl = matchingImage.src;
+          console.log('✅ Validated logo URL:', validatedLogoUrl);
+        } else {
+          // If not found, try to find the first logo candidate
+          const firstLogo = optimizedImages.find((img: any) => img.isLogo);
+          if (firstLogo) {
+            validatedLogoUrl = firstLogo.src;
+            console.log('⚠️  Logo URL not in candidates, using first logo candidate:', validatedLogoUrl);
+          } else if (optimizedImages.length > 0) {
+            // Fallback to first image if no logo found
+            validatedLogoUrl = optimizedImages[0].src;
+            console.log('⚠️  No logo candidates found, using first image:', validatedLogoUrl);
+          } else {
+            console.log('⚠️  No logo candidates available');
+          }
+        }
+      } else if (optimizedImages.length > 0) {
+        // If AI didn't return a logo but we have candidates, use the first logo
+        const firstLogo = optimizedImages.find((img: any) => img.isLogo);
+        if (firstLogo) {
+          validatedLogoUrl = firstLogo.src;
+          console.log('✅ Using first logo candidate (AI returned null):', validatedLogoUrl);
+        } else {
+          validatedLogoUrl = optimizedImages[0].src;
+          console.log('✅ Using first image as logo (no logo candidates):', validatedLogoUrl);
+        }
+      }
+
+      const extractionResult = {
         colors: validatedColors,
         typography: validatedFonts,
         logo: {
-          logoUrl: result.logo?.logoUrl || null,
-          logoDescription: result.logo?.logoDescription || null,
-          brandMark: result.logo?.brandMark || null
+          logoUrl: validatedLogoUrl || undefined,
+          logoDescription: result.logo?.logoDescription || undefined,
+          brandMark: result.logo?.brandMark || undefined
         },
         brandPersonality: {
           tone: result.brandPersonality?.tone || "Professional",
@@ -873,6 +1110,12 @@ CRITICAL RULES - VIOLATION WILL CAUSE REJECTION:
         },
         reasoning: result.reasoning || "Brand analysis completed using AI-powered website crawling and CSS extraction."
       };
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/1e4bee63-f8e6-4581-b0da-e776ea8c2c17',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'brandAnalyzer.ts:1084',message:'extraction result final',data:{primary:extractionResult.colors.primary,secondary:extractionResult.colors.secondary,accent:extractionResult.colors.accent,hasNullColors:!extractionResult.colors.primary||!extractionResult.colors.secondary||!extractionResult.colors.accent},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
+      
+      return extractionResult;
     } catch (error: any) {
       console.error('AI brand analysis error:', error);
       

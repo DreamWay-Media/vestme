@@ -327,8 +327,23 @@ export class MediaManager {
     try {
       console.log(`🔍 Extracting images from: ${websiteUrl} (multi-page crawl)`);
 
-      const baseUrl = new URL(websiteUrl);
-      const visitedUrls = new Set<string>([websiteUrl]);
+      // Ensure URL has a protocol
+      let normalizedUrl = websiteUrl.trim();
+      if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
+        normalizedUrl = `https://${normalizedUrl}`;
+        console.log(`📋 Added protocol to URL: ${normalizedUrl}`);
+      }
+      
+      // Validate and create base URL
+      let baseUrl: URL;
+      try {
+        baseUrl = new URL(normalizedUrl);
+      } catch (urlError) {
+        console.error(`❌ Invalid URL format: ${websiteUrl}`, urlError);
+        throw new Error(`Invalid URL format: ${websiteUrl}. Please include http:// or https://`);
+      }
+      
+      const visitedUrls = new Set<string>([normalizedUrl]);
       const allExtractedImages: ExtractedImage[] = [];
       const imageUrlSet = new Set<string>(); // Track unique image URLs
       const imageHashes = new Map<string, string>(); // Track image hashes for duplicate detection
@@ -339,6 +354,10 @@ export class MediaManager {
 
       // Helper to normalize image URL for comparison
       const normalizeImageUrl = (url: string): string => {
+        // Data URIs should be kept as-is (they're usually unique)
+        if (url.startsWith('data:')) {
+          return url;
+        }
         try {
           const urlObj = new URL(url);
           // Remove query parameters and fragments for comparison
@@ -349,67 +368,340 @@ export class MediaManager {
       };
 
       // Helper to check if images are similar (same normalized URL or very similar paths)
+      // NOTE: This checks against images already in allExtractedImages, not just current page
       const isDuplicateImage = (url: string): boolean => {
-        const normalized = normalizeImageUrl(url);
-        
-        // Check exact match
-        if (imageUrlSet.has(normalized)) {
-          return true;
-        }
-
-        // Check for similar paths (e.g., image.jpg vs image-1.jpg)
-        const urlPath = normalized.toLowerCase();
-        for (const existingUrl of imageUrlSet) {
-          const existingPath = existingUrl.toLowerCase();
-          // If paths are very similar (differ only by version numbers or sizes), consider duplicate
-          const path1 = urlPath.split('/').pop() || '';
-          const path2 = existingPath.split('/').pop() || '';
+        try {
+          const normalized = normalizeImageUrl(url);
           
-          // Remove common suffixes like -150x150, -300x300, etc.
-          const cleanPath1 = path1.replace(/-\d+x\d+/, '').replace(/-\d+w/, '').replace(/-\d+h/, '');
-          const cleanPath2 = path2.replace(/-\d+x\d+/, '').replace(/-\d+w/, '').replace(/-\d+h/, '');
-          
-          if (cleanPath1 === cleanPath2 && cleanPath1.length > 0) {
+          // Check exact match against images already collected
+          if (imageUrlSet.has(normalized)) {
             return true;
           }
+          
+          // Skip data URIs from duplicate checking (they're usually unique placeholders)
+          if (url.startsWith('data:')) {
+            return false;
+          }
+          
+          return false;
+        } catch (error) {
+          // If URL normalization fails, don't treat as duplicate
+          return false;
         }
-        
-        return false;
       };
 
       // Extract images from a single page
       const extractImagesFromPage = async (pageUrl: string): Promise<ExtractedImage[]> => {
         try {
           console.log(`  📄 Crawling page: ${pageUrl}`);
-          const response = await httpGet(pageUrl);
+          
+          // Ensure pageUrl has protocol
+          let normalizedPageUrl = pageUrl;
+          if (!pageUrl.startsWith('http://') && !pageUrl.startsWith('https://')) {
+            normalizedPageUrl = `https://${pageUrl}`;
+          }
+          
+          console.log(`  🔗 Attempting to fetch: ${normalizedPageUrl}`);
+          const response = await httpGet(normalizedPageUrl);
+          console.log(`  ✅ Successfully fetched page (${response.data.length} bytes)`);
           const html = response.data.toString('utf-8');
+          console.log(`  📄 HTML length: ${html.length} characters`);
           const $ = cheerio.load(html);
           const pageImages: ExtractedImage[] = [];
           const logoImages: string[] = [];
 
+          // Use normalized page URL for relative URL resolution
+          const currentPageUrl = normalizedPageUrl;
+          
+          // Comprehensive image extraction that bypasses lazy loading
+          // Extracts from multiple sources: HTML attributes, CSS, JavaScript, JSON, etc.
+          const extractImagesFromAllSources = (html: string, $: cheerio.CheerioAPI): string[] => {
+            const imageUrls: string[] = [];
+            const seenUrls = new Set<string>();
+            
+            // Helper to normalize and add URL
+            const addImageUrl = (url: string) => {
+              if (!url || url.startsWith('data:') || url.length < 10) return;
+              
+              try {
+                let absoluteUrl = url.split(' ')[0].split(',')[0].trim(); // Handle srcset: "url 2x, url2 3x"
+                
+                // Skip query params for comparison but keep them in the URL
+                const urlWithoutQuery = absoluteUrl.split('?')[0];
+                
+                if (absoluteUrl.startsWith('/')) {
+                  absoluteUrl = `${baseUrl.origin}${absoluteUrl}`;
+                } else if (!absoluteUrl.startsWith('http')) {
+                  absoluteUrl = new URL(absoluteUrl, currentPageUrl).href;
+                }
+                
+                // Check if it looks like an image
+                const isImageUrl = absoluteUrl.match(/\.(jpg|jpeg|png|gif|svg|webp|ico|avif)(\?|$)/i) ||
+                                  absoluteUrl.includes('/wp-content/uploads/') ||
+                                  absoluteUrl.includes('/images/') ||
+                                  absoluteUrl.includes('/assets/') ||
+                                  absoluteUrl.includes('/media/') ||
+                                  absoluteUrl.includes('/uploads/') ||
+                                  absoluteUrl.includes('/img/') ||
+                                  absoluteUrl.includes('/pictures/') ||
+                                  absoluteUrl.includes('/photos/');
+                
+                if (isImageUrl && !seenUrls.has(urlWithoutQuery)) {
+                  seenUrls.add(urlWithoutQuery);
+                  imageUrls.push(absoluteUrl);
+                }
+              } catch {
+                // Skip invalid URLs
+              }
+            };
+            
+            // 1. Extract from all data-* attributes (comprehensive lazy loading detection)
+            $('[data-src], [data-lazy-src], [data-original], [data-url], [data-image], [data-img]').each((_, element) => {
+              const dataSrc = $(element).attr('data-src') || 
+                             $(element).attr('data-lazy-src') || 
+                             $(element).attr('data-original') || 
+                             $(element).attr('data-url') ||
+                             $(element).attr('data-image') ||
+                             $(element).attr('data-img');
+              if (dataSrc) addImageUrl(dataSrc);
+            });
+            
+            // 2. Extract from srcset attributes (responsive images)
+            $('[srcset]').each((_, element) => {
+              const srcset = $(element).attr('srcset');
+              if (srcset) {
+                // Parse srcset: "url1 1x, url2 2x, url3 3x"
+                srcset.split(',').forEach(entry => {
+                  const url = entry.trim().split(/\s+/)[0];
+                  addImageUrl(url);
+                });
+              }
+            });
+            
+            // 3. Extract from data-srcset
+            $('[data-srcset]').each((_, element) => {
+              const dataSrcset = $(element).attr('data-srcset');
+              if (dataSrcset) {
+                dataSrcset.split(',').forEach(entry => {
+                  const url = entry.trim().split(/\s+/)[0];
+                  addImageUrl(url);
+                });
+              }
+            });
+            
+            // 4. Extract from inline styles (background-image)
+            $('[style*="background-image"], [style*="background:"]').each((_, element) => {
+              const style = $(element).attr('style') || '';
+              const bgImageMatch = style.match(/background(?:-image)?:\s*url\(["']?([^"')]+)["']?\)/i);
+              if (bgImageMatch && bgImageMatch[1]) {
+                addImageUrl(bgImageMatch[1]);
+              }
+            });
+            
+            // 5. Extract from <style> tags (CSS)
+            $('style').each((_, element) => {
+              const css = $(element).html() || '';
+              const bgImagePattern = /background(?:-image)?:\s*url\(["']?([^"')]+)["']?\)/gi;
+              let bgMatch;
+              while ((bgMatch = bgImagePattern.exec(css)) !== null) {
+                if (bgMatch[1]) addImageUrl(bgMatch[1]);
+              }
+            });
+            
+            // 6. Extract from JSON-LD structured data
+            $('script[type="application/ld+json"]').each((_, element) => {
+              try {
+                const jsonLd = JSON.parse($(element).html() || '{}');
+                const extractFromObject = (obj: any) => {
+                  if (!obj || typeof obj !== 'object') return;
+                  for (const [key, value] of Object.entries(obj)) {
+                    if (key === 'image' || key === 'logo' || key === 'photo') {
+                      if (typeof value === 'string') {
+                        addImageUrl(value);
+                      } else if (value && typeof value === 'object' && 'url' in value) {
+                        const urlValue = (value as any).url;
+                        if (typeof urlValue === 'string') addImageUrl(urlValue);
+                      } else if (Array.isArray(value)) {
+                        value.forEach((item: any) => {
+                          if (typeof item === 'string') {
+                            addImageUrl(item);
+                          } else if (item && typeof item === 'object' && 'url' in item) {
+                            const itemUrl = item.url;
+                            if (typeof itemUrl === 'string') addImageUrl(itemUrl);
+                          }
+                        });
+                      }
+                    } else if (Array.isArray(value) || (value && typeof value === 'object')) {
+                      extractFromObject(value);
+                    }
+                  }
+                };
+                extractFromObject(jsonLd);
+              } catch {
+                // Skip invalid JSON
+              }
+            });
+            
+            // 7. Extract from JavaScript variables and data (look for image URLs in script tags)
+            $('script:not([type="application/ld+json"])').each((_, element) => {
+              const scriptContent = $(element).html() || '';
+              // Look for image URLs in JavaScript (common patterns)
+              const jsImagePatterns = [
+                /["']([^"']+\.(jpg|jpeg|png|gif|svg|webp|ico))["']/gi,
+                /url\(["']?([^"')]+\.(jpg|jpeg|png|gif|svg|webp|ico))["']?\)/gi,
+                /src:\s*["']([^"']+)["']/gi,
+                /image:\s*["']([^"']+)["']/gi,
+              ];
+              
+              jsImagePatterns.forEach(pattern => {
+                let match;
+                while ((match = pattern.exec(scriptContent)) !== null) {
+                  if (match[1]) addImageUrl(match[1]);
+                }
+              });
+            });
+            
+            // 8. Extract from HTML patterns (regex on raw HTML)
+            const htmlPatterns = [
+              /data-src=["']([^"']+)["']/gi,
+              /data-lazy-src=["']([^"']+)["']/gi,
+              /data-original=["']([^"']+)["']/gi,
+              /data-image=["']([^"']+)["']/gi,
+              /data-img=["']([^"']+)["']/gi,
+              /srcset=["']([^"']+)["']/gi,
+              /data-srcset=["']([^"']+)["']/gi,
+              /background-image:\s*url\(["']?([^"')]+)["']?\)/gi,
+              /background:\s*url\(["']?([^"')]+)["']?\)/gi,
+            ];
+            
+            htmlPatterns.forEach(pattern => {
+              let match;
+              while ((match = pattern.exec(html)) !== null) {
+                if (match[1]) {
+                  // Handle srcset format
+                  const urls = match[1].split(',').map(u => u.trim().split(/\s+/)[0]);
+                  urls.forEach(url => addImageUrl(url));
+                }
+              }
+            });
+            
+            // 9. Extract all absolute image URLs from HTML (any URL with image extension)
+            const absoluteImageUrlPattern = /https?:\/\/[^\s"'<>]+\.(jpg|jpeg|png|gif|svg|webp|ico|avif)(\?[^\s"']*)?/gi;
+            let match;
+            while ((match = absoluteImageUrlPattern.exec(html)) !== null) {
+              if (match[0]) addImageUrl(match[0]);
+            }
+            
+            // 10. Extract from picture source elements
+            $('picture source').each((_, element) => {
+              const srcset = $(element).attr('srcset');
+              if (srcset) {
+                srcset.split(',').forEach(entry => {
+                  const url = entry.trim().split(/\s+/)[0];
+                  addImageUrl(url);
+                });
+              }
+            });
+            
+            return imageUrls;
+          };
+          
+          const extractedImageUrls = extractImagesFromAllSources(html, $);
+          console.log(`  🔍 Found ${extractedImageUrls.length} images from all sources (bypassing lazy loading)`);
+          if (extractedImageUrls.length > 0) {
+            console.log(`  📋 Sample extracted URLs (first 5):`);
+            extractedImageUrls.slice(0, 5).forEach((url, idx) => {
+              console.log(`     ${idx + 1}. ${url.substring(0, 100)}${url.length > 100 ? '...' : ''}`);
+            });
+          }
+
           // Find all image tags (process from top to bottom)
+          const imgCount = $('img').length;
+          console.log(`  📸 Found ${imgCount} <img> tags on page`);
+          
+          // Debug counters
+          let noSrcCount = 0;
+          let invalidUrlCount = 0;
+          let tooSmallCount = 0;
+          let duplicateCount = 0;
+          let faviconFilterCount = 0;
+          let processedCount = 0;
+          
           $('img').each((_, element) => {
             // Stop if we've reached limits
-            if (allExtractedImages.length >= MAX_IMAGES || totalSizeBytes >= MAX_SIZE_BYTES) {
+            if (allExtractedImages.length >= MAX_IMAGES * 2 || totalSizeBytes >= MAX_SIZE_BYTES) {
               return false; // Break the loop
             }
 
-            const src = $(element).attr('src') || $(element).attr('data-src') || $(element).attr('data-lazy-src');
+            // Check multiple attributes for lazy loading (prioritize real image sources)
+            const dataSrc = $(element).attr('data-src') || 
+                           $(element).attr('data-lazy-src') || 
+                           $(element).attr('data-original') || 
+                           $(element).attr('data-url') ||
+                           $(element).attr('data-srcset')?.split(',')[0]?.trim().split(' ')[0]; // First image from srcset
+            const srcAttr = $(element).attr('src');
+            
+            // Determine which source to use:
+            // 1. If src is a placeholder (data URI), ALWAYS prefer data-src if it exists
+            // 2. If data-src exists and src is NOT a placeholder, prefer data-src (lazy loading)
+            // 3. Otherwise, use src
+            let src: string | undefined;
+            const isPlaceholder = srcAttr?.startsWith('data:image/svg+xml') || 
+                                 (srcAttr?.startsWith('data:') && srcAttr.length < 200);
+            
+            if (dataSrc && (isPlaceholder || !srcAttr)) {
+              // Prefer data-src if src is a placeholder or doesn't exist
+              src = dataSrc;
+            } else if (srcAttr) {
+              src = srcAttr;
+            } else if (dataSrc) {
+              src = dataSrc;
+            }
+            
             const alt = $(element).attr('alt') || '';
             const width = $(element).attr('width');
             const height = $(element).attr('height');
 
-            if (!src) return;
+            if (!src) {
+              noSrcCount++;
+              return; // Skip images without src
+            }
+            
+            // Skip data URI placeholders BEFORE converting to absolute URL
+            // This prevents 1x1 SVG placeholders from being processed
+            if (src.startsWith('data:image/svg+xml')) {
+              // Check if it's a 1x1 placeholder - the specific pattern we see in logs
+              if (src.includes('PHN2ZyB3aWR0aD0iMSIgaGVpZ2h0PSIxIg==') || 
+                  src.includes('width="1"') || 
+                  src.includes('width=\'1\'') ||
+                  src.includes('w="1"') ||
+                  src.includes('w=\'1\'') ||
+                  (src.length < 200 && src.includes('base64'))) {
+                faviconFilterCount++;
+                console.log(`  ⊘ Skipping 1x1 placeholder: ${src.substring(0, 60)}...`);
+                return; // Skip 1x1 placeholder
+              }
+            }
+            
+            // Skip all very short data URIs (likely placeholders)
+            if (src.startsWith('data:') && src.length < 200) {
+              faviconFilterCount++;
+              console.log(`  ⊘ Skipping short data URI placeholder: ${src.substring(0, 60)}...`);
+              return;
+            }
 
             // Convert relative URLs to absolute
             let absoluteUrl = src;
             try {
               if (src.startsWith('/')) {
-                absoluteUrl = `${baseUrl.protocol}//${baseUrl.host}${src}`;
+                // Use origin instead of manually constructing to avoid double slashes
+                absoluteUrl = `${baseUrl.origin}${src}`;
               } else if (!src.startsWith('http')) {
-                absoluteUrl = new URL(src, pageUrl).href;
+                absoluteUrl = new URL(src, currentPageUrl).href;
               }
-            } catch {
+            } catch (urlError) {
+              invalidUrlCount++;
+              console.log(`⚠️  Skipping invalid image URL: ${src}`, urlError);
               return; // Skip invalid URLs
             }
 
@@ -418,12 +710,29 @@ export class MediaManager {
             const w = width ? parseInt(width) : 0;
             const h = height ? parseInt(height) : 0;
             if (w > 0 && h > 0 && ((w < 20) || (h < 20))) {
+              tooSmallCount++;
               return; // Only skip if we have explicit dimensions AND they're very small
             }
 
-            // Check for duplicates
-            if (isDuplicateImage(absoluteUrl)) {
-              return;
+            // Check for duplicates - use direct Set check instead of function
+            // Skip data URIs from duplicate checking (they're usually unique placeholders)
+            let normalizedUrl: string;
+            try {
+              if (absoluteUrl.startsWith('data:')) {
+                // For data URIs, use the full URL as the key (they're usually unique)
+                normalizedUrl = absoluteUrl;
+              } else {
+                normalizedUrl = normalizeImageUrl(absoluteUrl);
+              }
+              
+              if (imageUrlSet.has(normalizedUrl)) {
+                duplicateCount++;
+                console.log(`  🔄 Duplicate detected: ${absoluteUrl.substring(0, 80)}${absoluteUrl.length > 80 ? '...' : ''}`);
+                return;
+              }
+            } catch (urlError) {
+              // If normalization fails, skip duplicate check but still process the image
+              console.log(`  ⚠️  URL normalization failed for duplicate check: ${absoluteUrl}`);
             }
 
             // Detect if this is likely a logo
@@ -445,6 +754,7 @@ export class MediaManager {
               absoluteUrl.includes('pixel') ||
               absoluteUrl.includes('tracking')
             ) {
+              faviconFilterCount++;
               return;
             }
 
@@ -466,8 +776,29 @@ export class MediaManager {
               context: context || undefined
             });
 
-            imageUrlSet.add(normalizeImageUrl(absoluteUrl));
+            // Add to set using the same normalization we used for duplicate check
+            try {
+              if (absoluteUrl.startsWith('data:')) {
+                imageUrlSet.add(absoluteUrl);
+              } else {
+                imageUrlSet.add(normalizeImageUrl(absoluteUrl));
+              }
+            } catch {
+              // If normalization fails, add the original URL
+              imageUrlSet.add(absoluteUrl);
+            }
+            processedCount++;
           });
+          
+          // Log detailed filtering stats
+          console.log(`  📊 Image filtering stats:`);
+          console.log(`     - Total <img> tags: ${imgCount}`);
+          console.log(`     - No src attribute: ${noSrcCount}`);
+          console.log(`     - Invalid URLs: ${invalidUrlCount}`);
+          console.log(`     - Too small (dimensions): ${tooSmallCount}`);
+          console.log(`     - Duplicates: ${duplicateCount}`);
+          console.log(`     - Favicon/sprite/pixel: ${faviconFilterCount}`);
+          console.log(`     - Successfully processed: ${processedCount}`);
 
           // Check for logo-specific elements
           $('link[rel*="icon"]').each((_, element) => {
@@ -476,9 +807,9 @@ export class MediaManager {
               try {
                 let absoluteUrl = href;
                 if (href.startsWith('/')) {
-                  absoluteUrl = `${baseUrl.protocol}//${baseUrl.host}${href}`;
+                  absoluteUrl = `${baseUrl.origin}${href}`;
                 } else if (!href.startsWith('http')) {
-                  absoluteUrl = new URL(href, pageUrl).href;
+                  absoluteUrl = new URL(href, currentPageUrl).href;
                 }
                 if (!logoImages.includes(absoluteUrl) && !isDuplicateImage(absoluteUrl)) {
                   logoImages.push(absoluteUrl);
@@ -497,10 +828,11 @@ export class MediaManager {
               if (jsonLd.logo?.url) {
                 const logoUrl = jsonLd.logo.url.startsWith('http') 
                   ? jsonLd.logo.url 
-                  : new URL(jsonLd.logo.url, pageUrl).href;
-                if (!logoImages.includes(logoUrl) && !isDuplicateImage(logoUrl)) {
+                  : new URL(jsonLd.logo.url, currentPageUrl).href;
+                const normalizedLogoUrl = normalizeImageUrl(logoUrl);
+                if (!logoImages.includes(logoUrl) && !imageUrlSet.has(normalizedLogoUrl)) {
                   logoImages.push(logoUrl);
-                  imageUrlSet.add(normalizeImageUrl(logoUrl));
+                  imageUrlSet.add(normalizedLogoUrl);
                 }
               }
             } catch (e) {
@@ -514,18 +846,19 @@ export class MediaManager {
             try {
               let absoluteOgUrl = ogImage;
               if (ogImage.startsWith('/')) {
-                absoluteOgUrl = `${baseUrl.protocol}//${baseUrl.host}${ogImage}`;
+                absoluteOgUrl = `${baseUrl.origin}${ogImage}`;
               } else if (!ogImage.startsWith('http')) {
-                absoluteOgUrl = new URL(ogImage, pageUrl).href;
+                absoluteOgUrl = new URL(ogImage, currentPageUrl).href;
               }
 
-              if (!isDuplicateImage(absoluteOgUrl)) {
+              const normalizedOgUrl = normalizeImageUrl(absoluteOgUrl);
+              if (!imageUrlSet.has(normalizedOgUrl)) {
                 pageImages.unshift({
                   url: absoluteOgUrl,
                   altText: $('meta[property="og:image:alt"]').attr('content') || 'Open Graph Image',
                   context: 'Primary website image (Open Graph)'
                 });
-                imageUrlSet.add(normalizeImageUrl(absoluteOgUrl));
+                imageUrlSet.add(normalizedOgUrl);
               }
             } catch {
               // Skip invalid URLs
@@ -542,11 +875,67 @@ export class MediaManager {
               });
             }
           }
-
-          console.log(`  ✅ Found ${pageImages.length} unique images on ${pageUrl}`);
+          
+          // Add images found from comprehensive extraction (bypassing lazy loading)
+          let addedFromExtraction = 0;
+          let skippedFromExtraction = 0;
+          let skippedDataUri = 0;
+          let skippedDuplicate = 0;
+          
+          console.log(`  🔧 Processing ${extractedImageUrls.length} URLs from comprehensive extraction...`);
+          
+          for (const extractedImageUrl of extractedImageUrls) {
+            // Skip data URIs
+            if (extractedImageUrl.startsWith('data:')) {
+              skippedDataUri++;
+              continue;
+            }
+            
+            try {
+              const normalizedUrl = normalizeImageUrl(extractedImageUrl);
+              const isDuplicate = imageUrlSet.has(normalizedUrl) || pageImages.some(img => img.url === extractedImageUrl);
+              
+              if (!isDuplicate) {
+                pageImages.push({
+                  url: extractedImageUrl,
+                  altText: 'Image extracted from website',
+                  context: 'Extracted from HTML/CSS/JavaScript (bypassing lazy loading)'
+                });
+                imageUrlSet.add(normalizedUrl);
+                addedFromExtraction++;
+                
+                if (addedFromExtraction <= 5) {
+                  console.log(`  ✅ Added: ${extractedImageUrl.substring(0, 100)}${extractedImageUrl.length > 100 ? '...' : ''}`);
+                }
+              } else {
+                skippedDuplicate++;
+              }
+            } catch (error) {
+              skippedFromExtraction++;
+              console.log(`  ⚠️  Error processing URL: ${extractedImageUrl.substring(0, 80)}...`);
+            }
+          }
+          
+          console.log(`  📊 Comprehensive extraction results:`);
+          console.log(`     - Added to pageImages: ${addedFromExtraction}`);
+          console.log(`     - Skipped (data URIs): ${skippedDataUri}`);
+          console.log(`     - Skipped (duplicates): ${skippedDuplicate}`);
+          console.log(`     - Skipped (errors): ${skippedFromExtraction - skippedDataUri - skippedDuplicate}`);
+          console.log(`  ✅ Found ${pageImages.length} unique images on ${normalizedPageUrl} (from ${imgCount} total <img> tags + ${extractedImageUrls.length} from comprehensive extraction)`);
+          if (pageImages.length === 0 && imgCount > 0) {
+            console.warn(`  ⚠️  WARNING: Found ${imgCount} <img> tags but extracted 0 images!`);
+            console.warn(`     This suggests all images were filtered out. Check the filtering stats above.`);
+          }
+          if (pageImages.length > 0) {
+            console.log(`  📋 Sample extracted image URLs (first 3):`);
+            pageImages.slice(0, 3).forEach((img, idx) => {
+              console.log(`     ${idx + 1}. ${img.url}`);
+            });
+          }
           return pageImages;
         } catch (error: any) {
           console.warn(`  ⚠️ Error extracting images from ${pageUrl}:`, error.message);
+          console.error(`  ❌ Full error details:`, error);
           return [];
         }
       };
@@ -566,7 +955,7 @@ export class MediaManager {
             try {
               let absoluteUrl = href;
               if (href.startsWith('/')) {
-                absoluteUrl = `${baseUrl.protocol}//${baseUrl.host}${href}`;
+                absoluteUrl = `${baseUrl.origin}${href}`;
               } else if (!href.startsWith('http')) {
                 absoluteUrl = new URL(href, pageUrl).href;
               }
@@ -637,18 +1026,33 @@ export class MediaManager {
       };
 
       // Start with homepage
-      const homepageImages = await extractImagesFromPage(websiteUrl);
+      console.log(`\n🔍 Extracting images from homepage: ${normalizedUrl}`);
+      const homepageImages = await extractImagesFromPage(normalizedUrl);
+      console.log(`📊 Homepage extraction returned ${homepageImages.length} images`);
+      
+      let homepageAdded = 0;
+      let homepageFiltered = 0;
       for (const img of homepageImages) {
-        if (!isDuplicateImage(img.url) && isLikelyRelevant(img)) {
+        const isDuplicate = isDuplicateImage(img.url);
+        const isRelevant = isLikelyRelevant(img);
+        
+        if (!isDuplicate && isRelevant) {
           allExtractedImages.push(img);
           imageUrlSet.add(normalizeImageUrl(img.url));
+          homepageAdded++;
+        } else {
+          homepageFiltered++;
+          if (homepageFiltered <= 3) {
+            console.log(`  ⊘ Filtered homepage image: ${img.url.substring(0, 80)}${img.url.length > 80 ? '...' : ''} (duplicate: ${isDuplicate}, relevant: ${isRelevant})`);
+          }
         }
       }
+      console.log(`✅ Homepage: ${homepageAdded} added, ${homepageFiltered} filtered from ${homepageImages.length} total\n`);
 
       // Collect all internal links first
       const allInternalLinks: string[] = [];
-      const linkQueue: string[] = [websiteUrl];
-      const processedForLinks = new Set<string>([websiteUrl]);
+      const linkQueue: string[] = [normalizedUrl];
+      const processedForLinks = new Set<string>([normalizedUrl]);
 
       // Build comprehensive link list by crawling pages
       while (linkQueue.length > 0 && processedForLinks.size < MAX_PAGES * 2) {
@@ -683,15 +1087,29 @@ export class MediaManager {
             const pageImages = await extractImagesFromPage(link);
             
             // Add images, checking for duplicates
+            let addedCount = 0;
+            let filteredCount = 0;
             for (const img of pageImages) {
               if (allExtractedImages.length >= MAX_IMAGES * 2) {
                 break;
               }
               
-              if (!isDuplicateImage(img.url) && isLikelyRelevant(img)) {
+              const isDuplicate = isDuplicateImage(img.url);
+              const isRelevant = isLikelyRelevant(img);
+              
+              if (!isDuplicate && isRelevant) {
                 allExtractedImages.push(img);
                 imageUrlSet.add(normalizeImageUrl(img.url));
+                addedCount++;
+              } else {
+                filteredCount++;
+                if (filteredCount <= 3) {
+                  console.log(`  ⊘ Filtered image: ${img.url.substring(0, 80)}${img.url.length > 80 ? '...' : ''} (duplicate: ${isDuplicate}, relevant: ${isRelevant})`);
+                }
               }
+            }
+            if (pageImages.length > 0) {
+              console.log(`  📊 Page images: ${addedCount} added, ${filteredCount} filtered from ${pageImages.length} total`);
             }
           } catch (error) {
             console.warn(`⚠️ Error extracting images from ${link}:`, error);
@@ -700,9 +1118,19 @@ export class MediaManager {
       }
 
       console.log(`✅ Total extracted: ${allExtractedImages.length} unique images from ${visitedUrls.size} pages`);
+      
+      if (allExtractedImages.length === 0) {
+        console.warn(`⚠️  WARNING: No images were extracted from ${websiteUrl}. Possible reasons:`);
+        console.warn(`   - Website may require JavaScript to load images (we only parse static HTML)`);
+        console.warn(`   - All images may have been filtered out`);
+        console.warn(`   - Website may be blocking our User-Agent`);
+        console.warn(`   - URL may be invalid or inaccessible`);
+      }
+      
       return allExtractedImages;
     } catch (error: any) {
-      console.error('Error extracting images from website:', error.message);
+      console.error('❌ Error extracting images from website:', error.message);
+      console.error('Full error stack:', error);
       throw new Error(`Failed to extract images: ${error.message}`);
     }
   }
@@ -786,18 +1214,11 @@ export class MediaManager {
     let totalSizeBytes = 0;
     const MAX_SIZE_BYTES = 32 * 1024 * 1024; // 32 MB
 
-    // Filter to only pitch-deck relevant images
-    console.log(`📊 Filtering ${images.length} images for pitch deck relevance...`);
-    const relevantImages = this.filterPitchDeckRelevantImages(images);
-    console.log(`✅ ${relevantImages.length} relevant images after filtering`);
-
-    // If we don't have enough images after filtering, log a warning but continue
-    if (relevantImages.length < maxImages) {
-      console.log(`⚠️  Only ${relevantImages.length} images passed filtering (target: ${maxImages}). This may indicate the website has limited suitable images.`);
-    }
+    // REMOVED: Irrelevant filtering - using all extracted images directly
+    console.log(`📊 Processing ${images.length} extracted images...`);
 
     // Process images until we hit limits
-    for (const image of relevantImages) {
+    for (const image of images) {
       // Stop if we've reached limits
       if (savedAssets.length >= maxImages || totalSizeBytes >= MAX_SIZE_BYTES) {
         console.log(`⏹️  Reached limits: ${savedAssets.length} images, ${(totalSizeBytes / 1024 / 1024).toFixed(2)} MB`);
@@ -815,15 +1236,25 @@ export class MediaManager {
           continue;
         }
 
+        // Skip data URIs - they can't be downloaded via HTTP and are usually placeholders
+        if (image.url.startsWith('data:')) {
+          console.log(`⊘ Skipping data URI (cannot download): ${image.url.substring(0, 80)}${image.url.length > 80 ? '...' : ''}`);
+          skipped.push({
+            url: image.url,
+            reason: 'data_uri'
+          });
+          continue;
+        }
+        
         // Download the image
         const response = await httpGet(image.url);
         const buffer = response.data;
-        const contentType = response.headers['content-type'] || 'image/jpeg';
-
-        // Validate file size (skip if too small - likely icon or broken image)
+        
+        // Validate file size first (skip if too small - likely broken image)
+        // Reduced threshold from 2KB to 0.5KB to allow small valid images (icons, logos, etc.)
         const fileSizeKB = buffer.length / 1024;
-        if (fileSizeKB < 2) {
-          console.log(`⊘ Skipping tiny/broken file: ${image.url} (${fileSizeKB.toFixed(1)} KB)`);
+        if (fileSizeKB < 0.5) {
+          console.log(`⊘ Skipping broken/tiny file: ${image.url} (${fileSizeKB.toFixed(2)} KB)`);
           skipped.push({
             url: image.url,
             reason: 'too_small'
@@ -831,13 +1262,34 @@ export class MediaManager {
           continue;
         }
         
-        // Also check image dimensions if possible (using sharp)
+        // Get image metadata (for content-type detection and dimension checking)
+        let metadata: sharp.Metadata | null = null;
+        let contentType = response.headers['content-type'] || '';
+        
         try {
-          const metadata = await sharp(buffer).metadata();
+          metadata = await sharp(buffer).metadata();
+          
+          // Detect content type from file signature if not in header
+          if (!contentType || !contentType.startsWith('image/')) {
+            if (metadata.format) {
+              contentType = `image/${metadata.format}`;
+              console.log(`📋 Detected content type from file: ${contentType} for ${image.url}`);
+            } else {
+              // Fallback: try to detect from URL extension
+              const urlLower = image.url.toLowerCase();
+              if (urlLower.includes('.png')) contentType = 'image/png';
+              else if (urlLower.includes('.gif')) contentType = 'image/gif';
+              else if (urlLower.includes('.webp')) contentType = 'image/webp';
+              else contentType = 'image/jpeg'; // Default fallback
+            }
+          }
+          
+          // Check image dimensions (reduced threshold from 50x50 to 20x20 to allow icons/logos)
           if (metadata.width && metadata.height) {
-            // Skip if actual dimensions are very small (likely icon)
-            if (metadata.width < 50 || metadata.height < 50) {
-              console.log(`⊘ Skipping small image: ${image.url} (${metadata.width}x${metadata.height})`);
+            // Skip only if actual dimensions are very small (likely broken or tracking pixel)
+            // Changed from 50x50 to 20x20 to allow small valid images like icons and logos
+            if (metadata.width < 20 || metadata.height < 20) {
+              console.log(`⊘ Skipping very small image: ${image.url} (${metadata.width}x${metadata.height})`);
               skipped.push({
                 url: image.url,
                 reason: 'too_small'
@@ -846,9 +1298,20 @@ export class MediaManager {
             }
           }
         } catch (sharpError) {
-          // If we can't read metadata, continue anyway - might be a valid image
-          console.log(`⚠️  Could not read image metadata for ${image.url}, continuing anyway`);
+          // If we can't read metadata, try URL-based content-type detection and continue anyway
+          console.log(`⚠️  Could not read image metadata for ${image.url}, using URL-based detection`);
+          if (!contentType || !contentType.startsWith('image/')) {
+            const urlLower = image.url.toLowerCase();
+            if (urlLower.includes('.png')) contentType = 'image/png';
+            else if (urlLower.includes('.gif')) contentType = 'image/gif';
+            else if (urlLower.includes('.webp')) contentType = 'image/webp';
+            else contentType = 'image/jpeg'; // Default fallback
+          }
+          // Continue processing even if metadata read failed - might be a valid image
         }
+        
+        // Normalize content type (remove charset, etc.)
+        contentType = contentType.split(';')[0].trim();
 
         // Check if adding this image would exceed size limit
         if (totalSizeBytes + buffer.length > MAX_SIZE_BYTES) {
@@ -912,8 +1375,8 @@ export class MediaManager {
 
     const stats = {
       totalFound: images.length,
-      filtered: images.length - relevantImages.length,
       duplicates: skipped.filter(s => s.reason === 'duplicate').length,
+      dataUris: skipped.filter(s => s.reason === 'data_uri').length,
       tooSmall: skipped.filter(s => s.reason === 'too_small').length,
       sizeLimit: skipped.filter(s => s.reason === 'size_limit').length,
       saved: savedAssets.length,
@@ -923,8 +1386,8 @@ export class MediaManager {
 
     console.log(`📊 Extraction Summary:
       - Total images found: ${stats.totalFound}
-      - Filtered out (irrelevant): ${stats.filtered}
       - Skipped (duplicates): ${stats.duplicates}
+      - Skipped (data URIs/placeholders): ${stats.dataUris}
       - Skipped (too small): ${stats.tooSmall}
       - Skipped (size limit): ${stats.sizeLimit}
       - Successfully saved: ${stats.saved}

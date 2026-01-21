@@ -727,6 +727,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         logo: brandExtraction.logo,
         logoUrl: brandExtraction.logo.logoUrl
       });
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/1e4bee63-f8e6-4581-b0da-e776ea8c2c17',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes.ts:729',message:'brand extraction received',data:{primary:brandExtraction.colors.primary,secondary:brandExtraction.colors.secondary,accent:brandExtraction.colors.accent,hasNullColors:!brandExtraction.colors.primary||!brandExtraction.colors.secondary||!brandExtraction.colors.accent,projectId:req.params.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
 
       // Handle logo: download and store in media library if available
       let logoAssetId: string | null = null;
@@ -753,6 +757,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/1e4bee63-f8e6-4581-b0da-e776ea8c2c17',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes.ts:757',message:'creating brand kit data',data:{primaryColor:brandExtraction.colors.primary,secondaryColor:brandExtraction.colors.secondary,accentColor:brandExtraction.colors.accent,willHaveNullColors:!brandExtraction.colors.primary||!brandExtraction.colors.secondary||!brandExtraction.colors.accent},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
+      
       // Create brand kit from extracted data
       const brandKitData = insertBrandKitSchema.parse({
         name: `AI-Generated Brand Kit for ${project.name}`,

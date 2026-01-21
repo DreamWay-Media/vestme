@@ -206,24 +206,27 @@ export function SlidePreviewModal({
         if (generatedContent.elementContent && typeof generatedContent.elementContent === 'object') {
           console.log('🎯 Using element-specific content from AI:', generatedContent.elementContent);
           
-          // Filter layout elements the same way as form rendering
-          const filteredLayoutElements = layoutElements.filter((el: any) => {
-            if (el.type === 'shape') return true;
-            const label = el.config?.label || '';
-            return label && label.trim() !== '';
+          // Filter fields the EXACT same way as form rendering to ensure matching indices
+          const filteredFields = enhancedFields.filter((field: any) => {
+            // Include all shapes (they get auto-labeled)
+            if (field.type === 'shape') return true;
+            // Skip fields without labels
+            if (!field.label || field.label.trim() === '') return false;
+            return true;
           });
           
-          // Map element content by element ID
-          filteredLayoutElements.forEach((el: any, filteredIndex: number) => {
-            const elementId = el.id;
+          // Map element content by finding matching field in filteredFields
+          // This ensures the filtered index matches the form rendering
+          filteredFields.forEach((field: any, filteredIndex: number) => {
+            const elementId = field.id;
             const elementContent = generatedContent.elementContent[elementId];
             
             if (elementContent !== undefined && elementContent !== null) {
               // For image/logo fields, use unique ID with filtered index (matches form rendering)
-              if (el.type === 'image' || el.type === 'logo') {
+              if (field.type === 'image' || field.type === 'logo') {
                 const uniqueId = `${elementId}-${filteredIndex}`;
                 mappedContent[uniqueId] = elementContent;
-                console.log(`  ✅ Mapped element "${elementId}" to form field "${uniqueId}":`, elementContent);
+                console.log(`  ✅ Mapped element "${elementId}" to form field "${uniqueId}" (filtered index ${filteredIndex}):`, elementContent);
               } else {
                 // For other fields, use element ID directly
                 mappedContent[elementId] = elementContent;

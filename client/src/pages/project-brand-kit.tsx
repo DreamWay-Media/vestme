@@ -284,8 +284,10 @@ export default function ProjectBrandKit() {
     // Find the asset ID from the media library
     try {
       const response = await apiRequest("GET", `/api/projects/${projectId}/media`);
-      const assets = response as any[];
-      const asset = assets.find(a => a.storageUrl === url);
+      // API returns { assets: [...], quota: {...} }
+      const mediaData = response as { assets?: any[]; quota?: any };
+      const assets = mediaData?.assets || [];
+      const asset = assets.find((a: any) => a.storageUrl === url);
       
       if (asset) {
         setEditingBrandKit(prev => prev ? {
@@ -297,6 +299,7 @@ export default function ProjectBrandKit() {
           title: "Logo Selected",
           description: "Logo selected from media library",
         });
+        setShowMediaLibraryPicker(false);
       } else {
         // Fallback to URL if asset not found
         setEditingBrandKit(prev => prev ? {
@@ -304,14 +307,26 @@ export default function ProjectBrandKit() {
           logoUrl: url,
           logoAssetId: null
         } : null);
+        toast({
+          title: "Logo Selected",
+          description: "Logo URL set (not found in media library)",
+        });
+        setShowMediaLibraryPicker(false);
       }
     } catch (error) {
+      console.error('Error selecting logo from media library:', error);
       // Fallback to URL if lookup fails
       setEditingBrandKit(prev => prev ? {
         ...prev,
         logoUrl: url,
         logoAssetId: null
       } : null);
+      toast({
+        title: "Logo Selected",
+        description: "Logo URL set (media library lookup failed)",
+        variant: "default",
+      });
+      setShowMediaLibraryPicker(false);
     }
   };
 
@@ -932,7 +947,38 @@ export default function ProjectBrandKit() {
                       </div>
                       
                       <div>
-                        <Label htmlFor="logo-url">Logos</Label>
+                        <Label htmlFor="main-logo-url">Main Logo (Optional)</Label>
+                        <div className="flex gap-2 mb-3">
+                          <Input
+                            id="main-logo-url"
+                            value={editingBrandKit?.logoUrl || ""}
+                            onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, logoUrl: e.target.value || null, logoAssetId: null} : null)}
+                            placeholder="Enter logo image URL"
+                            className="flex-1"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setShowMediaLibraryPicker(true)}
+                            className="flex items-center gap-2"
+                          >
+                            <Image className="h-4 w-4" />
+                            Choose from Media Library
+                          </Button>
+                        </div>
+                        {showMediaLibraryPicker && (
+                          <MediaLibraryPicker
+                            projectId={projectId!}
+                            open={showMediaLibraryPicker}
+                            onClose={() => setShowMediaLibraryPicker(false)}
+                            onSelect={handleSelectLogoFromMediaLibrary}
+                            currentValue={editingBrandKit?.logoUrl}
+                          />
+                        )}
+                      </div>
+                      
+                      <div>
+                        <Label htmlFor="logo-url">Additional Logos</Label>
                         <div className="space-y-3">
                           <Input
                             id="logo-url"
