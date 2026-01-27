@@ -13,34 +13,49 @@ export async function apiRequest(
   data?: unknown | undefined,
 ): Promise<Response> {
   // Get the current session token from Supabase with refresh
-  let authHeader = {};
+  let authHeader: Record<string, string> = {};
   try {
     const { supabase } = await import('./supabase');
     
-    // First try to get the current session
-    let { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    
-    if (sessionError) {
-      console.error('Session error:', sessionError);
-      throw sessionError;
-    }
-    
-    // If no session or expired token, try to refresh
-    if (!session?.access_token) {
-      console.log('No active session, attempting refresh...');
-      const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
+    // Check if Supabase is configured
+    if (!supabase) {
+      // Dev mode: check for dev user in localStorage
+      const devUserStr = localStorage.getItem('dev_user');
+      if (devUserStr) {
+        try {
+          const devUser = JSON.parse(devUserStr);
+          authHeader = { 'X-Dev-User-Id': devUser.id };
+          console.log('Using dev user auth:', devUser.id);
+        } catch (e) {
+          console.error('Error parsing dev user:', e);
+        }
+      }
+    } else {
+      // First try to get the current session
+      let { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
-      if (refreshError || !refreshedSession?.access_token) {
-        console.log('Failed to refresh session');
-        throw new Error('No valid session available');
+      if (sessionError) {
+        console.error('Session error:', sessionError);
+        throw sessionError;
       }
       
-      session = refreshedSession;
-    }
-    
-    if (session?.access_token) {
-      authHeader = { 'Authorization': `Bearer ${session.access_token}` };
-      console.log('Auth token obtained successfully');
+      // If no session or expired token, try to refresh
+      if (!session?.access_token) {
+        console.log('No active session, attempting refresh...');
+        const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
+        
+        if (refreshError || !refreshedSession?.access_token) {
+          console.log('Failed to refresh session');
+          throw new Error('No valid session available');
+        }
+        
+        session = refreshedSession;
+      }
+      
+      if (session?.access_token) {
+        authHeader = { 'Authorization': `Bearer ${session.access_token}` };
+        console.log('Auth token obtained successfully');
+      }
     }
   } catch (error) {
     console.error('Error getting auth token:', error);
@@ -68,34 +83,48 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     // Get the current session token from Supabase with refresh
-    let authHeader = {};
+    let authHeader: Record<string, string> = {};
     try {
       const { supabase } = await import('./supabase');
       
-      // First try to get the current session
-      let { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError) {
-        console.error('Session error:', sessionError);
-        throw sessionError;
-      }
-      
-      // If no session or expired token, try to refresh
-      if (!session?.access_token) {
-        console.log('No active session, attempting refresh...');
-        const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
+      // Check if Supabase is configured
+      if (!supabase) {
+        // Dev mode: check for dev user in localStorage
+        const devUserStr = localStorage.getItem('dev_user');
+        if (devUserStr) {
+          try {
+            const devUser = JSON.parse(devUserStr);
+            authHeader = { 'X-Dev-User-Id': devUser.id };
+          } catch (e) {
+            console.error('Error parsing dev user:', e);
+          }
+        }
+      } else {
+        // First try to get the current session
+        let { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
-        if (refreshError || !refreshedSession?.access_token) {
-          console.log('Failed to refresh session');
-          throw new Error('No valid session available');
+        if (sessionError) {
+          console.error('Session error:', sessionError);
+          throw sessionError;
         }
         
-        session = refreshedSession;
-      }
-      
-      if (session?.access_token) {
-        authHeader = { 'Authorization': `Bearer ${session.access_token}` };
-        console.log('Auth token obtained successfully for query');
+        // If no session or expired token, try to refresh
+        if (!session?.access_token) {
+          console.log('No active session, attempting refresh...');
+          const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
+          
+          if (refreshError || !refreshedSession?.access_token) {
+            console.log('Failed to refresh session');
+            throw new Error('No valid session available');
+          }
+          
+          session = refreshedSession;
+        }
+        
+        if (session?.access_token) {
+          authHeader = { 'Authorization': `Bearer ${session.access_token}` };
+          console.log('Auth token obtained successfully for query');
+        }
       }
     } catch (error) {
       console.error('Error getting auth token:', error);

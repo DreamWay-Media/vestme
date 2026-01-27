@@ -42,10 +42,33 @@ export function getSession() {
   });
 }
 
+// Fixed dev user ID - must match the one in routes.ts
+const DEV_USER_ID = 'dev-demo-user';
+
 // Authentication middleware
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
   try {
+    // Dev mode: allow authenticated requests when Supabase is not configured
     if (!supabase) {
+      // Only allow in development mode
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(503).json({ message: 'Authentication service is not configured' });
+      }
+      
+      // Check for dev user ID in header - must match our fixed dev user
+      const devUserId = req.headers['x-dev-user-id'];
+      if (devUserId === DEV_USER_ID) {
+        try {
+          const { storage } = await import('./storage');
+          const devUser = await storage.getUser(DEV_USER_ID);
+          if (devUser) {
+            (req as any).user = { id: devUser.id, email: devUser.email };
+            return next();
+          }
+        } catch (dbError) {
+          console.error('Dev user lookup error:', dbError);
+        }
+      }
       return res.status(503).json({ message: 'Authentication service is not configured' });
     }
     
