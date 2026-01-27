@@ -1,4 +1,5 @@
 import React from 'react';
+import { useLocation } from 'wouter';
 import { signInWithGoogle, supabase } from '../lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
@@ -15,12 +16,15 @@ export const GoogleLogin: React.FC<GoogleLoginProps> = ({
   variant = 'default'
 }) => {
   const { devLogin } = useAuth();
+  const [, navigate] = useLocation();
   
   const handleGoogleLogin = async () => {
     try {
       if (!supabase) {
         console.log('Supabase not configured, using dev login');
         await devLogin();
+        // Navigate to projects page after successful dev login
+        navigate('/projects');
         return;
       }
       await signInWithGoogle();
