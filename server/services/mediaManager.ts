@@ -1426,6 +1426,86 @@ export class MediaManager {
   }
 
   /**
+   * Find logo assets in the media library for a project
+   * Looks for assets tagged as 'logo' or with logo-related filenames
+   */
+  async findProjectLogos(projectId: string) {
+    try {
+      const assets = await this.getProjectMedia(projectId);
+      
+      // Filter for potential logo assets
+      const logoAssets = assets.filter(asset => {
+        // Check tags for logo
+        const tags = asset.tags as string[] | null;
+        if (tags && Array.isArray(tags)) {
+          if (tags.some(tag => tag.toLowerCase().includes('logo'))) {
+            return true;
+          }
+        }
+        
+        // Check filename for logo-related terms
+        const filename = (asset.filename || '').toLowerCase();
+        const originalFilename = (asset.originalFilename || '').toLowerCase();
+        const logoTerms = ['logo', 'brand', 'mark', 'icon', 'emblem'];
+        
+        if (logoTerms.some(term => filename.includes(term) || originalFilename.includes(term))) {
+          return true;
+        }
+        
+        // Check source URL for logo patterns
+        const sourceUrl = (asset.sourceUrl || '').toLowerCase();
+        if (logoTerms.some(term => sourceUrl.includes(term))) {
+          return true;
+        }
+        
+        // Check if it's an SVG (common logo format) with small dimensions
+        if (asset.fileType === 'image/svg+xml') {
+          return true;
+        }
+        
+        // Check for small/medium sized images that could be logos
+        if (asset.width && asset.height) {
+          const isSmallEnough = asset.width < 600 && asset.height < 400;
+          const isWideAspect = asset.width >= asset.height; // Logos often wider than tall
+          if (isSmallEnough && isWideAspect) {
+            return true;
+          }
+        }
+        
+        return false;
+      });
+      
+      // Sort by relevance: SVGs first, then by logo term matches, then by recency
+      logoAssets.sort((a, b) => {
+        // SVGs are most likely logos
+        if (a.fileType === 'image/svg+xml' && b.fileType !== 'image/svg+xml') return -1;
+        if (a.fileType !== 'image/svg+xml' && b.fileType === 'image/svg+xml') return 1;
+        
+        // Check for explicit logo tag
+        const aHasLogoTag = (a.tags as string[] | null)?.some(t => t.toLowerCase() === 'logo') || false;
+        const bHasLogoTag = (b.tags as string[] | null)?.some(t => t.toLowerCase() === 'logo') || false;
+        if (aHasLogoTag && !bHasLogoTag) return -1;
+        if (!aHasLogoTag && bHasLogoTag) return 1;
+        
+        // Check filename for "logo"
+        const aHasLogoFilename = (a.filename || '').toLowerCase().includes('logo');
+        const bHasLogoFilename = (b.filename || '').toLowerCase().includes('logo');
+        if (aHasLogoFilename && !bHasLogoFilename) return -1;
+        if (!aHasLogoFilename && bHasLogoFilename) return 1;
+        
+        return 0; // Keep original order (by createdAt DESC)
+      });
+      
+      console.log(`Found ${logoAssets.length} potential logo assets in media library for project ${projectId}`);
+      
+      return logoAssets;
+    } catch (error) {
+      console.error('Error finding project logos:', error);
+      return [];
+    }
+  }
+
+  /**
    * Delete a media asset
    */
   async deleteMedia(assetId: string, userId: string) {

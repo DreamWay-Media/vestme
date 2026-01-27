@@ -559,24 +559,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get the first extracted logo URL if available
       const extractedLogoUrl = (businessProfile as any)?.websiteContent?.designElements?.logoUrls?.[0] || null;
 
-      // Handle logo: either from media library (logoAssetId) or from URL (logoUrl)
+      // Handle logo: prioritize media library, then user selection, then extracted
       let logoAssetId: string | null = null;
       let logoUrl: string | null = null;
 
       const { mediaManager } = await import('./services/mediaManager');
 
+      // PRIORITY 1: Check if user explicitly selected a logo asset
       if (req.body.logoAssetId) {
-        // Logo selected from media library
         const asset = await mediaManager.getMediaAsset(req.body.logoAssetId);
         if (asset && asset.projectId === req.params.id) {
           logoAssetId = asset.id;
           logoUrl = asset.storageUrl;
-          console.log('✅ Using logo from media library:', logoAssetId);
+          console.log('✅ Using user-selected logo from media library:', logoAssetId);
         }
-      } else if (req.body.logoUrl || extractedLogoUrl) {
-        // Logo URL provided - download and store in media library
+      }
+      
+      // PRIORITY 2: If no user selection, check media library for existing logos
+      if (!logoAssetId) {
+        console.log('🔍 Searching media library for existing logos...');
+        const mediaLibraryLogos = await mediaManager.findProjectLogos(req.params.id);
+        
+        if (mediaLibraryLogos.length > 0) {
+          const bestLogo = mediaLibraryLogos[0]; // Already sorted by relevance
+          logoAssetId = bestLogo.id;
+          logoUrl = bestLogo.storageUrl;
+          console.log('✅ Found logo in media library:', {
+            assetId: logoAssetId,
+            filename: bestLogo.filename,
+            fileType: bestLogo.fileType,
+            totalLogosFound: mediaLibraryLogos.length
+          });
+        }
+      }
+      
+      // PRIORITY 3: If still no logo, try URL (user-provided or extracted from website)
+      if (!logoAssetId && (req.body.logoUrl || extractedLogoUrl)) {
         const logoUrlToStore = req.body.logoUrl || extractedLogoUrl;
-        console.log('📥 Storing logo in media library:', logoUrlToStore);
+        console.log('📥 Storing logo in media library from URL:', logoUrlToStore);
         
         const storedAssetId = await mediaManager.downloadAndStoreLogo(
           req.params.id,
