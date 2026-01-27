@@ -1630,6 +1630,27 @@ export class MediaManager {
   }
 
   /**
+   * Check if a media asset exists by storage URL (Supabase URL)
+   */
+  async findAssetByStorageUrl(projectId: string, storageUrl: string): Promise<string | null> {
+    try {
+      const [asset] = await db
+        .select({ id: mediaAssets.id })
+        .from(mediaAssets)
+        .where(and(
+          eq(mediaAssets.projectId, projectId),
+          eq(mediaAssets.storageUrl, storageUrl)
+        ))
+        .limit(1);
+
+      return asset?.id || null;
+    } catch (error) {
+      console.error('Error finding asset by storage URL:', error);
+      return null;
+    }
+  }
+
+  /**
    * Download and store a logo from URL in the media library
    * Returns the media asset ID if successful, or null if failed
    */
