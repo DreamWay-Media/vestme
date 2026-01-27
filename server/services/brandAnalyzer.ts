@@ -2,7 +2,12 @@ import OpenAI from "openai";
 import { JSDOM } from "jsdom";
 import { quotaManager } from "./openaiQuotaManager";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Allow the app to start without OpenAI credentials
+const hasOpenAIConfig = !!process.env.OPENAI_API_KEY;
+
+const openai = hasOpenAIConfig
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
 
 export interface BrandExtraction {
   colors: {
@@ -406,6 +411,26 @@ export class BrandAnalyzer {
         return 0;
       });
 
+      // Filter out generic/utility colors that don't represent brand identity
+      const genericColors = [
+        '#000000', '#000', '#ffffff', '#fff', '#f5f5f5', '#fafafa',
+        '#e5e5e5', '#d4d4d4', '#a3a3a3', '#737373', '#525252', '#404040',
+        '#262626', '#171717', '#0a0a0a', '#f4f4f5', '#e4e4e7', '#d4d4d8',
+        '#a1a1aa', '#71717a', '#52525b', '#3f3f46', '#27272a', '#18181b',
+        '#f8fafc', '#f1f5f9', '#e2e8f0', '#cbd5e1', '#94a3b8', '#64748b',
+        '#475569', '#334155', '#1e293b', '#0f172a', '#fef2f2', '#fee2e2',
+        '#cccccc', '#ccc', '#999999', '#999', '#666666', '#666', '#333333', '#333',
+        'transparent', 'inherit', 'initial', 'currentcolor'
+      ];
+      
+      const isGenericColor = (color: string): boolean => {
+        const lower = color.toLowerCase().trim();
+        return genericColors.includes(lower);
+      };
+      
+      const filteredColors = [...new Set(extractedColors)]
+        .filter(color => !isGenericColor(color));
+      
       return {
         html,
         styles,
@@ -952,6 +977,10 @@ CRITICAL RULES:
 7. You can use colors in hex (#FF5733), 3-digit hex (#333), RGB (rgb(255,87,51)), or RGBa format - all will be normalized automatically.
 8. DO NOT use generic fonts like "sans-serif", "serif", "Arial" unless they are in the ALLOWED FONTS list.
 9. Base your color selections on actual website visual analysis and usage patterns.`;
+
+    if (!openai) {
+      throw new Error('OpenAI is not configured. Please set the OPENAI_API_KEY environment variable.');
+    }
 
     try {
       const response = await openai.chat.completions.create({

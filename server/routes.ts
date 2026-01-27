@@ -117,6 +117,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Dev login endpoint for development/testing without Supabase
+  // Only available in development mode when Supabase is NOT configured
+  const DEV_USER_ID = 'dev-demo-user';
+  const DEV_USER_EMAIL = 'demo@vestme.ai';
+  
+  app.post('/api/auth/dev-login', async (req: any, res) => {
+    // Security: Only allow in development mode
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(403).json({ message: "Dev login is not available in production" });
+    }
+    
+    // In development mode, allow dev login even if Supabase is configured
+    // This enables local testing without external OAuth redirects
+    console.log('Dev login requested in development mode');
+    
+    try {
+      // Always use fixed dev user - ignore client-supplied IDs for security
+      const user = await storage.upsertUser({
+        id: DEV_USER_ID,
+        email: DEV_USER_EMAIL,
+        firstName: 'Demo',
+        lastName: 'User',
+        profileImageUrl: '',
+      });
+      
+      res.json(user);
+    } catch (error) {
+      console.error("Error in dev login:", error);
+      res.status(500).json({ message: "Dev login failed" });
+    }
+  });
+
   // Dashboard routes
   app.get('/api/dashboard/stats', isAuthenticated, async (req: any, res) => {
     try {
@@ -3351,11 +3383,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let availableMedia: Array<{ url: string; name: string; type: string }> = [];
       if (projectId) {
         try {
-          const mediaResult = await storage.getProjectMedia(projectId, req.user.id);
-          availableMedia = mediaResult.media.map((m: any) => ({
-            url: m.url,
-            name: m.name || 'Untitled',
-            type: m.contentType || 'image',
+          const { mediaManager } = await import('./services/mediaManager');
+          const mediaAssets = await mediaManager.getProjectMedia(projectId);
+          availableMedia = mediaAssets.map((m: any) => ({
+            url: m.storageUrl || m.url,
+            name: m.filename || m.originalFilename || 'Untitled',
+            type: m.fileType || 'image',
           }));
           console.log(`Found ${availableMedia.length} media assets for AI selection`);
         } catch (error) {

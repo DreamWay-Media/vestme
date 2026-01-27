@@ -6,11 +6,16 @@ import { randomUUID } from "crypto";
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY) must be set');
+// Allow the app to start without Supabase credentials in development
+const hasSupabaseConfig = supabaseUrl && supabaseServiceKey;
+
+if (!hasSupabaseConfig) {
+  console.warn('WARNING: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY) are not set. Object storage features will be disabled.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseServiceKey);
+export const supabase = hasSupabaseConfig
+  ? createClient(supabaseUrl!, supabaseServiceKey!)
+  : null;
 
 export class ObjectNotFoundError extends Error {
   constructor() {
@@ -40,6 +45,10 @@ export class ObjectStorageService {
 
   // Search for a public object
   async searchPublicObject(filePath: string): Promise<any> {
+    if (!supabase) {
+      console.warn('Object storage not configured');
+      return null;
+    }
     try {
       const { data, error } = await supabase.storage
         .from(this.bucketName)
@@ -66,6 +75,9 @@ export class ObjectStorageService {
 
   // Downloads an object to the response
   async downloadObject(filePath: string, res: Response, cacheTtlSec: number = 3600) {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Object storage not configured' });
+    }
     try {
       const { data, error } = await supabase.storage
         .from(this.bucketName)
@@ -99,6 +111,9 @@ export class ObjectStorageService {
     contentType: string,
     isPublic: boolean = false
   ): Promise<string> {
+    if (!supabase) {
+      throw new Error('Object storage not configured');
+    }
     try {
       const folder = isPublic ? 'public' : 'private';
       const fullPath = `${folder}/${filePath}`;
@@ -133,6 +148,9 @@ export class ObjectStorageService {
 
   // Deletes a file from Supabase Storage
   async deleteFile(filePath: string): Promise<void> {
+    if (!supabase) {
+      throw new Error('Object storage not configured');
+    }
     try {
       const { error } = await supabase.storage
         .from(this.bucketName)
@@ -154,6 +172,9 @@ export class ObjectStorageService {
     contentType: string,
     expiresIn: number = 3600
   ): Promise<string> {
+    if (!supabase) {
+      throw new Error('Object storage not configured');
+    }
     try {
       const folder = 'public';
       const fullPath = `${folder}/${filePath}`;
@@ -181,6 +202,9 @@ export class ObjectStorageService {
     filePath: string,
     expiresIn: number = 3600
   ): Promise<string> {
+    if (!supabase) {
+      throw new Error('Object storage not configured');
+    }
     try {
       const { data, error } = await supabase.storage
         .from(this.bucketName)
@@ -200,6 +224,10 @@ export class ObjectStorageService {
 
   // Lists files in a folder
   async listFiles(folder: string, limit: number = 100): Promise<any[]> {
+    if (!supabase) {
+      console.warn('Object storage not configured');
+      return [];
+    }
     try {
       const { data, error } = await supabase.storage
         .from(this.bucketName)
@@ -221,6 +249,10 @@ export class ObjectStorageService {
 
   // Checks if a file exists
   async fileExists(filePath: string): Promise<boolean> {
+    if (!supabase) {
+      console.warn('Object storage not configured');
+      return false;
+    }
     try {
       const { data, error } = await supabase.storage
         .from(this.bucketName)
@@ -241,6 +273,9 @@ export class ObjectStorageService {
 
   // Builds a public URL for a file stored in the bucket (expects a path like 'public/filename.ext')
   getPublicUrl(filePath: string): string {
+    if (!supabaseUrl) {
+      return '';
+    }
     return `${supabaseUrl}/storage/v1/object/public/${this.bucketName}/${filePath}`;
   }
 

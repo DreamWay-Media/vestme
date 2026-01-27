@@ -7,11 +7,16 @@ import connectPg from 'connect-pg-simple';
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY) must be set in environment variables');
+// Allow the app to start without Supabase credentials in development
+const hasSupabaseConfig = supabaseUrl && supabaseServiceKey;
+
+if (!hasSupabaseConfig) {
+  console.warn('WARNING: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY) are not set. Authentication features will be disabled.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseServiceKey);
+export const supabase = hasSupabaseConfig 
+  ? createClient(supabaseUrl!, supabaseServiceKey!)
+  : null;
 
 // Session configuration
 export function getSession() {
@@ -37,9 +42,40 @@ export function getSession() {
   });
 }
 
+// Fixed dev user ID - must match the one in routes.ts
+const DEV_USER_ID = 'dev-demo-user';
+
+// Check if we're in development mode
+const isDevelopment = process.env.NODE_ENV !== 'production';
+
 // Authentication middleware
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
   try {
+    // Dev mode: Check for dev user header first in development
+    if (isDevelopment) {
+      const devUserId = req.headers['x-dev-user-id'];
+      if (devUserId === DEV_USER_ID) {
+        try {
+          const { storage } = await import('./storage');
+          const devUser = await storage.getUser(DEV_USER_ID);
+          if (devUser) {
+            (req as any).user = { id: devUser.id, email: devUser.email };
+            return next();
+          }
+        } catch (dbError) {
+          console.error('Dev user lookup error:', dbError);
+        }
+      }
+    }
+    
+    // If Supabase is not configured, reject in production
+    if (!supabase) {
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(503).json({ message: 'Authentication service is not configured' });
+      }
+      return res.status(401).json({ message: 'Not authenticated' });
+    }
+    
     const authHeader = req.headers.authorization;
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -113,6 +149,9 @@ export function setupAuth(app: Express) {
   // Google OAuth login endpoint
   app.get('/api/auth/google', async (req, res) => {
     try {
+      if (!supabase) {
+        return res.status(503).json({ message: 'Authentication service is not configured' });
+      }
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -139,6 +178,10 @@ export function setupAuth(app: Express) {
   // OAuth callback endpoint
   app.get('/api/auth/callback', async (req, res) => {
     try {
+      if (!supabase) {
+        return res.redirect('/?auth=error&reason=not_configured');
+      }
+      
       const { code } = req.query;
       
       if (!code || typeof code !== 'string') {
@@ -202,7 +245,7 @@ export function setupAuth(app: Express) {
   app.post('/api/auth/logout', async (req, res) => {
     try {
       const authHeader = req.headers.authorization;
-      if (authHeader && authHeader.startsWith('Bearer ')) {
+      if (supabase && authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.substring(7);
         await supabase.auth.signOut({ scope: 'local' });
       }

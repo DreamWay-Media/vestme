@@ -1,20 +1,34 @@
 import React from 'react';
-import { signInWithGoogle } from '../lib/supabase';
+import { useLocation } from 'wouter';
+import { signInWithGoogle, supabase, isDevelopment } from '../lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
 
 interface GoogleLoginProps {
   className?: string;
   children?: React.ReactNode;
   variant?: 'default' | 'primary' | 'outline';
+  forceDevLogin?: boolean;
 }
 
 export const GoogleLogin: React.FC<GoogleLoginProps> = ({ 
   className = '', 
   children,
-  variant = 'default'
+  variant = 'default',
+  forceDevLogin = false
 }) => {
+  const { devLogin } = useAuth();
+  const [, navigate] = useLocation();
+  
   const handleGoogleLogin = async () => {
     try {
+      // If forced dev login or no Supabase configured, use dev login
+      if (forceDevLogin || !supabase) {
+        console.log('Using dev login');
+        await devLogin();
+        navigate('/projects');
+        return;
+      }
       await signInWithGoogle();
     } catch (error) {
       console.error('Google login error:', error);
@@ -63,6 +77,40 @@ export const GoogleLogin: React.FC<GoogleLoginProps> = ({
           Sign in with Google
         </>
       )}
+    </button>
+  );
+};
+
+// Development-only demo login button
+export const DevLoginButton: React.FC<{ className?: string }> = ({ className }) => {
+  const { devLogin } = useAuth();
+  const [, navigate] = useLocation();
+  
+  if (!isDevelopment) return null;
+  
+  const handleDevLogin = async () => {
+    try {
+      await devLogin();
+      navigate('/projects');
+    } catch (error) {
+      console.error('Dev login error:', error);
+    }
+  };
+  
+  return (
+    <button
+      onClick={handleDevLogin}
+      className={cn(
+        "flex items-center justify-center gap-2 px-6 py-3 rounded-lg transition-colors",
+        "bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200",
+        "text-sm font-medium",
+        className
+      )}
+    >
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+      </svg>
+      Demo Login (Dev Mode)
     </button>
   );
 };

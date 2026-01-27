@@ -1,6 +1,11 @@
 import OpenAI from "openai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Allow the app to start without OpenAI credentials
+const hasOpenAIConfig = !!process.env.OPENAI_API_KEY;
+
+const openai = hasOpenAIConfig
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
 
 export interface MarketAnalysis {
   marketSize: {
@@ -141,6 +146,10 @@ ANTI-HALLUCINATION MEASURES:
 
 Return comprehensive JSON market analysis following exact format above.`;
 
+      if (!openai) {
+        throw new Error('OpenAI is not configured. Please set the OPENAI_API_KEY environment variable.');
+      }
+
       const response = await openai.chat.completions.create({
         model: "gpt-4o", // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
         messages: [{ role: "user", content: prompt }],
@@ -237,6 +246,10 @@ COMPETITIVE INTELLIGENCE GUIDELINES:
 Please provide your competitive analysis in JSON format following the structure above.
       `;
 
+      if (!openai) {
+        throw new Error('OpenAI is not configured. Please set the OPENAI_API_KEY environment variable.');
+      }
+
       const response = await openai.chat.completions.create({
         model: "gpt-4o", // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
         messages: [{ role: "user", content: prompt }],
@@ -288,6 +301,10 @@ Base your research on current industry knowledge, best practices, and realistic 
 
 Please provide your business research in JSON format following the structure above.
       `;
+
+      if (!openai) {
+        throw new Error('OpenAI is not configured. Please set the OPENAI_API_KEY environment variable.');
+      }
 
       const response = await openai.chat.completions.create({
         model: "gpt-4o", // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
@@ -381,6 +398,10 @@ ENHANCED ANALYSIS REQUIREMENTS:
 - Reference specific market conditions, customer needs, or competitive dynamics
 
 Return comprehensive JSON analysis with rich, specific details in every field suitable for professional pitch deck development.`;
+
+      if (!openai) {
+        throw new Error('OpenAI is not configured. Please set the OPENAI_API_KEY environment variable.');
+      }
 
       const response = await openai.chat.completions.create({
         model: "gpt-4o", // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
