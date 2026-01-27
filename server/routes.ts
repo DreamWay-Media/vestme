@@ -120,11 +120,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).json({ message: "Dev login is not available in production" });
     }
     
-    // Security: Only allow dev login when Supabase is not configured
-    const hasSupabaseConfig = process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_ANON_KEY;
-    if (hasSupabaseConfig) {
-      return res.status(403).json({ message: "Dev login is not available when authentication is configured" });
-    }
+    // In development mode, allow dev login even if Supabase is configured
+    // This enables local testing without external OAuth redirects
+    console.log('Dev login requested in development mode');
     
     try {
       // Always use fixed dev user - ignore client-supplied IDs for security
