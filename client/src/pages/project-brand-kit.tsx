@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Palette, CheckCircle, Upload, Brain, Image } from "lucide-react";
+import { ArrowLeft, ArrowRight, Palette, CheckCircle, Upload, Image } from "lucide-react";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { MediaLibraryPicker } from "@/components/MediaLibrary/MediaLibraryPicker";
 import { Button } from "@/components/ui/button";
@@ -165,80 +165,10 @@ export default function ProjectBrandKit() {
     },
   });
 
-  const analyzeBrandMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", `/api/projects/${projectId}/analyze-brand`);
-      return await response.json();
-    },
-    onSuccess: (response: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "brand-kits"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
-      toast({
-        title: response.autoCreated ? "Brand Kit Created Automatically" : "AI Brand Analysis Complete",
-        description: response.message || (response.autoCreated 
-          ? "Brand kit created automatically using default settings." 
-          : "Brand elements extracted from website successfully."),
-      });
-    },
-    onError: (error: any) => {
-      if (isUnauthorizedError(error as Error)) {
-        toast({
-          title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/";
-        }, 500);
-        return;
-      }
-      
-      // Check for quota exceeded error
-      const errorResponse = error?.response?.data || error?.data;
-      if (errorResponse?.error === 'QUOTA_EXCEEDED' || errorResponse?.message?.includes('quota')) {
-        toast({
-          title: "API Quota Exceeded",
-          description: "OpenAI API quota has been exceeded. You can still create a brand kit manually using the 'Create Brand Kit Manually' button below.",
-          variant: "destructive",
-          duration: 8000,
-        });
-        return;
-      }
-      
-      // Check for API configuration error
-      if (errorResponse?.error === 'API_CONFIGURATION_ERROR') {
-        toast({
-          title: "API Configuration Error",
-          description: errorResponse?.message || "There's an issue with the API configuration. Please contact support.",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      toast({
-        title: "Analysis Failed",
-        description: errorResponse?.message || "Failed to analyze website for brand elements. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
   const handleGenerateBrandKit = () => {
     generateBrandKitMutation.mutate({
       name: `${project?.name} Brand Kit`,
     });
-  };
-
-  const handleAnalyzeBrand = () => {
-    if (!project?.websiteUrl) {
-      toast({
-        title: "Website URL Required",
-        description: "Please add a website URL to your project to analyze brand elements.",
-        variant: "destructive",
-      });
-      return;
-    }
-    analyzeBrandMutation.mutate();
   };
 
   const handleEditBrandKit = () => {
@@ -377,129 +307,21 @@ export default function ProjectBrandKit() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Palette className="h-5 w-5" />
-                  Generate Brand Kit
+                  Create Your Brand Kit
                 </CardTitle>
                 <CardDescription>
-                  Create a professional brand kit with AI-powered color schemes and typography
-                  {project?.websiteUrl && " based on your website's existing design"}
+                  Define your brand's visual identity with custom colors, fonts, and logo
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {project?.businessProfile?.websiteContent?.designElements && (
-                  <div className="p-4 bg-blue-50 rounded-lg border">
-                    <h4 className="font-medium text-sm text-blue-900 mb-2">Extracted from your website:</h4>
-                    <div className="grid grid-cols-1 gap-3">
-                      {project.businessProfile.websiteContent.designElements.colors.length > 0 && (
-                        <div>
-                          <p className="text-xs text-blue-700 mb-1">Colors found:</p>
-                          <div className="flex gap-1">
-                            {project.businessProfile.websiteContent.designElements.colors.slice(0, 5).map((color: string, idx: number) => (
-                              <div 
-                                key={idx} 
-                                className="w-6 h-6 rounded border border-white"
-                                style={{ backgroundColor: color }}
-                                title={color}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {project.businessProfile.websiteContent.designElements.fonts.length > 0 && (
-                        <div>
-                          <p className="text-xs text-blue-700 mb-1">Fonts found:</p>
-                          <div className="flex flex-wrap gap-1">
-                            {project.businessProfile.websiteContent.designElements.fonts.slice(0, 3).map((font: string, idx: number) => (
-                              <Badge key={idx} variant="outline" className="text-xs">
-                                {font}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {project.businessProfile.websiteContent.designElements.logoUrls && project.businessProfile.websiteContent.designElements.logoUrls.length > 0 && (
-                        <div>
-                          <p className="text-xs text-blue-700 mb-1">Logos found:</p>
-                          <div className="flex gap-2">
-                            {project.businessProfile.websiteContent.designElements.logoUrls.slice(0, 3).map((logoUrl: string, idx: number) => (
-                              <div key={idx} className="w-12 h-12 border rounded overflow-hidden">
-                                <img 
-                                  src={logoUrl} 
-                                  alt={`Logo ${idx + 1}`}
-                                  className="w-full h-full object-contain"
-                                  onError={(e) => {
-                                    e.currentTarget.style.display = 'none';
-                                  }}
-                                />
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {project.businessProfile.websiteContent.designElements.keyImages && project.businessProfile.websiteContent.designElements.keyImages.length > 0 && (
-                        <div>
-                          <p className="text-xs text-blue-700 mb-1">Key images found:</p>
-                          <div className="flex gap-2">
-                            {project.businessProfile.websiteContent.designElements.keyImages.slice(0, 3).map((imageUrl: string, idx: number) => (
-                              <div key={idx} className="w-12 h-12 border rounded overflow-hidden">
-                                <img 
-                                  src={imageUrl} 
-                                  alt={`Image ${idx + 1}`}
-                                  className="w-full h-full object-contain"
-                                  onError={(e) => {
-                                    e.currentTarget.style.display = 'none';
-                                  }}
-                                />
-                              </div>
-                          ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                <div className="text-center py-8">
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+                    <Palette className="h-8 w-8 text-gray-500" />
                   </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Primary Color</Label>
-                    <div className="h-12 bg-blue-600 rounded border"></div>
-                    <p className="text-sm text-muted-foreground">#3B82F6</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Secondary Color</Label>
-                    <div className="h-12 bg-slate-100 rounded border"></div>
-                    <p className="text-sm text-muted-foreground">#F1F5F9</p>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Typography</Label>
-                  <div className="p-4 border rounded">
-                    <h3 className="font-semibold text-xl">Inter - Modern & Clean</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Perfect for professional presentations and startup branding
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  {project?.websiteUrl && (
-                    <Button 
-                      onClick={handleAnalyzeBrand}
-                      disabled={analyzeBrandMutation.isPending}
-                      className="w-full"
-                    >
-                      <Brain className="h-4 w-4 mr-2" />
-                      {analyzeBrandMutation.isPending ? "Analyzing Website..." : "AI Analyze Website Brand"}
-                    </Button>
-                  )}
-                  <div className="relative">
-                    <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t" />
-                    </div>
-                    <div className="relative flex justify-center text-xs uppercase">
-                      <span className="bg-background px-2 text-muted-foreground">Or</span>
-                    </div>
-                  </div>
+                  <h3 className="text-lg font-semibold mb-2">Choose Your Brand Colors</h3>
+                  <p className="text-muted-foreground text-sm max-w-md mx-auto mb-6">
+                    Select colors that represent your brand identity. You'll be able to pick your primary, secondary, and accent colors.
+                  </p>
                   <Button 
                     onClick={() => {
                       setEditingBrandKit({
@@ -511,12 +333,33 @@ export default function ProjectBrandKit() {
                       });
                       setCustomizing(true);
                     }}
-                    variant="outline"
-                    className="w-full"
+                    size="lg"
+                    className="px-8"
                   >
                     <Palette className="h-4 w-4 mr-2" />
-                    Create Brand Kit Manually
+                    Start Customizing
                   </Button>
+                </div>
+                
+                <div className="border-t pt-6">
+                  <h4 className="text-sm font-medium mb-4 text-center text-muted-foreground">What you'll customize:</h4>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="text-center p-4 rounded-lg bg-gray-50">
+                      <div className="w-8 h-8 mx-auto mb-2 rounded-full bg-black"></div>
+                      <p className="text-xs font-medium">Primary Color</p>
+                      <p className="text-xs text-muted-foreground">Headlines & buttons</p>
+                    </div>
+                    <div className="text-center p-4 rounded-lg bg-gray-50">
+                      <div className="w-8 h-8 mx-auto mb-2 rounded-full bg-slate-100 border"></div>
+                      <p className="text-xs font-medium">Secondary Color</p>
+                      <p className="text-xs text-muted-foreground">Backgrounds</p>
+                    </div>
+                    <div className="text-center p-4 rounded-lg bg-gray-50">
+                      <div className="w-8 h-8 mx-auto mb-2 rounded-full bg-slate-500"></div>
+                      <p className="text-xs font-medium">Accent Color</p>
+                      <p className="text-xs text-muted-foreground">Highlights & CTAs</p>
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -959,17 +802,6 @@ export default function ProjectBrandKit() {
                     >
                       Edit Brand Kit
                     </Button>
-                    {project?.websiteUrl && (
-                      <Button 
-                        onClick={handleAnalyzeBrand}
-                        disabled={analyzeBrandMutation.isPending}
-                        variant="ghost"
-                        className="flex-1"
-                      >
-                        <Brain className="h-4 w-4 mr-2" />
-                        {analyzeBrandMutation.isPending ? "Re-analyzing..." : "Re-analyze Website"}
-                      </Button>
-                    )}
                   </div>
                 ) : (
                   <div className="space-y-6">
@@ -1319,48 +1151,6 @@ export default function ProjectBrandKit() {
                               <Upload className="h-4 w-4 mr-2" />
                               Upload Logos
                             </ObjectUploader>
-                            {project?.websiteUrl && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={async () => {
-                                  try {
-                                    const result = await analyzeBrandMutation.mutateAsync();
-                                    if (result?.analysis?.logo?.logoUrl) {
-                                      setEditingBrandKit(prev => prev ? {
-                                        ...prev, 
-                                        brandAssets: [...(prev.brandAssets || []), {
-                                          type: 'logo',
-                                          url: result.analysis.logo.logoUrl,
-                                          name: 'Website Logo'
-                                        }]
-                                      } : null);
-                                      toast({
-                                        title: "Logo Extracted",
-                                        description: "Logo has been extracted from your website.",
-                                      });
-                                    } else {
-                                      toast({
-                                        title: "No Logo Found",
-                                        description: "Could not find a clear logo on your website.",
-                                        variant: "destructive",
-                                      });
-                                    }
-                                  } catch (error) {
-                                    toast({
-                                      title: "Extraction Failed",
-                                      description: "Failed to extract logo from website.",
-                                      variant: "destructive",
-                                    });
-                                  }
-                                }}
-                                className="flex-1"
-                              >
-                                <Brain className="h-4 w-4 mr-2" />
-                                Extract from Website
-                              </Button>
-                            )}
                           </div>
                           
                           {/* Display current brand assets with remove functionality */}
