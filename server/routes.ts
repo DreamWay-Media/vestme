@@ -1539,56 +1539,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { mediaManager } = await import('./services/mediaManager');
 
-      if (req.body.logoAssetId !== undefined) {
-        // Logo selected from media library or being cleared
-        if (req.body.logoAssetId) {
-          const asset = await mediaManager.getMediaAsset(req.body.logoAssetId);
-          if (asset && asset.projectId === req.params.id) {
-            logoAssetId = asset.id;
-            logoUrl = asset.storageUrl;
-            console.log('✅ Using logo from media library:', logoAssetId);
-          }
-        } else {
-          // Clearing logo
-          logoAssetId = null;
-          logoUrl = null;
-          console.log('🗑️  Clearing logo from brand kit');
+      if (req.body.logoAssetId) {
+        // Logo selected from media library by asset ID
+        const asset = await mediaManager.getMediaAsset(req.body.logoAssetId);
+        if (asset && asset.projectId === req.params.id) {
+          logoAssetId = asset.id;
+          logoUrl = asset.storageUrl;
+          console.log('✅ Using logo from media library by asset ID:', logoAssetId);
         }
-      } else if (req.body.logoUrl !== undefined) {
-        // Logo URL provided - download and store in media library if it's a new URL
-        if (req.body.logoUrl) {
-          // Check if this URL is already in media library
-          const existingAssetId = await mediaManager.findAssetBySourceUrl(req.params.id, req.body.logoUrl);
-          
-          if (existingAssetId) {
-            logoAssetId = existingAssetId;
-            const asset = await mediaManager.getMediaAsset(existingAssetId);
-            logoUrl = asset?.storageUrl || req.body.logoUrl;
-            console.log('✅ Using existing logo from media library:', logoAssetId);
-          } else {
-            // Download and store new logo
-            console.log('📥 Storing new logo in media library:', req.body.logoUrl);
-            const storedAssetId = await mediaManager.downloadAndStoreLogo(
-              req.params.id,
-              userId,
-              req.body.logoUrl
-            );
-
-            if (storedAssetId) {
-              logoAssetId = storedAssetId;
-              const asset = await mediaManager.getMediaAsset(storedAssetId);
-              logoUrl = asset?.storageUrl || req.body.logoUrl;
-              console.log('✅ Logo stored in media library:', logoAssetId);
-            } else {
-              // Failed to store, use original URL as fallback
-              logoUrl = req.body.logoUrl;
-              console.warn('⚠️  Failed to store logo in media library, using original URL');
-            }
-          }
+      } else if (req.body.logoUrl) {
+        // Logo URL provided - check if it's already in media library by storage URL or source URL
+        console.log('📋 Checking for logo in media library:', req.body.logoUrl);
+        
+        // First check if this is a Supabase storage URL (already in media library)
+        let existingAssetId = await mediaManager.findAssetByStorageUrl(req.params.id, req.body.logoUrl);
+        
+        // If not found by storage URL, check by source URL
+        if (!existingAssetId) {
+          existingAssetId = await mediaManager.findAssetBySourceUrl(req.params.id, req.body.logoUrl);
+        }
+        
+        if (existingAssetId) {
+          logoAssetId = existingAssetId;
+          const asset = await mediaManager.getMediaAsset(existingAssetId);
+          logoUrl = asset?.storageUrl || req.body.logoUrl;
+          console.log('✅ Found logo in media library:', { logoAssetId, logoUrl });
         } else {
-          // Clearing logo
-          logoAssetId = null;
-          logoUrl = null;
+          // Download and store new logo (only for external URLs)
+          console.log('📥 Storing new logo in media library:', req.body.logoUrl);
+          const storedAssetId = await mediaManager.downloadAndStoreLogo(
+            req.params.id,
+            userId,
+            req.body.logoUrl
+          );
+
+          if (storedAssetId) {
+            logoAssetId = storedAssetId;
+            const asset = await mediaManager.getMediaAsset(storedAssetId);
+            logoUrl = asset?.storageUrl || req.body.logoUrl;
+            console.log('✅ Logo stored in media library:', logoAssetId);
+          } else {
+            // Failed to store, use original URL as fallback
+            logoUrl = req.body.logoUrl;
+            console.warn('⚠️  Failed to store logo in media library, using original URL');
+          }
         }
       } else {
         // Keep existing logo
