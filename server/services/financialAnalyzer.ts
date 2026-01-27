@@ -1,6 +1,11 @@
 import OpenAI from "openai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Allow the app to start without OpenAI credentials
+const hasOpenAIConfig = !!process.env.OPENAI_API_KEY;
+
+const openai = hasOpenAIConfig
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
 
 export interface RevenueProjection {
   year1: {
@@ -170,6 +175,10 @@ CRITICAL VALIDATION REQUIREMENTS:
 
 Generate realistic, investor-grade financial projections with clear reasoning for all assumptions.`;
 
+      if (!openai) {
+        throw new Error('OpenAI is not configured. Please set the OPENAI_API_KEY environment variable.');
+      }
+
       const response = await openai.chat.completions.create({
         model: "gpt-4o", // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
         messages: [
@@ -224,6 +233,10 @@ Check for:
 5. LTV:CAC ratios that investors would question
 
 Provide fact-based assessment with reasoning.`;
+
+      if (!openai) {
+        throw new Error('OpenAI is not configured. Please set the OPENAI_API_KEY environment variable.');
+      }
 
       const response = await openai.chat.completions.create({
         model: "gpt-4o",

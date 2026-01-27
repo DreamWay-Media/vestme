@@ -1,8 +1,15 @@
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Allow the app to start without OpenAI credentials
+const hasOpenAIConfig = !!process.env.OPENAI_API_KEY;
+
+if (!hasOpenAIConfig) {
+  console.warn('WARNING: OPENAI_API_KEY is not set. AI features will be disabled.');
+}
+
+const openai = hasOpenAIConfig
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
 
 interface ImproveTextRequest {
   text: string;
@@ -32,6 +39,10 @@ Target Market: ${businessProfile.targetMarket || 'N/A'}
   prompt += `Original ${context}: "${text}"
 
 Please provide only the improved text, without any additional explanations or formatting. Keep it concise and impactful.`;
+
+  if (!openai) {
+    throw new Error('OpenAI is not configured. Please set the OPENAI_API_KEY environment variable.');
+  }
 
   try {
     const response = await openai.chat.completions.create({
@@ -381,6 +392,10 @@ IMPORTANT: The "stats" array should contain numeric values, percentages, dollar 
 
 Use ONLY information from the businessProfile. Be specific and meaningful.`;
 
+  if (!openai) {
+    throw new Error('OpenAI is not configured. Please set the OPENAI_API_KEY environment variable.');
+  }
+
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -607,6 +622,10 @@ COLOR SELECTION RULES - FOLLOW STRICTLY:
 Make each slide visually stunning and professional. Use the EXACT brand colors provided and create specific, meaningful content based on the business information.
 
 FINAL REMINDER: EVERY SINGLE SLIDE MUST INCLUDE THE STYLING OBJECT WITH FONT SIZES. NO EXCEPTIONS!`;
+
+  if (!openai) {
+    throw new Error('OpenAI is not configured. Please set the OPENAI_API_KEY environment variable.');
+  }
 
   try {
     const response = await openai.chat.completions.create({
@@ -1021,6 +1040,10 @@ function ensureColorContrast(backgroundColor: string, textColor: string, brandin
  * Analyze image using OpenAI Vision and generate tags
  */
 export async function analyzeImageWithAI(imageUrl: string): Promise<string[]> {
+  if (!openai) {
+    console.warn('OpenAI is not configured. Skipping image analysis.');
+    return [];
+  }
   try {
     console.log(`🤖 Analyzing image with AI: ${imageUrl}`);
     

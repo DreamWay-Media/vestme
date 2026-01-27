@@ -35,6 +35,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   const fetchUserData = async (supabaseUser: User) => {
+    if (!supabase) {
+      setUser(null);
+      return;
+    }
+    
     try {
       // Get the current session with auto-refresh
       let { data: { session }, error: sessionError } = await supabase.auth.getSession();
@@ -48,31 +53,33 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         console.log('No active session, trying to refresh...');
         // Try to refresh the session
         const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
-        
-        if (refreshError || !refreshedSession?.access_token) {
-          console.log('Failed to refresh session, using fallback data');
-          throw new Error('No active session after refresh');
+        if (refreshError) {
+          console.error('Session refresh error:', refreshError);
+          throw refreshError;
         }
-        
-        // Use the refreshed session
         session = refreshedSession;
       }
-
-      console.log('Session token obtained, fetching user data...');
       
+      if (!session?.access_token) {
+        console.error('No valid session after refresh');
+        setUser(null);
+        return;
+      }
+
+      // Try to fetch user from our database
       const response = await fetch('/api/auth/user', {
         headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-        },
+          'Authorization': `Bearer ${session.access_token}`
+        }
       });
 
       if (response.ok) {
         const userData = await response.json();
-        console.log('User data fetched successfully:', userData);
+        console.log('User data from DB:', userData);
         setUser(userData);
       } else {
-        console.log('API call failed, using Supabase metadata fallback');
-        // Fallback to Supabase metadata if API call fails
+        console.log('Failed to fetch from DB, using Supabase metadata');
+        // Fallback to Supabase metadata
         setUser({
           id: supabaseUser.id,
           email: supabaseUser.email || '',
@@ -95,6 +102,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   useEffect(() => {
+    // If supabase is not configured, skip auth setup
+    if (!supabase) {
+      console.log('Supabase not configured, skipping auth');
+      setLoading(false);
+      return;
+    }
+
     // Get initial session
     const getInitialSession = async () => {
       try {
@@ -125,7 +139,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     getInitialSession();
 
     // Listen for auth changes
-    const { data: { subscription } } = onAuthStateChange(async (supabaseUser) => {
+    const authListener = onAuthStateChange(async (supabaseUser) => {
       console.log('Auth state changed:', supabaseUser ? 'User logged in' : 'User logged out');
       if (supabaseUser) {
         await fetchUserData(supabaseUser);
@@ -137,6 +151,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     // Set up periodic session refresh (every 30 minutes)
     const refreshInterval = setInterval(async () => {
+      if (!supabase) return;
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
@@ -149,12 +164,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }, 30 * 60 * 1000); // 30 minutes
 
     return () => {
-      subscription.unsubscribe();
+      if (authListener?.data?.subscription) {
+        authListener.data.subscription.unsubscribe();
+      }
       clearInterval(refreshInterval);
     };
   }, []);
 
   const signOut = async () => {
+    if (!supabase) {
+      setUser(null);
+      return;
+    }
     try {
       await supabase.auth.signOut();
       setUser(null);

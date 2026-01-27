@@ -30,15 +30,15 @@ app.use((req, res, next) => {
     'Content-Security-Policy',
     "default-src 'self'; " +
     "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
-    "style-src 'self' 'unsafe-inline'; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
     "img-src 'self' data: https: blob:; " +
-    "font-src 'self' data:; " +
+    "font-src 'self' data: https://fonts.gstatic.com; " +
     "connect-src 'self' https:; " +
-    "frame-ancestors 'none';"
+    "frame-ancestors *;"
   );
 
-  // X-Frame-Options - prevent clickjacking
-  res.setHeader('X-Frame-Options', 'DENY');
+  // X-Frame-Options - allow embedding in Replit iframe
+  // res.setHeader('X-Frame-Options', 'DENY');
 
   // X-Content-Type-Options - prevent MIME-sniffing
   res.setHeader('X-Content-Type-Options', 'nosniff');

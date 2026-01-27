@@ -1,7 +1,12 @@
 import OpenAI from "openai";
 import { JSDOM } from "jsdom";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Allow the app to start without OpenAI credentials
+const hasOpenAIConfig = !!process.env.OPENAI_API_KEY;
+
+const openai = hasOpenAIConfig
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
 
 export interface BrandExtraction {
   colors: {
@@ -623,6 +628,10 @@ CRITICAL REQUIREMENTS - NO EXCEPTIONS:
 9. All brandColors array must contain ONLY colors from the extracted list
 10. All fontFamilies array must contain ONLY fonts from the extracted list
 11. If you cannot find suitable colors/fonts in the extracted lists, use null instead of making up values`;
+
+    if (!openai) {
+      throw new Error('OpenAI is not configured. Please set the OPENAI_API_KEY environment variable.');
+    }
 
     try {
       const response = await openai.chat.completions.create({
