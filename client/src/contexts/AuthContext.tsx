@@ -8,11 +8,13 @@ interface DbUser {
   firstName?: string;
   lastName?: string;
   profileImageUrl?: string;
+  isAdmin?: boolean;
 }
 
 interface AuthContextType {
   user: DbUser | null;
   loading: boolean;
+  isAdmin: boolean;
   signOut: () => Promise<void>;
   devLogin: () => Promise<void>;
 }
@@ -126,6 +128,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     // Get initial session
     const getInitialSession = async () => {
+      if (!supabase) return;
       try {
         console.log('Getting initial session...');
         let { data: { session }, error: sessionError } = await supabase.auth.getSession();
@@ -226,6 +229,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const value = {
     user,
     loading,
+    isAdmin: user?.isAdmin ?? false,
     signOut,
     devLogin,
   };

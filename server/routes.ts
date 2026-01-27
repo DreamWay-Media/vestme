@@ -871,7 +871,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Automatically create a default brand kit when AI fails
         try {
           console.log('AI analysis failed due to quota, creating default brand kit automatically');
-          const businessProfile = project.businessProfile || {};
+          
+          // Re-fetch project and userId since they're out of scope in catch block
+          const fallbackUserId = req.user.id;
+          const fallbackProject = await storage.getProject(req.params.id);
+          
+          if (!fallbackProject) {
+            return res.status(404).json({ message: "Project not found" });
+          }
+          
+          const businessProfile = fallbackProject.businessProfile || {};
           const suggestions = generateBrandKitSuggestions(businessProfile);
           const extractedLogoUrl = (businessProfile as any)?.websiteContent?.designElements?.logoUrls?.[0] || null;
 
@@ -885,7 +894,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log('📥 Storing extracted logo in media library:', extractedLogoUrl);
             const storedAssetId = await mediaManager.downloadAndStoreLogo(
               req.params.id,
-              userId,
+              fallbackUserId,
               extractedLogoUrl
             );
 
@@ -901,7 +910,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
 
           const defaultBrandKitData = insertBrandKitSchema.parse({
-            name: `Brand Kit for ${project.name}`,
+            name: `Brand Kit for ${fallbackProject.name}`,
             primaryColor: suggestions.primaryColor,
             secondaryColor: suggestions.secondaryColor,
             accentColor: suggestions.accentColor,
@@ -912,13 +921,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
 
           const brandKit = await storage.createBrandKit(defaultBrandKitData);
-          await storage.updateProject(req.params.id, { status: project.status === 'discovery' ? 'brand_kit' : project.status });
+          await storage.updateProject(req.params.id, { status: fallbackProject.status === 'discovery' ? 'brand_kit' : fallbackProject.status });
 
           await storage.logActivity({
-            userId,
-            projectId: project.id,
+            userId: fallbackUserId,
+            projectId: fallbackProject.id,
             action: 'brand_kit_created',
-            description: `Brand kit created automatically (AI analysis unavailable) for ${project.name}`,
+            description: `Brand kit created automatically (AI analysis unavailable) for ${fallbackProject.name}`,
             metadata: { brandKitId: brandKit.id, autoCreated: true, reason: 'quota_exceeded' }
           });
 
@@ -3077,11 +3086,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ADMIN TEMPLATE ROUTES (require admin role)
   // ============================================================================
 
-  // Helper to check if user is admin (you may want to implement proper role checking)
-  const isAdmin = (req: any, res: any, next: any) => {
-    // TODO: Implement proper admin role checking
-    // For now, just pass through
-    next();
+  // Helper to check if user is admin - checks isAdmin field from database
+  const isAdmin = async (req: any, res: any, next: any) => {
+    try {
+      if (!req.user || !req.user.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      // Fetch user from database to check admin status
+      const user = await storage.getUser(req.user.id);
+      
+      if (!user || !user.isAdmin) {
+        return res.status(403).json({ error: 'Forbidden: Admin access required' });
+      }
+      
+      next();
+    } catch (error) {
+      console.error('Error checking admin status:', error);
+      return res.status(500).json({ error: 'Failed to verify admin status' });
+    }
   };
 
   // Get all templates (admin view, no access control filtering)

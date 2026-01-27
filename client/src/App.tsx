@@ -28,6 +28,7 @@ import TemplateManagement from "@/pages/admin/template-management";
 import TemplateDesignStudio from "@/pages/admin/template-design-studio";
 import ThemeEditorPage from "@/pages/admin/theme-editor";
 import ThemeTemplatesPage from "@/pages/admin/theme/[themeId]/templates";
+import { AdminRoute } from "@/components/AdminRoute";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -72,13 +73,25 @@ function Router() {
           <Route path="/settings" component={Settings} />
           <Route path="/deck-viewer/:deckId" component={({ params }) => <DeckViewer deckId={params.deckId} />} />
           
-          {/* Admin Routes */}
-          <Route path="/admin/templates" component={TemplateManagement} />
-          <Route path="/admin/templates/new/design" component={TemplateDesignStudio} />
-          <Route path="/admin/templates/:templateId/design" component={TemplateDesignStudio} />
-          <Route path="/admin/themes/new" component={ThemeEditorPage} />
-          <Route path="/admin/themes/:themeId/edit" component={ThemeEditorPage} />
-          <Route path="/admin/themes/:themeId/templates" component={ThemeTemplatesPage} />
+          {/* Admin Routes - Protected by admin role check */}
+          <Route path="/admin/templates">
+            {() => <AdminRoute><TemplateManagement /></AdminRoute>}
+          </Route>
+          <Route path="/admin/templates/new/design">
+            {() => <AdminRoute><TemplateDesignStudio /></AdminRoute>}
+          </Route>
+          <Route path="/admin/templates/:templateId/design">
+            {() => <AdminRoute><TemplateDesignStudio /></AdminRoute>}
+          </Route>
+          <Route path="/admin/themes/new">
+            {() => <AdminRoute><ThemeEditorPage /></AdminRoute>}
+          </Route>
+          <Route path="/admin/themes/:themeId/edit">
+            {() => <AdminRoute><ThemeEditorPage /></AdminRoute>}
+          </Route>
+          <Route path="/admin/themes/:themeId/templates">
+            {() => <AdminRoute><ThemeTemplatesPage /></AdminRoute>}
+          </Route>
           
           {/* 404 - Must be last */}
           <Route component={NotFound} />
