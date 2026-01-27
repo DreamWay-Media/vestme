@@ -43,19 +43,19 @@ const sidebarItems = [
     comingSoon: false
   },
   {
-    id: "brand-kit",
-    label: "Brand Kit",
-    icon: Palette,
-    path: "/brand-kit",
-    description: "Brand colors, fonts, and style",
-    comingSoon: false
-  },
-  {
     id: "media-library",
     label: "Media Library",
     icon: Image,
     path: "/media-library",
     description: "Upload and manage images",
+    comingSoon: false
+  },
+  {
+    id: "brand-kit",
+    label: "Brand Kit",
+    icon: Palette,
+    path: "/brand-kit",
+    description: "Brand colors, fonts, and style",
     comingSoon: false
   },
   {
@@ -96,17 +96,17 @@ const getStepStatus = (stepId: string, projectStatus: string, businessProfile?: 
   switch (stepId) {
     case "discovery":
       return projectStatus === "draft" ? "pending" : "completed";
-    case "brand-kit":
+    case "media-library":
       return ["draft"].includes(projectStatus) ? "pending" : 
              ["discovery"].includes(projectStatus) ? "current" : "completed";
-    case "media-library":
+    case "brand-kit":
       return ["draft", "discovery"].includes(projectStatus) ? "pending" :
-             ["brand_kit"].includes(projectStatus) ? "current" : "completed";
-    case "deck-generator":
-      return ["draft", "discovery", "brand_kit"].includes(projectStatus) ? "pending" :
              ["media_library"].includes(projectStatus) ? "current" : "completed";
+    case "deck-generator":
+      return ["draft", "discovery", "media_library"].includes(projectStatus) ? "pending" :
+             ["brand_kit"].includes(projectStatus) ? "current" : "completed";
     case "campaign":
-      return ["draft", "discovery", "brand_kit", "media_library"].includes(projectStatus) ? "pending" :
+      return ["draft", "discovery", "media_library", "brand_kit"].includes(projectStatus) ? "pending" :
              ["deck_ready"].includes(projectStatus) ? "current" : "completed";
     case "analytics":
       return "available";
