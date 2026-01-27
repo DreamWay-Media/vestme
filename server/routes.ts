@@ -3580,6 +3580,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Extract images
       console.log(`🔍 Extracting images from ${websiteUrl} for project ${projectId}`);
       const extractedImages = await mediaManager.extractImagesFromWebsite(websiteUrl);
+      console.log(`📊 extractImagesFromWebsite returned ${extractedImages.length} images`);
+      if (extractedImages.length > 0) {
+        console.log(`📋 First 3 extracted image URLs:`);
+        extractedImages.slice(0, 3).forEach((img, idx) => {
+          console.log(`   ${idx + 1}. ${img.url.substring(0, 100)}`);
+        });
+      }
 
       // Save extracted images
       console.log(`💾 Saving ${Math.min(extractedImages.length, maxImages)} images to project`);
@@ -3594,6 +3601,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: `Successfully extracted ${result.saved.length} images`,
         saved: result.saved,
         errors: result.errors,
+        skipped: result.skipped,
+        stats: result.stats,
         totalFound: extractedImages.length
       });
     } catch (error: any) {

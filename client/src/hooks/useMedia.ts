@@ -6,6 +6,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 
 async function getAuthHeaders() {
+  if (!supabase) {
+    throw new Error('Authentication is not configured');
+  }
+  
   const { data: { session }, error } = await supabase.auth.getSession();
   
   if (error || !session) {
