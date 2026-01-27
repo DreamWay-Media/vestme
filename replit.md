@@ -57,7 +57,25 @@ In production, only real Supabase authentication is available.
 - Uses fixed user ID 'dev-demo-user' server-side (no arbitrary account creation)
 - Both real auth and dev auth work in development mode
 
+## Admin Access Control
+- Users table has an `isAdmin` column (boolean) for role-based access control
+- Admin routes (`/admin/*`) are protected by:
+  - Server-side: `isAdmin` middleware verifies database role before allowing access
+  - Frontend: `AdminRoute` component redirects non-admins to `/dashboard`
+- Current admin: whybrandsai@gmail.com (Vrej Sanati)
+- To make a user admin: `UPDATE users SET is_admin = true WHERE email = 'user@example.com';`
+
+## Template System
+- Templates are stored in the database (8 system templates)
+- Regular users see only enabled templates (`isEnabled = true`)
+- Admin users can manage templates at `/admin/templates`
+- Themes are also database-stored with enable/disable controls
+
 ## Recent Changes
+- Added admin role-based access control with database-backed verification
+- Added `isAdmin` column to users table with schema and API support
+- Created AdminRoute component for frontend route protection
+- Fixed TypeScript errors in routes.ts (undefined variables in error handling)
 - Added secure dev-login flow for Replit preview testing (fixed user ID, production check)
 - Fixed media library integration to use correct mediaManager.getProjectMedia() method
 - Fixed brand color extraction with case-insensitive matching and generic color filtering
