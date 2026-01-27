@@ -25,9 +25,40 @@ interface BrandKitSuggestion {
 }
 
 /**
- * Generates AI-powered brand kit suggestions based on business profile
+ * Generates brand kit with neutral default colors
+ * Colors are no longer extracted from websites - users pick their own colors
  */
 export function generateBrandKitSuggestions(businessProfile: BusinessProfile): BrandKitSuggestion {
+  // Always use neutral placeholder colors - let users choose their own brand colors
+  const neutralDefaults: BrandKitSuggestion = {
+    primaryColor: "#000000",      // Black - neutral starting point
+    secondaryColor: "#F8FAFC",    // Light gray - clean background
+    accentColor: "#64748B",       // Slate - professional accent
+    fontFamily: "Inter",          // Modern, clean font
+    reasoning: "Starting with neutral colors - customize these to match your brand identity"
+  };
+
+  // Check for website fonts only (not colors)
+  const websiteFonts = businessProfile.websiteContent?.designElements?.fonts || [];
+  
+  // If we found a font from the website, use it
+  if (websiteFonts.length > 0) {
+    const detectedFont = websiteFonts[0];
+    if (detectedFont && typeof detectedFont === 'string') {
+      neutralDefaults.fontFamily = detectedFont;
+      console.log('Using detected font from website:', detectedFont);
+    }
+  }
+
+  console.log('Using neutral default colors - user will customize');
+  return neutralDefaults;
+}
+
+/**
+ * Legacy function - keeping for backwards compatibility but now unused
+ * @deprecated Color extraction from websites is no longer used
+ */
+function generateBrandKitSuggestionsLegacy(businessProfile: BusinessProfile): BrandKitSuggestion {
   const industry = businessProfile.industry?.toLowerCase() || "";
   const description = businessProfile.description?.toLowerCase() || "";
   const valueProposition = businessProfile.valueProposition?.toLowerCase() || "";
