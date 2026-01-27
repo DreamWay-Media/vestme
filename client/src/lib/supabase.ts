@@ -3,22 +3,20 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Check if we're in development mode - use dev login instead of Supabase OAuth
-const isDevelopment = import.meta.env.DEV || import.meta.env.MODE === 'development';
+// Check if we're in development mode
+export const isDevelopment = import.meta.env.DEV || import.meta.env.MODE === 'development';
 
-// Allow the app to run without Supabase credentials in development
-// In development mode, we'll use dev login even if Supabase is configured
+// Allow the app to run without Supabase credentials
 const hasSupabaseConfig = supabaseUrl && supabaseAnonKey;
-const useSupabaseAuth = hasSupabaseConfig && !isDevelopment;
 
 if (!hasSupabaseConfig) {
   console.warn('Missing Supabase environment variables. Authentication features will be disabled.');
 } else if (isDevelopment) {
-  console.log('Development mode: Using dev login instead of Supabase OAuth');
+  console.log('Development mode: Both dev login and real auth are available');
 }
 
-export const supabase: SupabaseClient | null = useSupabaseAuth 
-  ? createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase: SupabaseClient | null = hasSupabaseConfig 
+  ? createClient(supabaseUrl!, supabaseAnonKey!, {
       auth: {
         autoRefreshToken: true,
         persistSession: true,

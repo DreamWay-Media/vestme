@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { ArrowRight, Sparkles } from "lucide-react";
-import { GoogleLogin } from "./GoogleLogin";
+import { GoogleLogin, DevLoginButton } from "./GoogleLogin";
+import { isDevelopment } from "../lib/supabase";
 
 export default function Hero() {
   return (
@@ -31,6 +32,7 @@ export default function Hero() {
               Get Started Free
               <ArrowRight className="w-5 h-5" />
             </GoogleLogin>
+            {isDevelopment && <DevLoginButton />}
           </div>
           
           <p className="text-sm text-muted-foreground" data-testid="text-trust-line">
