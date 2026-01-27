@@ -24,6 +24,12 @@ export const AuthCallback: React.FC = () => {
         }
 
         // Handle the OAuth callback
+        if (!supabase) {
+          setError('Authentication service not configured');
+          setTimeout(() => setLocation('/'), 3000);
+          return;
+        }
+        
         const { data, error: authError } = await supabase.auth.getSession();
         
         if (authError) {
@@ -48,7 +54,7 @@ export const AuthCallback: React.FC = () => {
     };
 
     handleAuthCallback();
-  }, [navigate]);
+  }, [setLocation]);
 
   if (error) {
     return (
