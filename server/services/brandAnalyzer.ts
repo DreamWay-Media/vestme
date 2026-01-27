@@ -277,12 +277,32 @@ export class BrandAnalyzer {
         return 0;
       });
 
+      // Filter out generic/utility colors that don't represent brand identity
+      const genericColors = [
+        '#000000', '#000', '#ffffff', '#fff', '#f5f5f5', '#fafafa',
+        '#e5e5e5', '#d4d4d4', '#a3a3a3', '#737373', '#525252', '#404040',
+        '#262626', '#171717', '#0a0a0a', '#f4f4f5', '#e4e4e7', '#d4d4d8',
+        '#a1a1aa', '#71717a', '#52525b', '#3f3f46', '#27272a', '#18181b',
+        '#f8fafc', '#f1f5f9', '#e2e8f0', '#cbd5e1', '#94a3b8', '#64748b',
+        '#475569', '#334155', '#1e293b', '#0f172a', '#fef2f2', '#fee2e2',
+        '#cccccc', '#ccc', '#999999', '#999', '#666666', '#666', '#333333', '#333',
+        'transparent', 'inherit', 'initial', 'currentcolor'
+      ];
+      
+      const isGenericColor = (color: string): boolean => {
+        const lower = color.toLowerCase().trim();
+        return genericColors.includes(lower);
+      };
+      
+      const filteredColors = [...new Set(extractedColors)]
+        .filter(color => !isGenericColor(color));
+      
       return {
         html,
         styles,
         images: imageDetails.map(img => img.src),
         imageDetails,
-        extractedColors: [...new Set(extractedColors)], // Remove duplicates
+        extractedColors: filteredColors, // Remove duplicates and generic colors
         extractedFonts: [...new Set(extractedFonts)], // Remove duplicates
         title: document.title || '',
         metaDescription: document.querySelector('meta[name="description"]')?.getAttribute('content') || ''
@@ -652,20 +672,54 @@ CRITICAL REQUIREMENTS - NO EXCEPTIONS:
 
       const result = JSON.parse(response.choices[0].message.content || '{}');
       
+      // Helper function to normalize color for comparison (lowercase, trim)
+      const normalizeColor = (color: string): string => {
+        return color?.toLowerCase().trim() || '';
+      };
+      
+      // Helper function to check if color exists in extracted list (case-insensitive)
+      const colorExistsInList = (color: string, extractedColors: string[]): boolean => {
+        if (!color) return false;
+        const normalizedColor = normalizeColor(color);
+        return extractedColors.some(ec => normalizeColor(ec) === normalizedColor);
+      };
+      
+      // Helper function to find the original color from the list (preserves original case)
+      const findOriginalColor = (color: string, extractedColors: string[]): string | null => {
+        if (!color) return null;
+        const normalizedColor = normalizeColor(color);
+        const found = extractedColors.find(ec => normalizeColor(ec) === normalizedColor);
+        return found || null;
+      };
+      
+      // Helper function to normalize font for comparison
+      const normalizeFont = (font: string): string => {
+        return font?.toLowerCase().trim() || '';
+      };
+      
+      // Helper function to check if font exists in extracted list (case-insensitive)
+      const fontExistsInList = (font: string, extractedFonts: string[]): boolean => {
+        if (!font) return false;
+        const normalizedFont = normalizeFont(font);
+        return extractedFonts.some(ef => normalizeFont(ef) === normalizedFont);
+      };
+      
       // Validate extracted colors and fonts against the provided lists
       const validatedColors = {
-        primary: (result.colors?.primary && websiteContent.extractedColors.includes(result.colors.primary)) ? result.colors.primary : null,
-        secondary: (result.colors?.secondary && websiteContent.extractedColors.includes(result.colors.secondary)) ? result.colors.secondary : null,
-        accent: (result.colors?.accent && websiteContent.extractedColors.includes(result.colors.accent)) ? result.colors.accent : null,
+        primary: findOriginalColor(result.colors?.primary, websiteContent.extractedColors),
+        secondary: findOriginalColor(result.colors?.secondary, websiteContent.extractedColors),
+        accent: findOriginalColor(result.colors?.accent, websiteContent.extractedColors),
         brandColors: Array.isArray(result.colors?.brandColors) ? 
-          result.colors.brandColors.filter((color: string) => websiteContent.extractedColors.includes(color)) : []
+          result.colors.brandColors
+            .map((color: string) => findOriginalColor(color, websiteContent.extractedColors))
+            .filter((color: string | null): color is string => color !== null) : []
       };
 
       const validatedFonts = {
-        primaryFont: (result.typography?.primaryFont && websiteContent.extractedFonts.includes(result.typography.primaryFont)) ? result.typography.primaryFont : null,
-        secondaryFont: (result.typography?.secondaryFont && websiteContent.extractedFonts.includes(result.typography.secondaryFont)) ? result.typography.secondaryFont : null,
+        primaryFont: fontExistsInList(result.typography?.primaryFont, websiteContent.extractedFonts) ? result.typography.primaryFont : null,
+        secondaryFont: fontExistsInList(result.typography?.secondaryFont, websiteContent.extractedFonts) ? result.typography.secondaryFont : null,
         fontFamilies: Array.isArray(result.typography?.fontFamilies) ? 
-          result.typography.fontFamilies.filter((font: string) => websiteContent.extractedFonts.includes(font)) : []
+          result.typography.fontFamilies.filter((font: string) => fontExistsInList(font, websiteContent.extractedFonts)) : []
       };
 
       return {

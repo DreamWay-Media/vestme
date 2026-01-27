@@ -1,5 +1,6 @@
 import React from 'react';
-import { signInWithGoogle } from '../lib/supabase';
+import { signInWithGoogle, supabase } from '../lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
 
 interface GoogleLoginProps {
@@ -13,8 +14,15 @@ export const GoogleLogin: React.FC<GoogleLoginProps> = ({
   children,
   variant = 'default'
 }) => {
+  const { devLogin } = useAuth();
+  
   const handleGoogleLogin = async () => {
     try {
+      if (!supabase) {
+        console.log('Supabase not configured, using dev login');
+        await devLogin();
+        return;
+      }
       await signInWithGoogle();
     } catch (error) {
       console.error('Google login error:', error);

@@ -14,6 +14,7 @@ interface AuthContextType {
   user: DbUser | null;
   loading: boolean;
   signOut: () => Promise<void>;
+  devLogin: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -102,6 +103,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   useEffect(() => {
+    // Check for dev user in localStorage first
+    const devUserStr = localStorage.getItem('dev_user');
+    if (devUserStr) {
+      try {
+        const devUser = JSON.parse(devUserStr);
+        console.log('Found dev user in localStorage:', devUser);
+        setUser(devUser);
+        setLoading(false);
+        return;
+      } catch (e) {
+        localStorage.removeItem('dev_user');
+      }
+    }
+    
     // If supabase is not configured, skip auth setup
     if (!supabase) {
       console.log('Supabase not configured, skipping auth');
@@ -174,13 +189,37 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const signOut = async () => {
     if (!supabase) {
       setUser(null);
+      localStorage.removeItem('dev_user');
       return;
     }
     try {
       await supabase.auth.signOut();
       setUser(null);
+      localStorage.removeItem('dev_user');
     } catch (error) {
       console.error('Error signing out:', error);
+    }
+  };
+
+  const devLogin = async () => {
+    try {
+      const response = await fetch('/api/auth/dev-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      
+      if (response.ok) {
+        const userData = await response.json();
+        localStorage.setItem('dev_user', JSON.stringify(userData));
+        setUser(userData);
+      } else {
+        console.error('Dev login failed:', response.status);
+        throw new Error('Dev login failed');
+      }
+    } catch (error) {
+      console.error('Dev login error:', error);
+      throw error;
     }
   };
 
@@ -188,6 +227,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     user,
     loading,
     signOut,
+    devLogin,
   };
 
   return (
