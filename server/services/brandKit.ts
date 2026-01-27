@@ -219,24 +219,58 @@ function createPaletteFromWebsiteColors(
   // Normalize all colors and count frequency
   const colorFrequency = new Map<string, number>();
   
+  // Helper to calculate color saturation (0-1)
+  const getSaturation = (r: number, g: number, b: number): number => {
+    const max = Math.max(r, g, b) / 255;
+    const min = Math.min(r, g, b) / 255;
+    const l = (max + min) / 2;
+    if (max === min) return 0;
+    const s = l > 0.5 ? (max - min) / (2 - max - min) : (max - min) / (max + min);
+    return s;
+  };
+  
+  // Helper to check if color is too generic (common UI/background colors)
+  const isGenericColor = (hex: string): boolean => {
+    const lower = hex.toLowerCase();
+    const genericPatterns = [
+      '#000000', '#000', '#ffffff', '#fff', '#f5f5f5', '#fafafa', '#f0f0f0',
+      '#e5e5e5', '#d4d4d4', '#a3a3a3', '#737373', '#525252', '#404040',
+      '#262626', '#171717', '#0a0a0a', '#f4f4f5', '#e4e4e7', '#d4d4d8',
+      '#a1a1aa', '#71717a', '#52525b', '#3f3f46', '#27272a', '#18181b',
+      '#f8fafc', '#f1f5f9', '#e2e8f0', '#cbd5e1', '#94a3b8', '#64748b',
+      '#475569', '#334155', '#1e293b', '#0f172a', '#cccccc', '#ccc',
+      '#999999', '#999', '#666666', '#666', '#333333', '#333', '#eeeeee', '#eee',
+      '#dddddd', '#ddd', '#bbbbbb', '#bbb', '#aaaaaa', '#aaa'
+    ];
+    return genericPatterns.includes(lower);
+  };
+  
   for (const color of colors) {
     const normalized = normalizeColor(color);
     if (normalized) {
-      // Filter out pure black, white, and very common background colors
+      // Skip generic colors
+      if (isGenericColor(normalized)) {
+        continue;
+      }
+      
       const hex = normalized.replace('#', '');
       const r = parseInt(hex.substring(0, 2), 16);
       const g = parseInt(hex.substring(2, 4), 16);
       const b = parseInt(hex.substring(4, 6), 16);
       
       // Skip pure black/white and very light/dark grays
-      const isBlack = r < 10 && g < 10 && b < 10;
-      const isWhite = r > 245 && g > 245 && b > 245;
-      const isVeryLightGray = r > 240 && g > 240 && b > 240 && Math.abs(r - g) < 10 && Math.abs(g - b) < 10;
-      const isVeryDarkGray = r < 20 && g < 20 && b < 20 && Math.abs(r - g) < 10 && Math.abs(g - b) < 10;
+      const isBlack = r < 15 && g < 15 && b < 15;
+      const isWhite = r > 240 && g > 240 && b > 240;
+      const isVeryLightGray = r > 235 && g > 235 && b > 235 && Math.abs(r - g) < 15 && Math.abs(g - b) < 15;
+      const isVeryDarkGray = r < 25 && g < 25 && b < 25 && Math.abs(r - g) < 15 && Math.abs(g - b) < 15;
+      const isMidGray = Math.abs(r - g) < 10 && Math.abs(g - b) < 10 && r > 100 && r < 180;
       
-      if (!isBlack && !isWhite && !isVeryLightGray && !isVeryDarkGray) {
+      if (!isBlack && !isWhite && !isVeryLightGray && !isVeryDarkGray && !isMidGray) {
+        // Weight saturated colors higher (they're more likely to be brand colors)
+        const saturation = getSaturation(r, g, b);
+        const weight = saturation > 0.3 ? 3 : (saturation > 0.1 ? 2 : 1);
         const count = colorFrequency.get(normalized) || 0;
-        colorFrequency.set(normalized, count + 1);
+        colorFrequency.set(normalized, count + weight);
       }
     }
   }
