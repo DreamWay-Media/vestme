@@ -36,15 +36,40 @@ export const signInWithGoogle = async () => {
   if (!supabase) {
     throw new Error('Authentication is not configured');
   }
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo: `${window.location.origin}`,
-    },
-  });
   
-  if (error) throw error;
-  return data;
+  // Use popup flow in development to work within Replit preview iframe
+  // In production, use redirect flow for better UX
+  const usePopup = isDevelopment;
+  
+  if (usePopup) {
+    // Open in new window/tab for development
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+        skipBrowserRedirect: true,
+      },
+    });
+    
+    if (error) throw error;
+    
+    // Open the auth URL in a new window
+    if (data?.url) {
+      window.open(data.url, '_blank', 'width=500,height=600');
+    }
+    return data;
+  } else {
+    // Standard redirect flow for production
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+    
+    if (error) throw error;
+    return data;
+  }
 };
 
 export const signOut = async () => {
