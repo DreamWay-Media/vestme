@@ -504,9 +504,9 @@ export default function ProjectBrandKit() {
                     onClick={() => {
                       setEditingBrandKit({
                         name: `${project?.name || 'Project'} Brand Kit`,
-                        primaryColor: "#3B82F6",
-                        secondaryColor: "#F1F5F9",
-                        accentColor: "#F59E0B",
+                        primaryColor: "#000000",
+                        secondaryColor: "#F8FAFC",
+                        accentColor: "#64748B",
                         fontFamily: "Inter"
                       });
                       setCustomizing(true);
@@ -546,58 +546,87 @@ export default function ProjectBrandKit() {
                   <div className="grid grid-cols-3 gap-4">
                     <div>
                       <Label htmlFor="primary-color-new">Primary Color</Label>
+                      <p className="text-xs text-muted-foreground mb-2">Your main brand color (headings, buttons)</p>
                       <div className="flex gap-2 items-center">
                         <Input
                           id="primary-color-new"
                           type="color"
-                          value={editingBrandKit?.primaryColor || "#3B82F6"}
+                          value={editingBrandKit?.primaryColor || "#000000"}
                           onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, primaryColor: e.target.value} : null)}
-                          className="w-12 h-8 p-1 border rounded"
+                          className="w-12 h-10 p-1 border rounded cursor-pointer"
                         />
                         <Input
-                          value={editingBrandKit?.primaryColor || "#3B82F6"}
+                          value={editingBrandKit?.primaryColor || "#000000"}
                           onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, primaryColor: e.target.value} : null)}
-                          placeholder="#3B82F6"
-                          className="flex-1"
+                          placeholder="#000000"
+                          className="flex-1 font-mono text-sm"
                         />
                       </div>
                     </div>
                     
                     <div>
                       <Label htmlFor="secondary-color-new">Secondary Color</Label>
+                      <p className="text-xs text-muted-foreground mb-2">Background and accent areas</p>
                       <div className="flex gap-2 items-center">
                         <Input
                           id="secondary-color-new"
                           type="color"
-                          value={editingBrandKit?.secondaryColor || "#F1F5F9"}
+                          value={editingBrandKit?.secondaryColor || "#F8FAFC"}
                           onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, secondaryColor: e.target.value} : null)}
-                          className="w-12 h-8 p-1 border rounded"
+                          className="w-12 h-10 p-1 border rounded cursor-pointer"
                         />
                         <Input
-                          value={editingBrandKit?.secondaryColor || "#F1F5F9"}
+                          value={editingBrandKit?.secondaryColor || "#F8FAFC"}
                           onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, secondaryColor: e.target.value} : null)}
-                          placeholder="#F1F5F9"
-                          className="flex-1"
+                          placeholder="#F8FAFC"
+                          className="flex-1 font-mono text-sm"
                         />
                       </div>
                     </div>
                     
                     <div>
                       <Label htmlFor="accent-color-new">Accent Color</Label>
+                      <p className="text-xs text-muted-foreground mb-2">Highlights and call-to-actions</p>
                       <div className="flex gap-2 items-center">
                         <Input
                           id="accent-color-new"
                           type="color"
-                          value={editingBrandKit?.accentColor || "#F59E0B"}
+                          value={editingBrandKit?.accentColor || "#64748B"}
                           onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, accentColor: e.target.value} : null)}
-                          className="w-12 h-8 p-1 border rounded"
+                          className="w-12 h-10 p-1 border rounded cursor-pointer"
                         />
                         <Input
-                          value={editingBrandKit?.accentColor || "#F59E0B"}
+                          value={editingBrandKit?.accentColor || "#64748B"}
                           onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, accentColor: e.target.value} : null)}
-                          placeholder="#F59E0B"
-                          className="flex-1"
+                          placeholder="#64748B"
+                          className="flex-1 font-mono text-sm"
                         />
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Color Preview Section */}
+                  <div className="border rounded-lg p-4 bg-white">
+                    <Label className="text-sm font-medium mb-3 block">Color Preview</Label>
+                    <div 
+                      className="rounded-lg overflow-hidden border"
+                      style={{ backgroundColor: editingBrandKit?.secondaryColor || "#F8FAFC" }}
+                    >
+                      <div 
+                        className="p-4"
+                        style={{ backgroundColor: editingBrandKit?.primaryColor || "#000000" }}
+                      >
+                        <h3 className="text-white font-semibold text-lg">Your Brand Headline</h3>
+                        <p className="text-white/80 text-sm">Primary color as header background</p>
+                      </div>
+                      <div className="p-4">
+                        <p className="text-gray-700 mb-3">This is how your content will look with your chosen colors.</p>
+                        <button
+                          className="px-4 py-2 rounded-md text-white font-medium"
+                          style={{ backgroundColor: editingBrandKit?.accentColor || "#64748B" }}
+                        >
+                          Accent Button
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -958,58 +987,87 @@ export default function ProjectBrandKit() {
                       <div className="grid grid-cols-3 gap-4">
                         <div>
                           <Label htmlFor="primary-color">Primary Color</Label>
+                          <p className="text-xs text-muted-foreground mb-2">Your main brand color</p>
                           <div className="flex gap-2 items-center">
                             <Input
                               id="primary-color"
                               type="color"
                               value={editingBrandKit?.primaryColor || "#000000"}
                               onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, primaryColor: e.target.value} : null)}
-                              className="w-12 h-8 p-1 border rounded"
+                              className="w-12 h-10 p-1 border rounded cursor-pointer"
                             />
                             <Input
                               value={editingBrandKit?.primaryColor || ""}
                               onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, primaryColor: e.target.value} : null)}
                               placeholder="#000000"
-                              className="flex-1"
+                              className="flex-1 font-mono text-sm"
                             />
                           </div>
                         </div>
                         
                         <div>
                           <Label htmlFor="secondary-color">Secondary Color</Label>
+                          <p className="text-xs text-muted-foreground mb-2">Background color</p>
                           <div className="flex gap-2 items-center">
                             <Input
                               id="secondary-color"
                               type="color"
-                              value={editingBrandKit?.secondaryColor || "#000000"}
+                              value={editingBrandKit?.secondaryColor || "#F8FAFC"}
                               onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, secondaryColor: e.target.value} : null)}
-                              className="w-12 h-8 p-1 border rounded"
+                              className="w-12 h-10 p-1 border rounded cursor-pointer"
                             />
                             <Input
                               value={editingBrandKit?.secondaryColor || ""}
                               onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, secondaryColor: e.target.value} : null)}
-                              placeholder="#000000"
-                              className="flex-1"
+                              placeholder="#F8FAFC"
+                              className="flex-1 font-mono text-sm"
                             />
                           </div>
                         </div>
                         
                         <div>
                           <Label htmlFor="accent-color">Accent Color</Label>
+                          <p className="text-xs text-muted-foreground mb-2">Highlights & CTAs</p>
                           <div className="flex gap-2 items-center">
                             <Input
                               id="accent-color"
                               type="color"
-                              value={editingBrandKit?.accentColor || "#000000"}
+                              value={editingBrandKit?.accentColor || "#64748B"}
                               onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, accentColor: e.target.value} : null)}
-                              className="w-12 h-8 p-1 border rounded"
+                              className="w-12 h-10 p-1 border rounded cursor-pointer"
                             />
                             <Input
                               value={editingBrandKit?.accentColor || ""}
                               onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, accentColor: e.target.value} : null)}
-                              placeholder="#000000"
-                              className="flex-1"
+                              placeholder="#64748B"
+                              className="flex-1 font-mono text-sm"
                             />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Color Preview Section */}
+                      <div className="border rounded-lg p-4 bg-white">
+                        <Label className="text-sm font-medium mb-3 block">Color Preview</Label>
+                        <div 
+                          className="rounded-lg overflow-hidden border"
+                          style={{ backgroundColor: editingBrandKit?.secondaryColor || "#F8FAFC" }}
+                        >
+                          <div 
+                            className="p-4"
+                            style={{ backgroundColor: editingBrandKit?.primaryColor || "#000000" }}
+                          >
+                            <h3 className="text-white font-semibold text-lg">Your Brand Headline</h3>
+                            <p className="text-white/80 text-sm">Primary color as header</p>
+                          </div>
+                          <div className="p-4">
+                            <p className="text-gray-700 mb-3">Preview of your chosen colors.</p>
+                            <button
+                              className="px-4 py-2 rounded-md text-white font-medium"
+                              style={{ backgroundColor: editingBrandKit?.accentColor || "#64748B" }}
+                            >
+                              Accent Button
+                            </button>
                           </div>
                         </div>
                       </div>
