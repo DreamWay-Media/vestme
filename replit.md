@@ -45,7 +45,18 @@ Uses PostgreSQL with Drizzle ORM. Push schema changes with:
 npm run db:push
 ```
 
+## Development Login (Dev Mode)
+When running without Supabase configured (development mode):
+- A "Get Started Free" button triggers dev login with a fixed demo user
+- Dev login is only available when:
+  1. NODE_ENV !== 'production'
+  2. Supabase credentials are NOT configured
+- Uses fixed user ID 'dev-demo-user' for security (no arbitrary account creation)
+
 ## Recent Changes
+- Added secure dev-login flow for Replit preview testing (fixed user ID, production check)
+- Fixed media library integration to use correct mediaManager.getProjectMedia() method
+- Fixed brand color extraction with case-insensitive matching and generic color filtering
 - Added graceful handling for missing Supabase credentials
 - Added graceful handling for missing OpenAI API key
 - Configured CSP headers to allow Google Fonts
