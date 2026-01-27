@@ -18,7 +18,7 @@ import { SlideRenderer } from "@/components/SlideRenderer";
 import type { Template } from "@/hooks/useTemplates";
 import { supabase } from "@/lib/supabase";
 
-interface TemplatePreviewModalProps {
+interface SlidePreviewModalProps {
   template: Template;
   brandKit?: any;
   deckId?: string;
@@ -28,7 +28,7 @@ interface TemplatePreviewModalProps {
   onApply?: (content: any) => void;
 }
 
-export function TemplatePreviewModal({
+export function SlidePreviewModal({
   template,
   brandKit,
   deckId,
@@ -161,7 +161,8 @@ export function TemplatePreviewModal({
             templateName: template.name,
             businessProfile,
             projectId, // Pass projectId for media library access
-            templateSchema: template.contentSchema, // Pass schema so AI knows how many images to select
+            templateSchema: template.contentSchema, // Pass schema for backward compatibility
+            layoutElements: template.layout?.elements || [], // Pass layout elements with element-specific prompts
           }),
         });
 
@@ -200,8 +201,48 @@ export function TemplatePreviewModal({
         
         const fields = enhancedFields;
 
+        // PRIORITY 1: Use elementContent if provided (element-specific content from AI)
+        // This ensures each element gets content that matches its specific prompt
+        if (generatedContent.elementContent && typeof generatedContent.elementContent === 'object') {
+          console.log('🎯 Using element-specific content from AI:', generatedContent.elementContent);
+          
+          // Filter fields the EXACT same way as form rendering to ensure matching indices
+          const filteredFields = enhancedFields.filter((field: any) => {
+            // Include all shapes (they get auto-labeled)
+            if (field.type === 'shape') return true;
+            // Skip fields without labels
+            if (!field.label || field.label.trim() === '') return false;
+            return true;
+          });
+          
+          // Map element content by finding matching field in filteredFields
+          // This ensures the filtered index matches the form rendering
+          filteredFields.forEach((field: any, filteredIndex: number) => {
+            const elementId = field.id;
+            const elementContent = generatedContent.elementContent[elementId];
+            
+            if (elementContent !== undefined && elementContent !== null) {
+              // For image/logo fields, use unique ID with filtered index (matches form rendering)
+              if (field.type === 'image' || field.type === 'logo') {
+                const uniqueId = `${elementId}-${filteredIndex}`;
+                mappedContent[uniqueId] = elementContent;
+                console.log(`  ✅ Mapped element "${elementId}" to form field "${uniqueId}" (filtered index ${filteredIndex}):`, elementContent);
+              } else {
+                // For other fields, use element ID directly
+                mappedContent[elementId] = elementContent;
+                console.log(`  ✅ Mapped element "${elementId}":`, elementContent);
+              }
+            }
+          });
+        }
+
+        // PRIORITY 2: Fallback to legacy mapping if elementContent not provided
         // Map title to first text field with "title" or "headline" in label
-        if (generatedContent.title) {
+        // Only map if not already mapped from elementContent
+        if (generatedContent.title && !mappedContent[fields.find((f: any) => {
+          const label = f.label?.toLowerCase() || '';
+          return f.type === 'text' && (label.includes('title') || label.includes('headline'));
+        })?.id]) {
           const titleField = fields.find((f: any) => {
             const label = f.label?.toLowerCase() || '';
             return f.type === 'text' && (label.includes('title') || label.includes('headline'));
@@ -211,7 +252,7 @@ export function TemplatePreviewModal({
           }
         }
 
-        // Map description to text fields with various labels
+        // Map description to text fields with various labels (only if not already mapped)
         if (generatedContent.description) {
           const descFields = fields.filter((f: any) => {
             const label = f.label?.toLowerCase() || '';
@@ -221,7 +262,7 @@ export function TemplatePreviewModal({
               label.includes('body') ||
               label.includes('content') ||
               label.includes('text')
-            ) && !label.includes('title') && !label.includes('headline');
+            ) && !label.includes('title') && !label.includes('headline') && !mappedContent[f.id];
           });
           descFields.forEach((field: any) => {
             mappedContent[field.id] = generatedContent.description;
@@ -239,11 +280,13 @@ export function TemplatePreviewModal({
           });
         }
 
-        // Map bullets to text fields with "bullet", "point", "feature" in label
+        // Map bullets to text fields with "bullet", "point", "feature" in label (only if not already mapped)
         if (generatedContent.bullets && Array.isArray(generatedContent.bullets)) {
           const bulletFields = fields.filter((f: any) => {
             const label = f.label?.toLowerCase() || '';
-            return f.type === 'text' && (label.includes('bullet') || label.includes('point') || label.includes('feature') || label.includes('stat'));
+            return f.type === 'text' && 
+              (label.includes('bullet') || label.includes('point') || label.includes('feature') || label.includes('stat')) &&
+              !mappedContent[f.id];
           });
           bulletFields.forEach((field: any, index: number) => {
             if (index < generatedContent.bullets.length) {
@@ -252,9 +295,9 @@ export function TemplatePreviewModal({
           });
         }
 
-        // Map stats to data/number fields
+        // Map stats to data/number fields (only if not already mapped)
         if (generatedContent.stats && Array.isArray(generatedContent.stats)) {
-          const dataFields = fields.filter((f: any) => f.type === 'data');
+          const dataFields = fields.filter((f: any) => f.type === 'data' && !mappedContent[f.id]);
           dataFields.forEach((field: any, index: number) => {
             if (index < generatedContent.stats.length) {
               mappedContent[field.id] = generatedContent.stats[index];
@@ -648,7 +691,7 @@ export function TemplatePreviewModal({
       });
 
       toast({
-        title: "Template Applied",
+        title: "Slide Applied",
         description: `${template.name} has been added to your deck`,
       });
 
@@ -658,14 +701,14 @@ export function TemplatePreviewModal({
 
       if (error.upgradeRequired) {
         toast({
-          title: "Premium Template",
-          description: "This template requires a premium subscription",
+          title: "Premium Slide",
+          description: "This slide requires a premium subscription",
           variant: "destructive",
         });
       } else {
         toast({
           title: "Error",
-          description: error.message || "Failed to apply template",
+          description: error.message || "Failed to apply slide",
           variant: "destructive",
         });
       }
@@ -775,7 +818,7 @@ export function TemplatePreviewModal({
                 if (filteredFields.length === 0) {
                   return (
                     <p className="text-sm text-gray-500">
-                      No customization fields available for this template.
+                      No customization fields available for this slide.
                     </p>
                   );
                 }
@@ -989,7 +1032,7 @@ export function TemplatePreviewModal({
                 disabled={isApplying}
                 className="flex-1"
               >
-                {isApplying ? "Applying..." : "Apply Template"}
+                {isApplying ? "Applying..." : "Apply Slide"}
               </Button>
             </div>
           </div>

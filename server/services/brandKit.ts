@@ -178,59 +178,175 @@ function createPaletteFromWebsiteColors(
     return null;
   }
 
-  // Clean and sort colors by prevalence/importance
-  const cleanColors = colors
-    .filter(color => {
-      // Filter out common/generic colors
-      const lower = color.toLowerCase();
-      return !lower.includes('transparent') && 
-             !lower.includes('rgba(0, 0, 0, 0)') &&
-             lower !== '#000000' && 
-             lower !== '#ffffff' &&
-             lower !== 'black' &&
-             lower !== 'white';
-    })
-    .slice(0, 5); // Take top 5 meaningful colors
-
-  if (cleanColors.length === 0) return null;
-
-  // Convert colors to hex format for consistency
-  const normalizeColor = (color: string): string => {
-    // Simple RGB to hex conversion for rgb() format
-    if (color.includes('rgb(')) {
-      const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-      if (match) {
-        const r = parseInt(match[1]).toString(16).padStart(2, '0');
-        const g = parseInt(match[2]).toString(16).padStart(2, '0');
-        const b = parseInt(match[3]).toString(16).padStart(2, '0');
-        return `#${r}${g}${b}`;
+  // Convert colors to hex format for consistency and normalize
+  const normalizeColor = (color: string): string | null => {
+    if (!color || typeof color !== 'string') return null;
+    
+    const trimmed = color.trim();
+    const lower = trimmed.toLowerCase();
+    
+    // Filter out transparent and invalid colors
+    if (lower.includes('transparent') || lower.includes('rgba(0, 0, 0, 0)')) {
+      return null;
+    }
+    
+    // Handle hex colors (3 or 6 digits)
+    if (trimmed.startsWith('#')) {
+      const hex = trimmed.replace('#', '');
+      if (hex.length === 3) {
+        // Expand 3-digit hex to 6-digit
+        return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
+      } else if (hex.length === 6 && /^[a-f0-9]{6}$/i.test(hex)) {
+        return `#${hex}`;
+      }
+      return null;
+    }
+    
+    // Handle RGB/RGBA colors
+    const rgbMatch = trimmed.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+    if (rgbMatch) {
+      const r = parseInt(rgbMatch[1]);
+      const g = parseInt(rgbMatch[2]);
+      const b = parseInt(rgbMatch[3]);
+      if (r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255) {
+        return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
       }
     }
-    return color;
+    
+    return null;
   };
 
-  const normalizedColors = cleanColors.map(normalizeColor);
-
-  // Choose primary color (first meaningful color)
-  const primaryColor = normalizedColors[0];
+  // Normalize all colors and count frequency
+  const colorFrequency = new Map<string, number>();
   
-  // Choose secondary color (try to find a neutral/gray, or second color)
-  let secondaryColor = normalizedColors.find(c => {
-    const hex = c.replace('#', '');
-    if (hex.length === 6) {
-      const r = parseInt(hex.substr(0, 2), 16);
-      const g = parseInt(hex.substr(2, 2), 16);
-      const b = parseInt(hex.substr(4, 2), 16);
-      // Check if it's a gray/neutral (RGB values are close to each other)
-      return Math.abs(r - g) < 30 && Math.abs(g - b) < 30 && Math.abs(r - b) < 30;
+  for (const color of colors) {
+    const normalized = normalizeColor(color);
+    if (normalized) {
+      // Filter out pure black, white, and very common background colors
+      const hex = normalized.replace('#', '');
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      
+      // Skip pure black/white and very light/dark grays
+      const isBlack = r < 10 && g < 10 && b < 10;
+      const isWhite = r > 245 && g > 245 && b > 245;
+      const isVeryLightGray = r > 240 && g > 240 && b > 240 && Math.abs(r - g) < 10 && Math.abs(g - b) < 10;
+      const isVeryDarkGray = r < 20 && g < 20 && b < 20 && Math.abs(r - g) < 10 && Math.abs(g - b) < 10;
+      
+      if (!isBlack && !isWhite && !isVeryLightGray && !isVeryDarkGray) {
+        const count = colorFrequency.get(normalized) || 0;
+        colorFrequency.set(normalized, count + 1);
+      }
     }
-    return false;
-  }) || normalizedColors[1] || '#64748B';
+  }
 
-  // Choose accent color (try to find a contrasting color)
-  let accentColor = normalizedColors.find(c => c !== primaryColor && c !== secondaryColor) || 
-                   normalizedColors[2] || 
-                   '#10B981';
+  if (colorFrequency.size === 0) {
+    console.log('No valid colors after filtering');
+    return null;
+  }
+
+  // Sort colors by frequency (most common first)
+  const sortedColors = Array.from(colorFrequency.entries())
+    .sort((a, b) => b[1] - a[1]) // Sort by frequency descending
+    .map(([color]) => color);
+
+  console.log('Sorted colors by frequency:', sortedColors.slice(0, 10));
+
+  // Helper function to get RGB values from hex
+  const hexToRgb = (hex: string): { r: number; g: number; b: number } | null => {
+    const cleanHex = hex.replace('#', '');
+    if (cleanHex.length !== 6) return null;
+    return {
+      r: parseInt(cleanHex.substring(0, 2), 16),
+      g: parseInt(cleanHex.substring(2, 4), 16),
+      b: parseInt(cleanHex.substring(4, 6), 16)
+    };
+  };
+
+  // Helper function to calculate luminance
+  const getLuminance = (r: number, g: number, b: number): number => {
+    const [rs, gs, bs] = [r, g, b].map(c => {
+      c = c / 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
+  };
+
+  // Helper function to check if color is neutral/gray
+  const isNeutral = (rgb: { r: number; g: number; b: number }): boolean => {
+    return Math.abs(rgb.r - rgb.g) < 30 && 
+           Math.abs(rgb.g - rgb.b) < 30 && 
+           Math.abs(rgb.r - rgb.b) < 30;
+  };
+
+  // Helper function to check if color is suitable for primary (not too light, not too dark)
+  const isSuitablePrimary = (rgb: { r: number; g: number; b: number }): boolean => {
+    const luminance = getLuminance(rgb.r, rgb.g, rgb.b);
+    // Primary colors should have medium luminance (not too light, not too dark)
+    return luminance > 0.1 && luminance < 0.8;
+  };
+
+  // Choose primary color (most frequent, suitable color)
+  let primaryColor = sortedColors[0] || '#2563EB';
+  const primaryRgb = hexToRgb(primaryColor);
+  if (primaryRgb && !isSuitablePrimary(primaryRgb)) {
+    // If first color isn't suitable, find the first suitable one
+    for (const color of sortedColors) {
+      const rgb = hexToRgb(color);
+      if (rgb && isSuitablePrimary(rgb)) {
+        primaryColor = color;
+        break;
+      }
+    }
+  }
+
+  // Choose secondary color (prefer neutral/gray, otherwise second most frequent suitable color)
+  let secondaryColor = '#64748B'; // default
+  for (const color of sortedColors) {
+    if (color === primaryColor) continue;
+    const rgb = hexToRgb(color);
+    if (rgb && isNeutral(rgb)) {
+      secondaryColor = color;
+      break;
+    }
+  }
+  
+  // If no neutral found, use second most frequent color (if different from primary)
+  if (secondaryColor === '#64748B' && sortedColors.length > 1) {
+    const secondColor = sortedColors.find(c => c !== primaryColor);
+    if (secondColor) {
+      secondaryColor = secondColor;
+    }
+  }
+
+  // Choose accent color (find a contrasting color that's different from primary and secondary)
+  let accentColor = '#10B981'; // default
+  for (const color of sortedColors) {
+    if (color === primaryColor || color === secondaryColor) continue;
+    const rgb = hexToRgb(color);
+    if (rgb) {
+      const luminance = getLuminance(rgb.r, rgb.g, rgb.b);
+      // Accent should have good contrast (not too similar to primary)
+      const primaryRgb = hexToRgb(primaryColor);
+      if (primaryRgb) {
+        const primaryLum = getLuminance(primaryRgb.r, primaryRgb.g, primaryRgb.b);
+        const contrast = Math.abs(luminance - primaryLum);
+        if (contrast > 0.2) { // Good contrast
+          accentColor = color;
+          break;
+        }
+      }
+    }
+  }
+
+  // If still default, try to find any different color
+  if (accentColor === '#10B981') {
+    const differentColor = sortedColors.find(c => c !== primaryColor && c !== secondaryColor);
+    if (differentColor) {
+      accentColor = differentColor;
+    }
+  }
 
   // Choose font (prefer extracted fonts, fallback to web-safe fonts)
   const webSafeFonts = ['Inter', 'Roboto', 'Open Sans', 'Lato', 'Montserrat', 'Source Sans Pro'];
@@ -240,7 +356,13 @@ function createPaletteFromWebsiteColors(
     // Use the first extracted font if it's recognizable
     const extractedFont = fonts[0];
     if (extractedFont && extractedFont.length > 0) {
-      fontFamily = extractedFont;
+      // Clean up font name (remove quotes, weights, etc.)
+      const cleanFont = extractedFont
+        .replace(/['"]/g, '')
+        .split(',')[0]
+        .trim()
+        .split(' ')[0]; // Take first word (font family name)
+      fontFamily = cleanFont || 'Inter';
     }
   }
 
@@ -256,7 +378,7 @@ function createPaletteFromWebsiteColors(
   }
   
   if (colors.length > 0) {
-    reasoning += `. Color palette derived from your website's design`;
+    reasoning += `. Color palette derived from your website's most prominent colors`;
   }
   
   if (fonts.length > 0) {
@@ -272,6 +394,14 @@ function createPaletteFromWebsiteColors(
   };
   
   console.log('Created palette result:', result);
+  console.log('Color selection details:', {
+    totalColors: colors.length,
+    uniqueColors: sortedColors.length,
+    primaryFrequency: colorFrequency.get(primaryColor),
+    secondaryFrequency: colorFrequency.get(secondaryColor),
+    accentFrequency: colorFrequency.get(accentColor)
+  });
+  
   return result;
 }
 

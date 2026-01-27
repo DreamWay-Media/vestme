@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, Link, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, FileText, CheckCircle, Loader2, Download, Edit, RefreshCw, ChevronLeft, ChevronRight, Eye, AlertCircle, ArrowRight } from "lucide-react";
+import { ArrowLeft, FileText, CheckCircle, Loader2, Download, Edit, RefreshCw, ChevronLeft, ChevronRight, Eye, AlertCircle, ArrowRight, Palette } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,10 @@ import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import ProjectLayoutWithHeader from "@/components/ProjectLayoutWithHeader";
 import { SlideRenderer } from "@/components/SlideRenderer";
+import { ThemeSelectionModal } from "@/components/DeckGeneration/ThemeSelectionModal";
+import { useThemes, useTheme } from "@/hooks/useThemes";
+import { ThemeCard } from "@/components/Templates/ThemeCard";
+import type { Theme } from "@/hooks/useThemes";
 
 // Custom scrollbar styles
 const scrollbarStyles = `
@@ -36,6 +40,8 @@ export default function ProjectGenerateDeck() {
   const queryClient = useQueryClient();
   const [currentPreviewSlide, setCurrentPreviewSlide] = useState(0);
   const [slideThumbnailsRef, setSlideThumbnailsRef] = useState<HTMLDivElement | null>(null);
+  const [selectedThemeId, setSelectedThemeId] = useState<string | null>(null);
+  const [showThemeModal, setShowThemeModal] = useState(false);
 
   // Function to scroll to current slide
   const scrollToCurrentSlide = (slideIndex: number) => {
@@ -66,10 +72,26 @@ export default function ProjectGenerateDeck() {
     enabled: !!projectId,
   }) as { data: any[] };
 
+  // Fetch themes
+  const { data: themes } = useThemes();
+  
+  // Get selected theme details
+  const { data: selectedTheme } = useTheme(selectedThemeId);
+
+  // Set default theme on mount
+  useEffect(() => {
+    if (themes && !selectedThemeId) {
+      const defaultTheme = themes.find(t => t.isDefault && !t.isLocked);
+      const firstFreeTheme = themes.find(t => !t.isLocked);
+      setSelectedThemeId(defaultTheme?.id || firstFreeTheme?.id || themes[0]?.id || null);
+    }
+  }, [themes, selectedThemeId]);
+
   const generateDeckMutation = useMutation({
-    mutationFn: async (brandKitId?: string) => {
+    mutationFn: async (data?: { brandKitId?: string; themeId?: string | null }) => {
       return await apiRequest("POST", `/api/projects/${projectId}/generate-deck`, {
-        brandKitId: brandKitId || (brandKits?.[0]?.id)
+        brandKitId: data?.brandKitId || (brandKits?.[0]?.id),
+        themeId: data?.themeId || selectedThemeId
       });
     },
     onSuccess: () => {
@@ -175,9 +197,81 @@ export default function ProjectGenerateDeck() {
     },
   });
 
+  // Regenerate deck with new theme
+  const regenerateDeckWithThemeMutation = useMutation({
+    mutationFn: async (data: { deckId: string; themeId: string }) => {
+      return await apiRequest("POST", `/api/decks/${data.deckId}/regenerate-with-theme`, {
+        themeId: data.themeId
+      });
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "decks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      // Update selected theme ID to match the regenerated deck
+      if (data?.themeId) {
+        setSelectedThemeId(data.themeId);
+      }
+      toast({
+        title: "Deck Regenerated",
+        description: "Your pitch deck has been regenerated with the new theme.",
+      });
+    },
+    onError: (error: any) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Regeneration Failed",
+        description: "Failed to regenerate deck with new theme. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleGenerateDeck = () => {
     const defaultBrandKit = brandKits?.[0];
-    generateDeckMutation.mutate(defaultBrandKit?.id);
+    generateDeckMutation.mutate({
+      brandKitId: defaultBrandKit?.id,
+      themeId: selectedThemeId
+    });
+  };
+
+  const handleThemeSelect = (theme: Theme) => {
+    if (theme.isLocked) {
+      toast({
+        title: "Premium Theme",
+        description: "This theme requires a premium subscription. Please upgrade to unlock.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setSelectedThemeId(theme.id);
+  };
+
+  const handleChangeTheme = (theme: Theme) => {
+    if (theme.isLocked) {
+      toast({
+        title: "Premium Theme",
+        description: "This theme requires a premium subscription. Please upgrade to unlock.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (latestDeck && theme.id !== latestDeck.themeId) {
+      regenerateDeckWithThemeMutation.mutate({
+        deckId: latestDeck.id,
+        themeId: theme.id
+      });
+    }
+    setShowThemeModal(false);
   };
 
   const handleViewDeck = (deckId: string) => {
@@ -245,7 +339,11 @@ export default function ProjectGenerateDeck() {
     console.log('SlidePreview - Brand kits:', brandKits);
 
     return (
-      <div className={`relative overflow-hidden rounded border ${isCompact ? 'h-24' : 'aspect-video'}`}>
+      <div 
+        ref={(el) => {
+        }}
+        className={`relative overflow-hidden rounded border ${isCompact ? 'h-24' : 'aspect-video'}`}
+      >
         <SlideRenderer slide={slideWithStyling} isCompact={isCompact} />
       </div>
     );
@@ -254,6 +352,14 @@ export default function ProjectGenerateDeck() {
   const handleBackToProjects = () => {
     navigate("/projects");
   };
+
+  // Compute these before any early returns to ensure hooks are always called in the same order
+  const latestDeck = decks?.[0];
+  const hasDeck = !!latestDeck;
+  const isGenerating = generateDeckMutation.isPending || regenerateDeckWithThemeMutation.isPending;
+  
+  // Get theme for current deck - must be called before any early returns
+  const { data: deckTheme } = useTheme(latestDeck?.themeId || null);
 
   if (projectLoading || !project) {
     return (
@@ -264,10 +370,6 @@ export default function ProjectGenerateDeck() {
       </div>
     );
   }
-
-  const latestDeck = decks?.[0];
-  const hasDeck = !!latestDeck;
-  const isGenerating = generateDeckMutation.isPending;
 
   return (
     <ProjectLayoutWithHeader>
@@ -453,6 +555,70 @@ export default function ProjectGenerateDeck() {
                       </div>
                     )}
                     
+                    {/* Theme Selection */}
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="font-semibold flex items-center gap-2">
+                            <Palette className="h-5 w-5 text-purple-600" />
+                            Choose a Theme
+                          </h3>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Select a design theme for your pitch deck
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowThemeModal(true)}
+                        >
+                          Browse All Themes
+                        </Button>
+                      </div>
+                      
+                      {themes && themes.length > 0 && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {themes
+                            .filter(theme => !theme.isLocked)
+                            .slice(0, 3)
+                            .map((theme) => (
+                              <div
+                                key={theme.id}
+                                onClick={() => handleThemeSelect(theme)}
+                                className={`cursor-pointer transition-all rounded-lg border-2 ${
+                                  selectedThemeId === theme.id
+                                    ? 'border-purple-500 ring-2 ring-purple-200 bg-purple-50'
+                                    : 'border-gray-200 hover:border-purple-300 hover:shadow-md'
+                                }`}
+                              >
+                                <ThemeCard theme={theme} onClick={() => {}} />
+                                {selectedThemeId === theme.id && (
+                                  <div className="p-2 bg-purple-500 text-white text-center text-sm font-medium">
+                                    Selected
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                      
+                      {selectedTheme && (
+                        <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4 text-purple-600" />
+                            <span className="text-sm font-medium text-purple-900">
+                              Selected: {selectedTheme.name}
+                            </span>
+                            {selectedTheme.description && (
+                              <span className="text-xs text-purple-700 ml-2">
+                                {selectedTheme.description}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <h3 className="font-semibold">What's Included</h3>
@@ -480,7 +646,7 @@ export default function ProjectGenerateDeck() {
 
                     <Button 
                       onClick={handleGenerateDeck}
-                      disabled={isGenerating}
+                      disabled={isGenerating || !selectedThemeId}
                       className="w-full"
                       size="lg"
                     >
@@ -543,6 +709,36 @@ export default function ProjectGenerateDeck() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                {/* Theme Info */}
+                {deckTheme && (
+                  <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Palette className="h-5 w-5 text-purple-600" />
+                        <div>
+                          <p className="text-sm font-medium text-purple-900">
+                            Current Theme: {deckTheme.name}
+                          </p>
+                          {deckTheme.description && (
+                            <p className="text-xs text-purple-700 mt-1">
+                              {deckTheme.description}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowThemeModal(true)}
+                        disabled={isGenerating}
+                      >
+                        <RefreshCw className={`h-4 w-4 mr-2 ${isGenerating ? 'animate-spin' : ''}`} />
+                        Change Theme
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="p-4 border rounded-lg">
                   <div className="flex items-center justify-between mb-3">
                     <div>
@@ -756,6 +952,18 @@ export default function ProjectGenerateDeck() {
         </div>
       </div>
       </div>
+      
+      {/* Theme Selection Modal */}
+      <ThemeSelectionModal
+        open={showThemeModal}
+        onOpenChange={setShowThemeModal}
+        onSelectTheme={hasDeck ? handleChangeTheme : handleThemeSelect}
+        selectedThemeId={hasDeck ? latestDeck?.themeId : selectedThemeId}
+        title={hasDeck ? "Change Theme" : "Choose a Theme"}
+        description={hasDeck 
+          ? "Select a new theme to regenerate your pitch deck. This will recreate all slides with the new theme's design."
+          : "Select a theme for your pitch deck. Premium themes require a subscription."}
+      />
     </ProjectLayoutWithHeader>
   );
 }

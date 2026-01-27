@@ -17,12 +17,14 @@ export interface Template {
   description: string;
   category: 'title' | 'content' | 'data' | 'closing';
   thumbnail: string;
-  accessTier: 'free' | 'premium';
+  // BUG FIX: accessTier removed - templates inherit access tier from their theme
+  // Use themeAccessTier (from server) or isLocked/requiresUpgrade flags for access control
+  themeAccessTier?: 'free' | 'premium'; // Optional: included when templates are fetched with theme info
   isDefault: boolean;
   isEnabled: boolean;
   displayOrder: number;
-  isLocked?: boolean;
-  requiresUpgrade?: boolean;
+  isLocked?: boolean; // Computed based on theme access tier and user subscription
+  requiresUpgrade?: boolean; // Computed based on theme access tier and user subscription
   usageCount?: number;
   tags?: string[];
   layout: any;
@@ -36,6 +38,7 @@ interface UseTemplatesOptions {
   category?: string;
   tags?: string[];
   search?: string;
+  themeId?: string;
 }
 
 export function useTemplates(options?: UseTemplatesOptions) {
@@ -47,6 +50,7 @@ export function useTemplates(options?: UseTemplatesOptions) {
       if (options?.category) params.append('category', options.category);
       if (options?.tags?.length) params.append('tags', options.tags.join(','));
       if (options?.search) params.append('search', options.search);
+      if (options?.themeId) params.append('themeId', options.themeId);
 
       const response = await fetch(`/api/templates?${params}`, {
         headers,
