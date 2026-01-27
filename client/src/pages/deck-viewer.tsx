@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -13,6 +13,7 @@ import { WysiwygEditor } from "@/components/WysiwygEditor";
 import { SlideRenderer } from "@/components/SlideRenderer";
 import { TemplateGallery, TemplatePreviewModal } from "@/components/Templates";
 import { useApplyTemplateToSlide } from "@/hooks/useTemplates";
+import { ElementPropertiesPanel } from "@/components/DeckEditor/ElementPropertiesPanel";
 
 interface DeckViewerProps {
   deckId: string;
@@ -49,6 +50,24 @@ interface Slide {
     logo?: { x: number; y: number; width?: number; height?: number };
     [key: string]: { x: number; y: number; width?: number; height?: number } | undefined;
   };
+  // NEW: Layout elements from design studio templates
+  layoutElements?: Array<{
+    id: string;
+    type: 'text' | 'image' | 'shape' | 'data';
+    zone: {
+      x: string | number;
+      y: string | number;
+      width: string | number;
+      height: string | number;
+    };
+    styling?: Record<string, any>;
+    config?: any;
+    zIndex?: number;
+    aiPrompt?: any;
+  }>;
+  templateId?: string;
+  templateVersion?: string;
+  layout?: string;
 }
 
 interface Deck {
@@ -82,6 +101,14 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
   const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
   const [applyingToSlideId, setApplyingToSlideId] = useState<string | null>(null);
   const [isApplyingTemplate, setIsApplyingTemplate] = useState(false);
+  
+  // Inline editing state for template-based slides
+  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [selectedElementData, setSelectedElementData] = useState<{
+    elementId: string;
+    element: any;
+    content: any;
+  } | null>(null);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -150,6 +177,13 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
       console.log('Current editing slide data:', editingSlide);
       console.log('Positioned elements that were saved:', editingSlide?.positionedElements);
       console.log('Logos that were saved:', editingSlide?.content?.logos);
+      console.log('_elementContent that was saved:', editingSlide?.content?._elementContent);
+      
+      // CRITICAL: Clear editing state first to prevent stale data
+      setIsEditing(false);
+      setEditingSlide(null);
+      setSelectedElementId(null);
+      setSelectedElementData(null);
       
       console.log('Invalidating queries for slide update...');
       queryClient.invalidateQueries({ queryKey: [`/api/decks/${deckId}`] });
@@ -162,12 +196,12 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
         console.log('Invalidated project queries for:', deck.projectId);
       }
       
-            // Force refetch to ensure immediate updates
+      // Force refetch to ensure immediate updates
       setTimeout(() => {
         console.log('Refetching queries for immediate updates...');
         
         // Force refetch the specific deck
-      queryClient.refetchQueries({ queryKey: [`/api/decks/${deckId}`] });
+        queryClient.refetchQueries({ queryKey: [`/api/decks/${deckId}`] });
         
         // Force refetch project decks with exact matching
         if (deck?.projectId) {
@@ -208,12 +242,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
         
         // Log the current state for debugging
         console.log('Current deck data after update:', deck);
-        console.log('Current editing slide data:', editingSlide);
       }, 100);
-      
-      // Exit editing mode
-      setIsEditing(false);
-      setEditingSlide(null);
       
       toast({
         title: "Slide Updated",
@@ -1017,9 +1046,21 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     // Get the most current slide data from the deck to ensure we have the latest changes
     const currentSlideData = deck?.slides?.find(s => s.id === slide.id) || slide;
     
+    console.log('=== START EDITING SLIDE ===');
+    console.log('Slide ID:', currentSlideData.id);
+    console.log('Has layoutElements:', !!currentSlideData.layoutElements);
+    console.log('LayoutElements count:', currentSlideData.layoutElements?.length || 0);
+    console.log('Template ID:', currentSlideData.templateId);
+    console.log('Template Version:', currentSlideData.templateVersion);
+    
     // Ensure content structure exists and is properly initialized
     const slideWithContent = {
       ...currentSlideData,
+      // CRITICAL: Preserve layoutElements if they exist
+      layoutElements: currentSlideData.layoutElements || slide.layoutElements || undefined,
+      templateId: currentSlideData.templateId || slide.templateId,
+      templateVersion: currentSlideData.templateVersion || slide.templateVersion,
+      layout: currentSlideData.layout || slide.layout,
       content: {
         // Handle both old single title and new multiple titles format
         titles: currentSlideData.content?.titles || (currentSlideData.title ? [currentSlideData.title] : []),
@@ -1031,7 +1072,12 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
           ? [...currentSlideData.content.bullets] 
           : Array.isArray(currentSlideData.content?.content?.bullets)
             ? [...currentSlideData.content.content.bullets]
-            : []
+            : [],
+        // CRITICAL: Preserve _elementContent which maps content to specific layout elements
+        // This ensures logos, images, and other element-specific content is preserved
+        _elementContent: currentSlideData.content?._elementContent ? {
+          ...currentSlideData.content._elementContent
+        } : {}
       },
       styling: {
         // Initialize styling object with AI-generated font sizes or sensible defaults
@@ -1058,6 +1104,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
       titles: slideWithContent.content.titles,
       descriptions: slideWithContent.content.descriptions,
       logos: slideWithContent.content.logos,
+      elementContent: slideWithContent.content._elementContent,
       brandKitLogo: brandKits?.[0]?.logoUrl
     });
     
@@ -1098,28 +1145,48 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
         title: primaryTitle,
         content: {
           ...editingSlide.content,
-          titles: titlesArr
+          titles: titlesArr,
+          // CRITICAL: Ensure _elementContent is preserved when saving
+          _elementContent: editingSlide.content?._elementContent || {}
         }
       } as Slide;
 
+      // CRITICAL: Preserve layoutElements and all content when saving
+      const slideToSave = {
+        ...syncedSlide,
+        layoutElements: editingSlide.layoutElements || syncedSlide.layoutElements,
+        templateId: editingSlide.templateId || syncedSlide.templateId,
+        templateVersion: editingSlide.templateVersion || syncedSlide.templateVersion,
+        layout: editingSlide.layout || syncedSlide.layout,
+        // Ensure content._elementContent is included in the save
+        content: {
+          ...syncedSlide.content,
+          _elementContent: editingSlide.content?._elementContent || syncedSlide.content?._elementContent || {}
+        }
+      };
+      
       // Log exactly what we're sending to the server
       const updatesToSend = {
-        slideId: syncedSlide.id,
-        updates: syncedSlide
+        slideId: slideToSave.id,
+        updates: slideToSave
       };
       
       console.log('=== DATA BEING SENT TO SERVER ===');
       console.log('Sending to server:', updatesToSend);
       console.log('Updates object contains:', {
-        title: syncedSlide.title,
-        content: syncedSlide.content,
-        styling: syncedSlide.styling,
-        backgroundColor: syncedSlide.backgroundColor,
-        textColor: syncedSlide.textColor,
-        positionedElements: syncedSlide.positionedElements
+        title: slideToSave.title,
+        content: slideToSave.content,
+        styling: slideToSave.styling,
+        backgroundColor: slideToSave.backgroundColor,
+        textColor: slideToSave.textColor,
+        positionedElements: slideToSave.positionedElements,
+        layoutElements: slideToSave.layoutElements,
+        templateId: slideToSave.templateId,
+        templateVersion: slideToSave.templateVersion
       });
-      console.log('Positioned elements being saved:', syncedSlide.positionedElements);
-      console.log('Logos in content:', syncedSlide.content?.logos);
+      console.log('Positioned elements being saved:', slideToSave.positionedElements);
+      console.log('Layout elements being saved:', slideToSave.layoutElements);
+      console.log('Logos in content:', slideToSave.content?.logos);
       console.log('Full updatesToSend object:', updatesToSend);
       
       updateSlideMutation.mutate(updatesToSend);
@@ -1377,8 +1444,114 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     console.log('Current slide logos:', currentSlideData.content?.logos);
   }
 
-    // Render editable slide content when in editing mode
-  const renderEditableSlideContent = (slide: Slide) => {
+  // Element click handler for inline editing
+  const handleElementClick = (selectionKey: string, element: any, content: any, event: React.MouseEvent) => {
+    event.stopPropagation();
+    console.log('Element clicked:', selectionKey, element, content);
+    
+    // The selectionKey format is "elementId-index" to handle duplicate IDs
+    // Extract the original element ID and index
+    const match = selectionKey.match(/^(.+)-(\d+)$/);
+    const elementId = match ? match[1] : selectionKey;
+    const elementIndex = match ? parseInt(match[2], 10) : -1;
+    
+    // Find the element in layoutElements by index (more reliable than ID for duplicates)
+    let layoutElement: any = null;
+    if (elementIndex >= 0 && editingSlide?.layoutElements?.[elementIndex]) {
+      layoutElement = editingSlide.layoutElements[elementIndex];
+    } else {
+      // Fallback to ID-based lookup
+      layoutElement = editingSlide?.layoutElements?.find(el => el.id === elementId);
+    }
+    
+    if (!layoutElement) {
+      console.warn('Element not found in layoutElements:', selectionKey, 'available:', editingSlide?.layoutElements?.length);
+      return;
+    }
+    
+    // Get the current content for this element (check both indexed key and element ID)
+    const indexedKey = `${elementId}-layout-${elementIndex}`;
+    const elementContent = editingSlide?.content?._elementContent?.[indexedKey] 
+      || editingSlide?.content?._elementContent?.[elementId] 
+      || content;
+    
+    setSelectedElementId(selectionKey);
+    setSelectedElementData({
+      elementId: selectionKey, // Use full selection key
+      element: layoutElement,
+      content: elementContent
+    });
+  };
+
+  // Element update handler for inline editing
+  const handleElementUpdate = (selectionKey: string, updates: { content?: any; styling?: any; config?: any }) => {
+    if (!editingSlide) return;
+    
+    console.log('Updating element:', selectionKey, updates);
+    
+    // Parse selection key format "elementId-index"
+    const match = selectionKey.match(/^(.+)-(\d+)$/);
+    const elementId = match ? match[1] : selectionKey;
+    const elementIndex = match ? parseInt(match[2], 10) : -1;
+    
+    // Update the element's content in _elementContent
+    const newContent = { ...editingSlide.content };
+    if (!newContent._elementContent) {
+      newContent._elementContent = {};
+    }
+    
+    if (updates.content !== undefined) {
+      // Store content using indexed key for proper lookup
+      const contentKey = elementIndex >= 0 ? `${elementId}-layout-${elementIndex}` : elementId;
+      newContent._elementContent[contentKey] = updates.content;
+      // Also store by element ID for compatibility
+      newContent._elementContent[elementId] = updates.content;
+    }
+    
+    // Update layoutElements to reflect styling/config changes
+    const updatedLayoutElements = editingSlide.layoutElements?.map((el, idx) => {
+      // Match by index if available, otherwise by ID
+      const isMatch = elementIndex >= 0 ? idx === elementIndex : el.id === elementId;
+      if (isMatch) {
+        return {
+          ...el,
+          styling: updates.styling ? { ...el.styling, ...updates.styling } : el.styling,
+          config: updates.config ? { ...el.config, ...updates.config } : el.config
+        };
+      }
+      return el;
+    });
+    
+    // Update the editing slide
+    const updatedSlide = {
+      ...editingSlide,
+      content: newContent,
+      layoutElements: updatedLayoutElements || editingSlide.layoutElements
+    };
+    
+    setEditingSlide(updatedSlide);
+    
+    // Update selected element data if this is the selected element
+    if (selectedElementId === selectionKey && selectedElementData) {
+      const updatedElement = elementIndex >= 0 
+        ? updatedLayoutElements?.[elementIndex] 
+        : updatedLayoutElements?.find(el => el.id === elementId);
+      setSelectedElementData({
+        ...selectedElementData,
+        content: updates.content !== undefined ? updates.content : selectedElementData.content,
+        element: updatedElement || selectedElementData.element
+      });
+    }
+  };
+
+  // Canvas click handler to deselect elements
+  const handleCanvasClick = () => {
+    setSelectedElementId(null);
+    setSelectedElementData(null);
+  };
+
+  // Draggable slide renderer for live preview (legacy - only used for slides without layoutElements)
+  const renderDraggableSlide = (slide: Slide) => {
     return (
       <div className="w-full bg-white rounded-lg border shadow-sm">
         <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
@@ -2011,258 +2184,6 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
     );
   };
 
-  // Draggable slide renderer for live preview
-  const renderDraggableSlide = (slide: Slide) => {
-    const slideWithStyling = {
-      ...slide,
-      styling: {
-        // Preserve all existing styling first
-        ...slide.styling,
-        backgroundColor: slide.styling?.backgroundColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#ffffff',
-        textColor: slide.styling?.textColor || slide.textColor || brandKits?.[0]?.primaryColor || '#333333',
-        primaryColor: slide.styling?.primaryColor || slide.textColor || brandKits?.[0]?.primaryColor || '#3b82f6',
-        secondaryColor: slide.styling?.secondaryColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#64748b',
-        accentColor: slide.styling?.accentColor || brandKits?.[0]?.accentColor || '#10b981',
-        fontFamily: slide.styling?.fontFamily || brandKits?.[0]?.fontFamily || 'Inter',
-        fontSize: slide.styling?.fontSize || 'medium',
-        titleFontSize: slide.styling?.titleFontSize || '3xl',
-        descriptionFontSize: slide.styling?.descriptionFontSize || 'lg',
-        bulletFontSize: slide.styling?.bulletFontSize || 'base',
-        logoUrl: brandKits?.[0]?.logoUrl || slide.styling?.logoUrl,
-        backgroundImage: slide.styling?.backgroundImage,
-        brandColors: {
-          primary: slide.styling?.primaryColor || slide.textColor || brandKits?.[0]?.primaryColor || '#3b82f6',
-          secondary: slide.styling?.secondaryColor || slide.backgroundColor || brandKits?.[0]?.secondaryColor || '#64748b',
-          accent: slide.styling?.accentColor || brandKits?.[0]?.accentColor || '#10b981'
-        }
-      }
-    };
-
-    const positionedElements = slide.positionedElements || {};
-    
-    // Use the EXACT same color logic as SlideRenderer
-    const primaryColor = slideWithStyling.styling.primaryColor;
-    const secondaryColor = slideWithStyling.styling.secondaryColor;
-    const textColor = slideWithStyling.styling.textColor;
-    const accentColor = slideWithStyling.styling.accentColor;
-    const backgroundColor = slideWithStyling.styling.backgroundColor;
-    const fontFamily = slideWithStyling.styling.fontFamily;
-    const logoUrl = slideWithStyling.styling.logoUrl;
-    const brandColors = slideWithStyling.styling.brandColors;
-    
-    // Background style logic - use solid colors instead of gradients for editing
-    const backgroundImageUrl = (slideWithStyling.styling as any)?.backgroundImage as string | undefined;
-    const backgroundStyle = backgroundImageUrl && backgroundImageUrl.trim() !== ''
-      ? {
-          backgroundImage: `url(${backgroundImageUrl})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat',
-          backgroundColor: backgroundColor
-        }
-      : {
-          backgroundColor: backgroundColor
-        };
-    
-    return (
-      <div 
-        className="relative w-full h-full rounded-lg overflow-hidden"
-        style={backgroundStyle}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-      >
-        {/* Logo - positioned absolutely (top right for non-title slides) */}
-        {slide.content?.logos && slide.content.logos.length > 0 && slide.type !== 'title' && (
-          <div className="space-y-2">
-            {/* Show multiple logos from content.logos array with individual positioning */}
-            {slide.content.logos.map((logoUrl: string, index: number) => {
-              const logoKey = `logo-${index}`;
-              const logoPosition = positionedElements[logoKey as keyof typeof positionedElements];
-              
-              return (
-                <div 
-                  key={index}
-                  className="absolute cursor-move group"
-                  style={{
-                    left: logoPosition?.x || (index === 0 ? 16 : 16 + (index * 120)),
-                    top: logoPosition?.y || (index === 0 ? 16 : 16),
-                    zIndex: 20
-                  }}
-                  onMouseDown={(e) => handleMouseDown(e, logoKey)}
-                >
-                  <img 
-                    src={logoUrl} 
-                    alt={`Company Logo ${index + 1}`} 
-                    className="h-10 w-auto object-contain opacity-95" 
-                    onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                  />
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Main content container - same structure as deck view */}
-        <div className="p-6">
-          {/* Centered logo for title slides */}
-          {slide.content?.logos && slide.content.logos.length > 0 && slide.type === 'title' && (
-            <div className="space-y-2 mb-6">
-              {/* Show multiple logos from content.logos array with individual positioning */}
-              {slide.content.logos.map((logoUrl: string, index: number) => {
-                const logoKey = `logo-${index}`;
-                const logoPosition = positionedElements[logoKey as keyof typeof positionedElements];
-                
-                return (
-                  <div 
-                    key={index}
-                    className="text-center cursor-move group relative"
-                    style={{
-                      left: logoPosition?.x || 'auto',
-                      top: logoPosition?.y || 'auto',
-                      position: logoPosition ? 'absolute' : 'static'
-                    }}
-                    onMouseDown={(e) => handleMouseDown(e, logoKey)}
-                  >
-                    <img 
-                      src={logoUrl} 
-                      alt={`Company Logo ${index + 1}`} 
-                      className="h-16 w-auto object-contain opacity-95 mx-auto" 
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Title - draggable but positioned like deck view initially */}
-          {((slide.content?.titles && slide.content.titles.length > 0) || slide.title) && (
-            <div 
-              className="cursor-move group relative"
-              style={{
-                left: positionedElements.title?.x || 'auto',
-                top: positionedElements.title?.y || 'auto',
-                position: positionedElements.title ? 'absolute' : 'static',
-                right: positionedElements.title ? 'auto' : (slide.type === 'title' ? 'auto' : '64px')
-              }}
-              onMouseDown={(e) => handleMouseDown(e, 'title')}
-            >
-              <div className="space-y-2">
-                {/* Handle both old and new title formats */}
-                {slide.content?.titles && slide.content.titles.length > 0 ? (
-                  // New multiple titles format
-                  slide.content.titles.map((title: string, index: number) => (
-                    <div 
-                      key={index}
-                      className="font-bold leading-tight mb-6"
-                      style={{
-                        color: brandColors?.primary || textColor,
-                        fontFamily: fontFamily || 'Inter'
-                      }}
-                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(title) }}
-                    />
-                  ))
-                ) : (
-                  // Old single title format
-                  <div 
-                    className="font-bold leading-tight mb-6"
-                    style={{
-                      color: brandColors?.primary || textColor,
-                      fontFamily: fontFamily || 'Inter'
-                    }}
-                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(slide.title) }}
-                  />
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Descriptions - draggable but positioned like deck view initially */}
-          {((slide.content?.descriptions && slide.content.descriptions.length > 0) || slide.content?.description) && (
-            <div 
-              className="leading-relaxed mb-4 cursor-move group relative"
-              style={{
-                left: positionedElements.description?.x || 'auto',
-                top: positionedElements.description?.y || 'auto',
-                position: positionedElements.description ? 'absolute' : 'static',
-                right: positionedElements.description ? 'auto' : '64px',
-                borderLeft: brandColors ? `4px solid ${brandColors.accent}` : 'none',
-                paddingLeft: brandColors ? '12px' : '0'
-              }}
-              onMouseDown={(e) => handleMouseDown(e, 'description')}
-            >
-              <div className="space-y-2">
-                {/* Handle both old and new description formats */}
-                {slide.content?.descriptions && slide.content.descriptions.length > 0 ? (
-                  // New multiple descriptions format
-                  slide.content.descriptions.map((description: string, index: number) => (
-                    <div 
-                      key={index}
-                      style={{
-                        color: brandColors?.primary || textColor,
-                        fontFamily: fontFamily || 'Inter'
-                      }}
-                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(description) }}
-                    />
-                  ))
-                ) : (
-                  // Old single description format
-                  <div 
-                    style={{
-                      color: brandColors?.primary || textColor,
-                      fontFamily: fontFamily || 'Inter'
-                    }}
-                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(slide.content.description || '') }}
-                  />
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Bullet Points - draggable but positioned like deck view initially */}
-          {slide.content?.bullets && slide.content.bullets.length > 0 && (
-            <div 
-              className="cursor-move group relative"
-              style={{
-                left: positionedElements.bullets?.x || 'auto',
-                top: positionedElements.bullets?.y || 'auto',
-                position: positionedElements.bullets ? 'absolute' : 'static',
-                right: positionedElements.bullets ? 'auto' : '64px'
-              }}
-              onMouseDown={(e) => handleMouseDown(e, 'bullets')}
-            >
-              <ul className="space-y-2">
-                {slide.content.bullets.map((bullet: string, index: number) => (
-                  <li 
-                    key={index}
-                    className="flex items-start"
-                    style={{
-                      color: brandColors?.primary || textColor,
-                      fontFamily: fontFamily || 'Inter',
-                      listStyleType: 'none'
-                    }}
-                  >
-                    <span 
-                      className="mr-2 mt-1"
-                      style={{ 
-                        color: brandColors?.accent || accentColor,
-                        fontSize: '1.2em'
-                      }}
-                    >
-                      •
-                    </span>
-                    <span>{unescapeHtml(bullet)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
   // Use shared slide renderer for exact consistency with generate deck preview
   const renderSlideContent = (slide: Slide, isEditingMode: boolean = false) => {
     // Template styling takes absolute priority - don't override with old slide properties
@@ -2294,45 +2215,24 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
       }
     };
 
-    // Debug: Log the styling being applied
-    console.log('=== RENDER SLIDE CONTENT DEBUG ===');
-    console.log('Original slide data:', slide);
-    console.log('Slide positionedElements:', slide.positionedElements);
-    console.log('Slide styling:', slide.styling);
-    console.log('Brand kits:', brandKits);
-    console.log('Enhanced styling:', slideWithStyling.styling);
-    
-    // Additional debugging for styling properties
-    if (isEditingMode) {
-      console.log('Editing mode - Styling details:', {
-        fontFamily: slide.styling?.fontFamily,
-        titleFontSize: slide.styling?.titleFontSize,
-        descriptionFontSize: slide.styling?.descriptionFontSize,
-        bulletFontSize: slide.styling?.bulletFontSize,
-        backgroundColor: slide.backgroundColor,
-        textColor: slide.textColor
-      });
-    }
-
     // Use the exact same container structure as generate deck preview
     const slideToRender = {
       ...slideWithStyling,
-      positionedElements: slide.positionedElements || {} // Initialize as empty object if undefined
+      positionedElements: slide.positionedElements || {}, // Initialize as empty object if undefined
+      // CRITICAL: Preserve layoutElements if they exist (for template-based slides)
+      layoutElements: slide.layoutElements || slideWithStyling.layoutElements || undefined
     };
     
-    console.log('=== FINAL SLIDE DATA FOR SLIDERENDERER ===');
-    console.log('Slide data being passed to SlideRenderer:', slideToRender);
-    console.log('Positioned elements in final data:', slideToRender.positionedElements);
-    console.log('Logos in final data:', slideToRender.content?.logos);
-    console.log('Positioned elements keys:', Object.keys(slideToRender.positionedElements));
-    console.log('Logo positioning data:', {
-      'logo-0': slideToRender.positionedElements['logo-0'],
-      'logo-1': slideToRender.positionedElements['logo-1'],
-      'logo-2': slideToRender.positionedElements['logo-2']
-    });
-    
     return (
-      <SlideRenderer slide={slideToRender} isCompact={false} />
+      <SlideRenderer 
+        slide={slideToRender} 
+        isCompact={false}
+        isEditing={isEditingMode && isEditing}
+        selectedElementId={selectedElementId}
+        onElementClick={handleElementClick}
+        onElementUpdate={handleElementUpdate}
+        onCanvasClick={handleCanvasClick}
+      />
     );
   };
 
@@ -2380,7 +2280,20 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                   </Button>
                 </div>
               )}
-              <Button variant="outline" size="sm" onClick={() => window.history.back()}>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => {
+                  // Warn if there are unsaved changes
+                  if (isEditing && editingSlide) {
+                    const confirmLeave = window.confirm('You have unsaved changes. Are you sure you want to leave?');
+                    if (!confirmLeave) return;
+                    // Cancel editing if user confirms
+                    cancelEditing();
+                  }
+                  window.history.back();
+                }}
+              >
                 <ChevronLeft className="h-4 w-4 mr-2" />
                 Back
               </Button>
@@ -2412,10 +2325,10 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                     variant="default"
                     size="sm"
                     onClick={() => setShowTemplateGallery(true)}
-                    title="Add slide from template"
+                    title="Add slide"
                   >
                     <Layout className="h-4 w-4 mr-1" />
-                    Templates
+                    Slides
                   </Button>
                 </div>
               </div>
@@ -2484,7 +2397,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                         "p-2 text-gray-400 hover:text-blue-500 transition-colors opacity-0 group-hover:opacity-100",
                         currentSlide === index ? "opacity-100" : ""
                       )}
-                      title="Change template"
+                      title="Change slide"
                       disabled={isEditing}
                     >
                       <Layout className="h-4 w-4" />
@@ -2521,43 +2434,63 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
                 <div className="w-full max-w-none">
                     {currentSlideData ? (
                     isEditing ? (
-                      <div className="w-full">
-                        {/* Vertical editing layout - Live preview above, edit form below */}
-                        <div className="space-y-6">
-                          {/* Live Preview - Takes full width for maximum sizing */}
-                          <div className="w-full">
+                      // Check if this is a template-based slide (has layoutElements)
+                      editingSlide?.layoutElements && editingSlide.layoutElements.length > 0 ? (
+                        // Template-based slide: Use inline editing
+                        <div className="w-full flex gap-6">
+                          {/* Main slide preview area */}
+                          <div className="flex-1">
                             <div className="p-4 bg-gray-50 rounded-lg border">
                               <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
                                 <Eye className="h-5 w-5 text-blue-600" />
                                 Live Preview
                               </h4>
-                              <div className="w-full aspect-video">
-                                {editingSlide && renderDraggableSlide(editingSlide)}
+                              <div className="w-full aspect-video overflow-hidden">
+                                {editingSlide && renderSlideContent(editingSlide, true)}
                               </div>
                               <p className="text-xs text-gray-500 text-center mt-3">
-                                Click and drag any elements to reposition it on the slide
+                                Click on any element to edit it
                               </p>
                             </div>
                           </div>
                           
-                          {/* Editing Form - Takes full width below preview */}
-                          <div className="w-full">
-                            {renderEditableSlideContent(currentSlideData)}
-                          </div>
+                          {/* Properties Panel */}
+                          {selectedElementData ? (
+                            <div className="w-80 border-l bg-white">
+                              <ElementPropertiesPanel
+                                elementId={selectedElementData.elementId}
+                                element={selectedElementData.element}
+                                content={selectedElementData.content}
+                                onUpdate={(updates) => handleElementUpdate(selectedElementData.elementId, updates)}
+                                projectId={deck?.projectId}
+                              />
+                            </div>
+                          ) : (
+                            <div className="w-80 border-l bg-white p-4">
+                              <div className="text-center text-gray-500 mt-8">
+                                <p className="text-sm">Click on an element to edit</p>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                          </div>
+                      ) : (
+                        // Legacy slide: Use form-based editing
+                        <div className="w-full">
+                          {editingSlide && renderDraggableSlide(editingSlide)}
+                        </div>
+                      )
                     ) : (
-                      <div className="w-full aspect-video">
+                      <div className="w-full aspect-video overflow-hidden">
                         {renderSlideContent(currentSlideData)}
                       </div>
                     )
                   ) : (
                     <div className="text-center py-16 px-6">
                       <p className="text-gray-500">No slide content available</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* Navigation Controls - Only show when not editing */}
@@ -2598,7 +2531,7 @@ export default function DeckViewer({ deckId }: DeckViewerProps) {
           <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden">
             <div className="p-6 border-b flex items-center justify-between">
               <h2 className="text-2xl font-bold">
-                {applyingToSlideId ? 'Change Slide Template' : 'Choose a Template'}
+                {applyingToSlideId ? 'Change Slide' : 'Choose a Slide'}
               </h2>
               <Button
                 variant="ghost"

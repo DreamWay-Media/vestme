@@ -158,6 +158,41 @@ export function useSetDefaultTemplate() {
   });
 }
 
+// BUG FIX 3: Separate hook for updating only enabled status (without changing theme access tier)
+export function useUpdateTemplateEnabled() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (data: {
+      templateId: string;
+      isEnabled: boolean;
+    }) => {
+      const headers = await getAuthHeaders();
+      const response = await fetch(`/api/admin/templates/${data.templateId}/enabled`, {
+        method: 'PUT',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          isEnabled: data.isEnabled,
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to update template enabled status');
+      }
+      
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'templates'] });
+      queryClient.invalidateQueries({ queryKey: ['templates'] });
+    },
+  });
+}
+
 export function useUpdateTemplateAccess() {
   const queryClient = useQueryClient();
   

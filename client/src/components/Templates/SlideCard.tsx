@@ -4,13 +4,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { cn } from "@/lib/utils";
 import type { Template } from "@/hooks/useTemplates";
 
-interface TemplateCardProps {
+interface SlideCardProps {
   template: Template;
   onClick: () => void;
   className?: string;
 }
 
-export function TemplateCard({ template, onClick, className }: TemplateCardProps) {
+export function SlideCard({ template, onClick, className }: SlideCardProps) {
   const isLocked = template.isLocked ?? false;
   
   return (
@@ -37,7 +37,7 @@ export function TemplateCard({ template, onClick, className }: TemplateCardProps
             </div>
           )}
           
-          {/* Lock Overlay for Premium Templates */}
+          {/* Lock Overlay for Premium Slides */}
           {isLocked && (
             <div className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-sm">
               <div className="text-center text-white">
@@ -56,7 +56,8 @@ export function TemplateCard({ template, onClick, className }: TemplateCardProps
                 Default
               </Badge>
             )}
-            {template.accessTier === 'premium' && !isLocked && (
+            {/* Show Premium badge if theme is premium and template is not locked */}
+            {(template.themeAccessTier === 'premium' || template.requiresUpgrade) && !isLocked && (
               <Badge variant="secondary">
                 Premium
               </Badge>
