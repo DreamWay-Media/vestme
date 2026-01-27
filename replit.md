@@ -45,13 +45,17 @@ Uses PostgreSQL with Drizzle ORM. Push schema changes with:
 npm run db:push
 ```
 
-## Development Login (Dev Mode)
-When running without Supabase configured (development mode):
-- A "Get Started Free" button triggers dev login with a fixed demo user
-- Dev login is only available when:
-  1. NODE_ENV !== 'production'
-  2. Supabase credentials are NOT configured
-- Uses fixed user ID 'dev-demo-user' for security (no arbitrary account creation)
+## Authentication
+The app supports two login methods in development:
+- **"Get Started Free"** - Real Google authentication via Supabase
+- **"Demo Login (Dev Mode)"** - Quick test login with fixed demo user (only in development)
+
+In production, only real Supabase authentication is available.
+
+### Dev Login Security
+- Dev login only available when NODE_ENV !== 'production'
+- Uses fixed user ID 'dev-demo-user' server-side (no arbitrary account creation)
+- Both real auth and dev auth work in development mode
 
 ## Recent Changes
 - Added secure dev-login flow for Replit preview testing (fixed user ID, production check)
