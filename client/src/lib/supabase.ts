@@ -37,8 +37,27 @@ export const signInWithGoogle = async () => {
     throw new Error('Authentication is not configured');
   }
   
-  // Use standard redirect flow - make sure your Supabase dashboard has
-  // the redirect URL configured in Authentication > URL Configuration
+  // In development (Replit preview iframe), open auth in a new tab
+  // to avoid iframe redirect issues
+  if (isDevelopment) {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+        skipBrowserRedirect: true,
+      },
+    });
+    
+    if (error) throw error;
+    
+    // Open in new tab - this bypasses iframe restrictions
+    if (data?.url) {
+      window.open(data.url, '_blank');
+    }
+    return data;
+  }
+  
+  // Production: standard redirect flow
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
