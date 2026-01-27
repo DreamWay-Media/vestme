@@ -72,8 +72,9 @@ In production, only real Supabase authentication is available.
 - Themes are also database-stored with enable/disable controls
 
 ## Recent Changes
+- Redesigned brand kit color selection UX: neutral placeholder defaults (black, light gray, slate), helpful color descriptions, improved color picker styling, and real-time Color Preview section showing how colors look together
+- Expanded font options to 100+ Google Fonts organized into 7 categories (Popular Sans-Serif, Modern Sans-Serif, Display & Headlines, Elegant Serif, Script & Handwritten, Monospace & Technical, System Fonts)
 - Enhanced brand kit logo selection with priority-based approach: (1) user-selected from media library, (2) auto-detected logos in media library via `findProjectLogos()`, (3) extracted from website URL
-- Improved color extraction accuracy with saturation-based weighting (vibrant colors weighted 3x) and expanded generic color filtering (now excludes mid-grays and common UI colors)
 - Added `findProjectLogos()` method to media manager that searches by tags, filenames, SVG format, and dimensions
 - Added admin role-based access control with database-backed verification
 - Added `isAdmin` column to users table with schema and API support
