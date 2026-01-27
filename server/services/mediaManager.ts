@@ -409,6 +409,9 @@ export class MediaManager {
           const $ = cheerio.load(html);
           const pageImages: ExtractedImage[] = [];
           const logoImages: string[] = [];
+          
+          // Local set for within-page deduplication (don't touch global imageUrlSet during extraction)
+          const pageSeenUrls = new Set<string>();
 
           // Use normalized page URL for relative URL resolution
           const currentPageUrl = normalizedPageUrl;
@@ -776,16 +779,16 @@ export class MediaManager {
               context: context || undefined
             });
 
-            // Add to set using the same normalization we used for duplicate check
+            // Add to LOCAL page set for within-page deduplication
             try {
               if (absoluteUrl.startsWith('data:')) {
-                imageUrlSet.add(absoluteUrl);
+                pageSeenUrls.add(absoluteUrl);
               } else {
-                imageUrlSet.add(normalizeImageUrl(absoluteUrl));
+                pageSeenUrls.add(normalizeImageUrl(absoluteUrl));
               }
             } catch {
               // If normalization fails, add the original URL
-              imageUrlSet.add(absoluteUrl);
+              pageSeenUrls.add(absoluteUrl);
             }
             processedCount++;
           });
@@ -811,9 +814,9 @@ export class MediaManager {
                 } else if (!href.startsWith('http')) {
                   absoluteUrl = new URL(href, currentPageUrl).href;
                 }
-                if (!logoImages.includes(absoluteUrl) && !isDuplicateImage(absoluteUrl)) {
+                if (!logoImages.includes(absoluteUrl) && !pageSeenUrls.has(normalizeImageUrl(absoluteUrl))) {
                   logoImages.push(absoluteUrl);
-                  imageUrlSet.add(normalizeImageUrl(absoluteUrl));
+                  pageSeenUrls.add(normalizeImageUrl(absoluteUrl));
                 }
               } catch {
                 // Skip invalid URLs
@@ -830,9 +833,9 @@ export class MediaManager {
                   ? jsonLd.logo.url 
                   : new URL(jsonLd.logo.url, currentPageUrl).href;
                 const normalizedLogoUrl = normalizeImageUrl(logoUrl);
-                if (!logoImages.includes(logoUrl) && !imageUrlSet.has(normalizedLogoUrl)) {
+                if (!logoImages.includes(logoUrl) && !pageSeenUrls.has(normalizedLogoUrl)) {
                   logoImages.push(logoUrl);
-                  imageUrlSet.add(normalizedLogoUrl);
+                  pageSeenUrls.add(normalizedLogoUrl);
                 }
               }
             } catch (e) {
@@ -852,13 +855,13 @@ export class MediaManager {
               }
 
               const normalizedOgUrl = normalizeImageUrl(absoluteOgUrl);
-              if (!imageUrlSet.has(normalizedOgUrl)) {
+              if (!pageSeenUrls.has(normalizedOgUrl)) {
                 pageImages.unshift({
                   url: absoluteOgUrl,
                   altText: $('meta[property="og:image:alt"]').attr('content') || 'Open Graph Image',
                   context: 'Primary website image (Open Graph)'
                 });
-                imageUrlSet.add(normalizedOgUrl);
+                pageSeenUrls.add(normalizedOgUrl);
               }
             } catch {
               // Skip invalid URLs
@@ -893,7 +896,7 @@ export class MediaManager {
             
             try {
               const normalizedUrl = normalizeImageUrl(extractedImageUrl);
-              const isDuplicate = imageUrlSet.has(normalizedUrl) || pageImages.some(img => img.url === extractedImageUrl);
+              const isDuplicate = pageSeenUrls.has(normalizedUrl) || pageImages.some(img => img.url === extractedImageUrl);
               
               if (!isDuplicate) {
                 pageImages.push({
@@ -901,7 +904,7 @@ export class MediaManager {
                   altText: 'Image extracted from website',
                   context: 'Extracted from HTML/CSS/JavaScript (bypassing lazy loading)'
                 });
-                imageUrlSet.add(normalizedUrl);
+                pageSeenUrls.add(normalizedUrl);
                 addedFromExtraction++;
                 
                 if (addedFromExtraction <= 5) {
