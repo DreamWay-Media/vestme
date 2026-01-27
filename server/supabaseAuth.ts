@@ -45,17 +45,14 @@ export function getSession() {
 // Fixed dev user ID - must match the one in routes.ts
 const DEV_USER_ID = 'dev-demo-user';
 
+// Check if we're in development mode
+const isDevelopment = process.env.NODE_ENV !== 'production';
+
 // Authentication middleware
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
   try {
-    // Dev mode: allow authenticated requests when Supabase is not configured
-    if (!supabase) {
-      // Only allow in development mode
-      if (process.env.NODE_ENV === 'production') {
-        return res.status(503).json({ message: 'Authentication service is not configured' });
-      }
-      
-      // Check for dev user ID in header - must match our fixed dev user
+    // Dev mode: Check for dev user header first in development
+    if (isDevelopment) {
       const devUserId = req.headers['x-dev-user-id'];
       if (devUserId === DEV_USER_ID) {
         try {
@@ -69,7 +66,14 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
           console.error('Dev user lookup error:', dbError);
         }
       }
-      return res.status(503).json({ message: 'Authentication service is not configured' });
+    }
+    
+    // If Supabase is not configured, reject in production
+    if (!supabase) {
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(503).json({ message: 'Authentication service is not configured' });
+      }
+      return res.status(401).json({ message: 'Not authenticated' });
     }
     
     const authHeader = req.headers.authorization;
