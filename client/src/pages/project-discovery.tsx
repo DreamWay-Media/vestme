@@ -23,6 +23,7 @@ export default function ProjectDiscovery() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [analysisStarted, setAnalysisStarted] = useState(false);
+  const [analysisJustCompleted, setAnalysisJustCompleted] = useState(false);
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<any>({});
   const [uploadedDocuments, setUploadedDocuments] = useState<Array<{ name: string; url: string; id: string }>>([]);
@@ -54,6 +55,8 @@ export default function ProjectDiscovery() {
       });
     },
     onSuccess: () => {
+      // Show loading state while data is being refetched
+      setAnalysisJustCompleted(true);
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
       toast({
         title: "Analysis Complete",
@@ -150,6 +153,13 @@ export default function ProjectDiscovery() {
       analyzeProjectMutation.mutate();
     }
   }, [project, analysisStarted, analyzeProjectMutation]);
+
+  // Clear the "analysis just completed" state once business profile is loaded
+  useEffect(() => {
+    if (analysisJustCompleted && project?.businessProfile) {
+      setAnalysisJustCompleted(false);
+    }
+  }, [analysisJustCompleted, project?.businessProfile]);
 
   // Document upload handlers
   const handleGetUploadParameters = async () => {
@@ -395,6 +405,25 @@ export default function ProjectDiscovery() {
               />
             )}
 
+            {/* Show loading state after analysis completes but before data is loaded */}
+            {analysisJustCompleted && !isAnalyzing && !project?.businessProfile && (
+              <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                <div className="relative">
+                  <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+                </div>
+                <div className="text-center space-y-2">
+                  <h3 className="text-lg font-semibold text-gray-900">Loading Your Results</h3>
+                  <p className="text-sm text-gray-600 max-w-md">
+                    Analysis complete! We're preparing your business insights...
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" />
+                  <span>Finalizing data...</span>
+                </div>
+              </div>
+            )}
+
             {analysisComplete && (
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
@@ -526,7 +555,7 @@ export default function ProjectDiscovery() {
               </div>
             )}
 
-            {!isAnalyzing && editingSection === null && (
+            {!isAnalyzing && !analysisJustCompleted && editingSection === null && (
               <div className="space-y-6">
                 <div className="flex items-center gap-3">
                   <Upload className="h-5 w-5 text-blue-500" />
