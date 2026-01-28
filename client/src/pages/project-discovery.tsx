@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Search, CheckCircle, AlertCircle, Loader2, Edit, TrendingUp, Users, Target, Building, FileText, X } from "lucide-react";
+import { Search, CheckCircle, AlertCircle, Loader2, Edit, TrendingUp, Users, Target, Building, FileText, X, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -641,120 +641,125 @@ export default function ProjectDiscovery() {
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
-                  {/* Left Column */}
-                  <div className="space-y-3">
-                    <div>
-                      <h4 className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1.5">
-                        <Building className="w-3 h-3" /> About
+                <div className="space-y-4">
+                  {/* Investment Thesis - Featured at top if available */}
+                  {businessProfile.businessInsights?.investmentThesis && (
+                    <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Target className="w-4 h-4 text-blue-600" />
+                        <h4 className="text-sm font-semibold text-blue-700 dark:text-blue-300">Investment Thesis</h4>
+                      </div>
+                      <p className="text-sm text-blue-600 dark:text-blue-400">{businessProfile.businessInsights.investmentThesis}</p>
+                    </div>
+                  )}
+
+                  {/* Main Info Grid - 3 columns on desktop */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
+                      <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+                        <Building className="w-3.5 h-3.5" /> About
                       </h4>
-                      <p className="text-sm text-muted-foreground mt-1">
+                      <p className="text-sm text-foreground leading-relaxed">
                         {businessProfile.businessDescription || businessProfile.businessInsights?.businessDescription || "Not available"}
                       </p>
-                      {businessProfile.businessInsights?.investmentThesis && (
-                        <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-950/20 rounded border border-blue-200 dark:border-blue-800">
-                          <h5 className="text-xs font-semibold text-blue-700 dark:text-blue-300">Investment Thesis</h5>
-                          <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">{businessProfile.businessInsights.investmentThesis}</p>
-                        </div>
-                      )}
                     </div>
                     
-                    <div>
-                      <h4 className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1.5">
-                        <AlertCircle className="w-3 h-3" /> Problem
+                    <div className="p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
+                      <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+                        <AlertCircle className="w-3.5 h-3.5" /> Problem
                       </h4>
-                      <p className="text-sm text-muted-foreground mt-1">
+                      <p className="text-sm text-foreground leading-relaxed">
                         {businessProfile.problemStatement || businessProfile.businessInsights?.problemStatement || "Not available"}
                       </p>
-                      {businessProfile.businessInsights?.strategicRecommendations && businessProfile.businessInsights.strategicRecommendations.length > 0 && (
-                        <div className="mt-2">
-                          <h5 className="text-xs font-semibold text-muted-foreground">Strategic Recommendations</h5>
-                          <ul className="mt-0.5 space-y-0.5">
-                            {businessProfile.businessInsights.strategicRecommendations.map((rec: string, i: number) => (
-                              <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5">
-                                <span className="text-green-500 mt-0.5">•</span> {rec}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
                     </div>
                     
-                    <div>
-                      <h4 className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1.5">
-                        <Target className="w-3 h-3" /> Value Proposition
+                    <div className="p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
+                      <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5" /> Value Proposition
                       </h4>
-                      <p className="text-sm text-muted-foreground mt-1">
+                      <p className="text-sm text-foreground leading-relaxed">
                         {businessProfile.valueProposition || businessProfile.businessInsights?.valueProposition || "Not available"}
                       </p>
-                      {businessProfile.businessInsights?.keyBusinessInsights && businessProfile.businessInsights.keyBusinessInsights.length > 0 && (
-                        <div className="mt-2">
-                          <h5 className="text-xs font-semibold text-muted-foreground">Key Insights</h5>
-                          <ul className="mt-0.5 space-y-0.5">
+                    </div>
+                  </div>
+
+                  {/* Secondary Info Grid - 4 columns for quick facts */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="p-2.5 border rounded-lg">
+                      <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1">
+                        <TrendingUp className="w-3 h-3" /> Model
+                      </h4>
+                      <p className="text-sm font-medium">{businessProfile.businessModel || "Not available"}</p>
+                    </div>
+                    <div className="p-2.5 border rounded-lg">
+                      <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1">
+                        <Users className="w-3 h-3" /> Target Market
+                      </h4>
+                      <p className="text-sm font-medium">{businessProfile.targetMarket || "Not available"}</p>
+                    </div>
+                    <div className="p-2.5 border rounded-lg md:col-span-2">
+                      <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Market Opportunity</h4>
+                      <p className="text-sm">{businessProfile.marketOpportunity || "Not available"}</p>
+                    </div>
+                  </div>
+
+                  {/* Key Advantages as badges */}
+                  {businessProfile.competitiveAdvantage && (
+                    <div>
+                      <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Key Advantages</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {Array.isArray(businessProfile.competitiveAdvantage) 
+                          ? businessProfile.competitiveAdvantage.map((adv: string, i: number) => (
+                              <Badge key={i} variant="secondary" className="text-xs py-1 px-2.5">{adv}</Badge>
+                            ))
+                          : <p className="text-sm text-muted-foreground">{businessProfile.competitiveAdvantage}</p>
+                        }
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Strategic Recommendations & Insights - Collapsible or secondary */}
+                  {(businessProfile.businessInsights?.strategicRecommendations?.length > 0 || 
+                    businessProfile.businessInsights?.keyBusinessInsights?.length > 0) && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t">
+                      {businessProfile.businessInsights?.strategicRecommendations?.length > 0 && (
+                        <div>
+                          <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Strategic Recommendations</h4>
+                          <ul className="space-y-1.5">
+                            {businessProfile.businessInsights.strategicRecommendations.map((rec: string, i: number) => (
+                              <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
+                                <span className="text-green-500 font-bold">+</span> {rec}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {businessProfile.businessInsights?.keyBusinessInsights?.length > 0 && (
+                        <div>
+                          <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Key Insights</h4>
+                          <ul className="space-y-1.5">
                             {businessProfile.businessInsights.keyBusinessInsights.map((insight: string, i: number) => (
-                              <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5">
-                                <span className="text-primary mt-0.5">•</span> {insight}
+                              <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
+                                <span className="text-blue-500 font-bold">*</span> {insight}
                               </li>
                             ))}
                           </ul>
                         </div>
                       )}
                     </div>
-                  </div>
-                  
-                  {/* Right Column */}
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <h4 className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1.5">
-                          <TrendingUp className="w-3 h-3" /> Model
-                        </h4>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {businessProfile.businessModel || "Not available"}
-                        </p>
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1.5">
-                          <Users className="w-3 h-3" /> Market
-                        </h4>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {businessProfile.targetMarket || "Not available"}
-                        </p>
+                  )}
+
+                  {/* Sources at bottom */}
+                  {businessProfile.researchSources && businessProfile.researchSources.length > 0 && (
+                    <div className="pt-2 border-t">
+                      <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Sources</h4>
+                      <div className="flex flex-wrap gap-1.5">
+                        {businessProfile.researchSources.map((source: string, i: number) => (
+                          <Badge key={i} variant="outline" className="text-xs text-gray-500">{source}</Badge>
+                        ))}
                       </div>
                     </div>
-                    
-                    <div>
-                      <h4 className="text-xs font-semibold text-gray-500 uppercase">Market Opportunity</h4>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {businessProfile.marketOpportunity || "Not available"}
-                      </p>
-                    </div>
-                    
-                    {businessProfile.competitiveAdvantage && (
-                      <div>
-                        <h4 className="text-xs font-semibold text-gray-500 uppercase">Key Advantages</h4>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {Array.isArray(businessProfile.competitiveAdvantage) 
-                            ? businessProfile.competitiveAdvantage.map((adv: string, i: number) => (
-                                <Badge key={i} variant="outline" className="text-xs">{adv}</Badge>
-                              ))
-                            : <p className="text-sm text-muted-foreground">{businessProfile.competitiveAdvantage}</p>
-                          }
-                        </div>
-                      </div>
-                    )}
-                    
-                    {businessProfile.researchSources && businessProfile.researchSources.length > 0 && (
-                      <div>
-                        <h4 className="text-xs font-semibold text-gray-500 uppercase">Sources</h4>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {businessProfile.researchSources.map((source: string, i: number) => (
-                            <Badge key={i} variant="secondary" className="text-xs">{source}</Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  )}
                 </div>
               )}
             </CardContent>
