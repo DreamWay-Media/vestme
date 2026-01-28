@@ -414,29 +414,11 @@ export default function ProjectDiscovery() {
             )}
 
             {analysisComplete && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4 text-green-500" />
-                  <span className="text-sm font-medium text-green-700">Analysis Complete</span>
-                </div>
-                
-                {project.businessProfile && (
-                  <div className="space-y-3">
-                    <p className="text-sm text-muted-foreground">
-                      {project.businessProfile.overview || "Business analysis completed successfully."}
-                    </p>
-                    
-                    {project.businessProfile.keyInsights && project.businessProfile.keyInsights.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {project.businessProfile.keyInsights.slice(0, 5).map((insight: string, index: number) => (
-                          <Badge key={index} variant="secondary" className="text-xs">
-                            {insight}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+              <div className="flex items-center gap-2 text-sm">
+                <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
+                <span className="text-muted-foreground">
+                  {project.businessProfile?.overview || "Business analysis completed successfully."}
+                </span>
               </div>
             )}
 
@@ -528,56 +510,42 @@ export default function ProjectDiscovery() {
             )}
 
             {!isAnalyzing && !analysisJustCompleted && editingSection === null && (
-              <div className="space-y-4">
-                {/* Compact Document Upload */}
-                <div className="flex flex-wrap items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                  <ObjectUploader
-                    maxNumberOfFiles={5}
-                    maxFileSize={50485760}
-                    onGetUploadParameters={handleGetUploadParameters}
-                    onComplete={handleDocumentUploadComplete}
-                    buttonClassName=""
-                  >
-                    <div className="flex items-center gap-2 text-sm">
-                      <FileText className="w-4 h-4" />
-                      <span>Add Documents</span>
-                    </div>
-                  </ObjectUploader>
-                  
-                  {uploadedDocuments.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {uploadedDocuments.map((doc) => (
-                        <Badge key={doc.id} variant="secondary" className="flex items-center gap-1 pr-1">
-                          <span className="text-xs truncate max-w-[120px]">{doc.name}</span>
-                          <button
-                            onClick={() => handleRemoveDocument(doc.id)}
-                            className="ml-1 hover:text-red-600"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                  
-                  <span className="text-xs text-gray-400 ml-auto">Optional: PDF, DOC, PPT</span>
-                </div>
-
-                {/* Analysis Button */}
-                <div className="flex items-center gap-4">
-                  <Button 
-                    onClick={handleStartAnalysis}
-                    disabled={analyzeProjectMutation.isPending}
-                    className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-                  >
-                    <Search className="h-4 w-4 mr-2" />
-                    {hasBusinessProfile ? 'Re-run Analysis' : 'Start Analysis'}
-                    {uploadedDocuments.length > 0 && ` (${uploadedDocuments.length} docs)`}
-                  </Button>
-                  <p className="text-xs text-muted-foreground">
-                    {hasBusinessProfile ? 'Update insights with latest data' : 'AI-powered business intelligence'}
-                  </p>
-                </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button 
+                  onClick={handleStartAnalysis}
+                  disabled={analyzeProjectMutation.isPending}
+                  size="sm"
+                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                >
+                  <Search className="h-3.5 w-3.5 mr-1.5" />
+                  {hasBusinessProfile ? 'Re-run' : 'Start Analysis'}
+                </Button>
+                
+                <ObjectUploader
+                  maxNumberOfFiles={5}
+                  maxFileSize={50485760}
+                  onGetUploadParameters={handleGetUploadParameters}
+                  onComplete={handleDocumentUploadComplete}
+                  buttonClassName=""
+                >
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer">
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Add docs</span>
+                  </div>
+                </ObjectUploader>
+                
+                {uploadedDocuments.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {uploadedDocuments.map((doc) => (
+                      <Badge key={doc.id} variant="secondary" className="flex items-center gap-1 pr-1 text-xs">
+                        <span className="truncate max-w-[100px]">{doc.name}</span>
+                        <button onClick={() => handleRemoveDocument(doc.id)} className="hover:text-red-600">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
