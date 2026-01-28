@@ -72,6 +72,7 @@ In production, only real Supabase authentication is available.
 - Themes are also database-stored with enable/disable controls
 
 ## Recent Changes
+- Redesigned Discovery page with cleaner, more compact UI: inline project info header, 2-column grid layout for results, streamlined document upload section
 - Added preloader/loading state to Discovery step that shows "Loading Your Results" after AI analysis completes while data is being fetched
 - Completely removed website color extraction - users now pick their own brand colors with neutral defaults (#000000, #F8FAFC, #64748B)
 - Redesigned brand kit creation page with cleaner, user-driven flow: centered layout, "Start Customizing" button, visual preview of color roles

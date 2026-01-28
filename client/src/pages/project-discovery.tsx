@@ -1,14 +1,13 @@
 import { useState, useEffect } from "react";
-import { useParams, Link, useLocation } from "wouter";
+import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Search, CheckCircle, AlertCircle, Loader2, Edit, Globe, TrendingUp, Users, Target, RefreshCw, DollarSign, BarChart3, Building, Shield, Zap, Upload, FileText, X } from "lucide-react";
+import { Search, CheckCircle, AlertCircle, Loader2, Edit, TrendingUp, Users, Target, Building, FileText, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
@@ -247,6 +246,8 @@ export default function ProjectDiscovery() {
       });
     } else if (editingSection === 'sidebar' && businessProfile) {
       setEditValues({
+        businessDescription: businessProfile.businessDescription || '',
+        problemStatement: businessProfile.problemStatement || '',
         valueProposition: businessProfile.valueProposition || '',
         businessModel: businessProfile.businessModel || '',
         targetMarket: businessProfile.targetMarket || '',
@@ -342,58 +343,46 @@ export default function ProjectDiscovery() {
 
   return (
     <ProjectLayoutWithHeader>
-      <div className="p-6 space-y-6">
-        <div className="mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Business Discovery</h1>
-              <p className="mt-1 text-sm text-gray-600">AI-powered research and business intelligence analysis for comprehensive insights.</p>
+      <div className="p-4 space-y-4">
+        {/* Compact Header with Project Info inline */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Business Discovery</h1>
+            <div className="flex flex-wrap items-center gap-3 mt-1 text-sm text-gray-600">
+              <span>{project.industry || "No industry"}</span>
+              {project.websiteUrl && (
+                <>
+                  <span className="text-gray-300">|</span>
+                  <a href={project.websiteUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline truncate max-w-[200px]">
+                    {project.websiteUrl.replace(/^https?:\/\//, '')}
+                  </a>
+                </>
+              )}
+              <span className="text-gray-300">|</span>
+              <Badge variant={project.status === 'discovery' ? 'default' : 'secondary'} className="text-xs">
+                {project.status}
+              </Badge>
             </div>
           </div>
         </div>
 
-      <div className="space-y-6">
-        {/* AI Business Analysis with Project Info inside */}
+      <div className="space-y-4">
+        {/* AI Business Analysis */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Search className="h-5 w-5" />
-              AI Business Analysis
-            </CardTitle>
-            <CardDescription>
-              Our AI is analyzing your business information to create a comprehensive profile
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Project Info Section */}
-            <div className="border-b pb-4">
-              <h3 className="text-lg font-semibold mb-3">Project Info</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Industry</p>
-                  <p className="text-sm text-gray-900">{project.industry || "Not specified"}</p>
-                </div>
-                {project.websiteUrl && (
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Website</p>
-                    <a 
-                      href={project.websiteUrl} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-600 hover:underline"
-                    >
-                      {project.websiteUrl}
-                    </a>
-                  </div>
-                )}
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Status</p>
-                  <Badge variant={project.status === 'discovery' ? 'default' : 'secondary'}>
-                    {project.status}
-                  </Badge>
-                </div>
-              </div>
+          <CardHeader className="py-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Search className="h-4 w-4" />
+                AI Business Analysis
+              </CardTitle>
+              {analysisComplete && (
+                <Button variant="ghost" size="sm" onClick={() => setEditingSection('main')}>
+                  <Edit className="h-4 w-4" />
+                </Button>
+              )}
             </div>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-4">
             {/* Show analysis progress with detailed steps */}
             {isAnalyzing && (
               <AnalysisProgress 
@@ -425,46 +414,29 @@ export default function ProjectDiscovery() {
             )}
 
             {analysisComplete && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <CheckCircle className="h-5 w-5 text-green-500" />
-                  <span className="font-medium text-green-700">Analysis Complete!</span>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4 text-green-500" />
+                  <span className="text-sm font-medium text-green-700">Analysis Complete</span>
                 </div>
                 
                 {project.businessProfile && (
-                  <div className="space-y-4">
-                    <div>
-                      <h3 className="font-semibold mb-2">Business Overview</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {project.businessProfile.overview || "Business analysis completed successfully."}
-                      </p>
-                    </div>
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      {project.businessProfile.overview || "Business analysis completed successfully."}
+                    </p>
                     
-                    {project.businessProfile.keyInsights && (
-                      <div>
-                        <h3 className="font-semibold mb-2">Key Insights</h3>
-                        <div className="flex flex-wrap gap-2">
-                          {project.businessProfile.keyInsights.slice(0, 6).map((insight: string, index: number) => (
-                            <Badge key={index} variant="secondary">
-                              {insight}
-                            </Badge>
-                          ))}
-                        </div>
+                    {project.businessProfile.keyInsights && project.businessProfile.keyInsights.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {project.businessProfile.keyInsights.slice(0, 5).map((insight: string, index: number) => (
+                          <Badge key={index} variant="secondary" className="text-xs">
+                            {insight}
+                          </Badge>
+                        ))}
                       </div>
                     )}
                   </div>
                 )}
-                
-                <div className="flex gap-2 pt-2">
-                  <Button 
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setEditingSection('main')}
-                  >
-                    <Edit className="h-4 w-4 mr-2" />
-                    Edit Business Info
-                  </Button>
-                </div>
               </div>
             )}
 
@@ -556,322 +528,270 @@ export default function ProjectDiscovery() {
             )}
 
             {!isAnalyzing && !analysisJustCompleted && editingSection === null && (
-              <div className="space-y-6">
-                <div className="flex items-center gap-3">
-                  <Upload className="h-5 w-5 text-blue-500" />
-                  <span className="font-medium">Document Upload & Analysis</span>
-                </div>
-
-                {/* Document Upload Section */}
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
+              <div className="space-y-4">
+                {/* Compact Document Upload */}
+                <div className="flex flex-wrap items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                  <ObjectUploader
+                    maxNumberOfFiles={5}
+                    maxFileSize={50485760}
+                    onGetUploadParameters={handleGetUploadParameters}
+                    onComplete={handleDocumentUploadComplete}
+                    buttonClassName=""
+                  >
+                    <div className="flex items-center gap-2 text-sm">
                       <FileText className="w-4 h-4" />
-                      Upload Business Documents (Optional)
-                    </h4>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Upload pitch decks, business plans, or other documents to help our AI better understand your business
-                    </p>
-                    
-                    {/* Document Upload Area */}
-                    <div className="border-2 border-dashed border-gray-200 rounded-lg p-4 mb-4">
-                      <div className="flex flex-col items-center gap-3">
-                        <ObjectUploader
-                          maxNumberOfFiles={5}
-                          maxFileSize={50485760} // 50MB
-                          onGetUploadParameters={handleGetUploadParameters}
-                          onComplete={handleDocumentUploadComplete}
-                          buttonClassName="w-full"
-                        >
-                          <div className="flex items-center gap-2">
-                            <Upload className="w-4 h-4" />
-                            <span>Upload Documents</span>
-                          </div>
-                        </ObjectUploader>
-                        
-                        <p className="text-xs text-gray-500 text-center">
-                          Supported: PDF, DOC, DOCX, TXT, PPT, PPTX (Max 50MB each)
-                        </p>
-                      </div>
+                      <span>Add Documents</span>
                     </div>
-
-                    {/* Uploaded Documents List */}
-                    {uploadedDocuments.length > 0 && (
-                      <div className="space-y-2 mb-4">
-                        <h5 className="text-sm font-medium text-gray-700">Uploaded Documents:</h5>
-                        {uploadedDocuments.map((doc) => (
-                          <div key={doc.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-md">
-                            <div className="flex items-center gap-2">
-                              <FileText className="w-4 h-4 text-gray-500" />
-                              <span className="text-sm text-gray-700 truncate">{doc.name}</span>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleRemoveDocument(doc.id)}
-                              className="text-gray-500 hover:text-red-600"
-                            >
-                              <X className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <Separator />
+                  </ObjectUploader>
+                  
+                  {uploadedDocuments.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {uploadedDocuments.map((doc) => (
+                        <Badge key={doc.id} variant="secondary" className="flex items-center gap-1 pr-1">
+                          <span className="text-xs truncate max-w-[120px]">{doc.name}</span>
+                          <button
+                            onClick={() => handleRemoveDocument(doc.id)}
+                            className="ml-1 hover:text-red-600"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <span className="text-xs text-gray-400 ml-auto">Optional: PDF, DOC, PPT</span>
                 </div>
 
-                <div>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    {hasBusinessProfile 
-                      ? `Re-run comprehensive business analysis${uploadedDocuments.length > 0 ? ' with your uploaded documents' : ''} to update insights with the latest data.`
-                      : `Launch comprehensive business intelligence gathering including website crawling${uploadedDocuments.length > 0 ? ', document analysis' : ''}, market analysis, competitor research, and financial projections.`
-                    }
-                  </p>
+                {/* Analysis Button */}
+                <div className="flex items-center gap-4">
                   <Button 
                     onClick={handleStartAnalysis}
                     disabled={analyzeProjectMutation.isPending}
-                    size="lg"
                     className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
                   >
                     <Search className="h-4 w-4 mr-2" />
-                    {hasBusinessProfile ? 'Re-run Analysis' : 'Start Business Intelligence'} {uploadedDocuments.length > 0 ? `(${uploadedDocuments.length} docs)` : ''}
+                    {hasBusinessProfile ? 'Re-run Analysis' : 'Start Analysis'}
+                    {uploadedDocuments.length > 0 && ` (${uploadedDocuments.length} docs)`}
                   </Button>
+                  <p className="text-xs text-muted-foreground">
+                    {hasBusinessProfile ? 'Update insights with latest data' : 'AI-powered business intelligence'}
+                  </p>
                 </div>
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Discovery Results - Now below AI Business Analysis */}
+        {/* Discovery Results - Compact 2-column grid */}
         {businessProfile && (
           <Card>
-            <CardHeader>
+            <CardHeader className="py-3">
               <div className="flex items-center justify-between">
-                <CardTitle>Discovery Results</CardTitle>
+                <CardTitle className="text-base">Discovery Results</CardTitle>
                 <Button variant="ghost" size="sm" onClick={() => setEditingSection('sidebar')}>
                   <Edit className="w-4 h-4" />
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-4">
-                {/* About the Business */}
-                <div>
-                  <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                    <Building className="w-4 h-4 text-gray-600" />
-                    About the Business
-                  </h4>
-                  {editingSection === 'sidebar' ? (
-                    <div className="space-y-2">
+            <CardContent className="pt-0">
+              {editingSection === 'sidebar' ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Business Description</Label>
                       <Textarea
                         value={editValues.businessDescription || businessProfile.businessDescription || ""}
                         onChange={(e) => setEditValues({...editValues, businessDescription: e.target.value})}
-                        placeholder="Describe what your business does and its core mission"
-                        className="text-sm min-h-[60px]"
+                        placeholder="What your business does"
+                        className="text-sm min-h-[60px] mt-1"
                       />
                     </div>
-                  ) : (
-                    <div className="text-sm text-muted-foreground space-y-2">
-                      <p>{businessProfile.businessDescription || businessProfile.businessInsights?.businessDescription || "Not available"}</p>
-                      {businessProfile.businessInsights?.investmentThesis && (
-                        <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-md border border-blue-200 dark:border-blue-800">
-                          <h5 className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1">INVESTMENT THESIS</h5>
-                          <p className="text-xs text-blue-600 dark:text-blue-400">{businessProfile.businessInsights.investmentThesis}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Problem Statement */}
-                <div>
-                  <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-red-500" />
-                    Problem Statement
-                  </h4>
-                  {editingSection === 'sidebar' ? (
-                    <div className="space-y-2">
+                    <div>
+                      <Label className="text-xs">Problem Statement</Label>
                       <Textarea
                         value={editValues.problemStatement || businessProfile.problemStatement || ""}
                         onChange={(e) => setEditValues({...editValues, problemStatement: e.target.value})}
-                        placeholder="What specific problem does your business solve?"
-                        className="text-sm min-h-[60px]"
+                        placeholder="Problem you solve"
+                        className="text-sm min-h-[60px] mt-1"
                       />
                     </div>
-                  ) : (
-                    <div className="text-sm text-muted-foreground space-y-2">
-                      <p>{businessProfile.problemStatement || businessProfile.businessInsights?.problemStatement || "Not available"}</p>
-                      {businessProfile.businessInsights?.strategicRecommendations && businessProfile.businessInsights.strategicRecommendations.length > 0 && (
-                        <div className="mt-3">
-                          <h5 className="text-xs font-semibold text-muted-foreground mb-2">STRATEGIC RECOMMENDATIONS</h5>
-                          <ul className="space-y-1">
-                            {businessProfile.businessInsights.strategicRecommendations.slice(0, 2).map((rec: string, index: number) => (
-                              <li key={index} className="text-xs flex items-start gap-2">
-                                <div className="w-1 h-1 rounded-full bg-green-500 mt-1.5 shrink-0" />
-                                <span>{rec}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Value Proposition */}
-                <div>
-                  <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                    <Target className="w-4 h-4 text-blue-500" />
-                    Value Proposition
-                  </h4>
-                  {editingSection === 'sidebar' ? (
-                    <div className="space-y-2">
+                    <div>
+                      <Label className="text-xs">Value Proposition</Label>
                       <Textarea
                         value={editValues.valueProposition || businessProfile.valueProposition || ""}
                         onChange={(e) => setEditValues({...editValues, valueProposition: e.target.value})}
-                        placeholder="What unique value does your company provide?"
-                        className="text-sm min-h-[60px]"
+                        placeholder="Unique value"
+                        className="text-sm min-h-[60px] mt-1"
                       />
                     </div>
-                  ) : (
-                    <div className="text-sm text-muted-foreground space-y-2">
-                      <p>{businessProfile.valueProposition || businessProfile.businessInsights?.valueProposition || "Not available"}</p>
-                      {businessProfile.businessInsights?.keyBusinessInsights && businessProfile.businessInsights.keyBusinessInsights.length > 0 && (
-                        <div className="mt-3">
-                          <h5 className="text-xs font-semibold text-muted-foreground mb-2">KEY INSIGHTS</h5>
-                          <ul className="space-y-1">
-                            {businessProfile.businessInsights.keyBusinessInsights.slice(0, 3).map((insight: string, index: number) => (
-                              <li key={index} className="text-xs flex items-start gap-2">
-                                <div className="w-1 h-1 rounded-full bg-primary mt-1.5 shrink-0" />
-                                <span>{insight}</span>
+                    <div>
+                      <Label className="text-xs">Market Opportunity</Label>
+                      <Textarea
+                        value={editValues.marketOpportunity || businessProfile.marketOpportunity || ""}
+                        onChange={(e) => setEditValues({...editValues, marketOpportunity: e.target.value})}
+                        placeholder="Market opportunity"
+                        className="text-sm min-h-[60px] mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Business Model</Label>
+                      <Input
+                        value={editValues.businessModel || businessProfile.businessModel || ""}
+                        onChange={(e) => setEditValues({...editValues, businessModel: e.target.value})}
+                        placeholder="Revenue model"
+                        className="text-sm mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Target Market</Label>
+                      <Input
+                        value={editValues.targetMarket || businessProfile.targetMarket || ""}
+                        onChange={(e) => setEditValues({...editValues, targetMarket: e.target.value})}
+                        placeholder="Primary customers"
+                        className="text-sm mt-1"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Key Advantages (comma-separated)</Label>
+                    <Textarea
+                      value={editValues.competitiveAdvantage !== undefined 
+                        ? (Array.isArray(editValues.competitiveAdvantage) ? editValues.competitiveAdvantage.join(", ") : editValues.competitiveAdvantage)
+                        : (Array.isArray(businessProfile.competitiveAdvantage) ? businessProfile.competitiveAdvantage.join(", ") : businessProfile.competitiveAdvantage || "")}
+                      onChange={(e) => setEditValues({...editValues, competitiveAdvantage: e.target.value.split(", ").filter(Boolean)})}
+                      placeholder="List key advantages separated by commas"
+                      className="text-sm min-h-[60px] mt-1"
+                    />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <Button size="sm" onClick={() => updateBusinessProfileMutation.mutate(editValues)} disabled={updateBusinessProfileMutation.isPending}>
+                      {updateBusinessProfileMutation.isPending && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
+                      Save
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleCancelEdit}>Cancel</Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+                  {/* Left Column */}
+                  <div className="space-y-3">
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1.5">
+                        <Building className="w-3 h-3" /> About
+                      </h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {businessProfile.businessDescription || businessProfile.businessInsights?.businessDescription || "Not available"}
+                      </p>
+                      {businessProfile.businessInsights?.investmentThesis && (
+                        <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-950/20 rounded border border-blue-200 dark:border-blue-800">
+                          <h5 className="text-xs font-semibold text-blue-700 dark:text-blue-300">Investment Thesis</h5>
+                          <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">{businessProfile.businessInsights.investmentThesis}</p>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1.5">
+                        <AlertCircle className="w-3 h-3" /> Problem
+                      </h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {businessProfile.problemStatement || businessProfile.businessInsights?.problemStatement || "Not available"}
+                      </p>
+                      {businessProfile.businessInsights?.strategicRecommendations && businessProfile.businessInsights.strategicRecommendations.length > 0 && (
+                        <div className="mt-2">
+                          <h5 className="text-xs font-semibold text-muted-foreground">Strategic Recommendations</h5>
+                          <ul className="mt-0.5 space-y-0.5">
+                            {businessProfile.businessInsights.strategicRecommendations.map((rec: string, i: number) => (
+                              <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5">
+                                <span className="text-green-500 mt-0.5">•</span> {rec}
                               </li>
                             ))}
                           </ul>
                         </div>
                       )}
                     </div>
-                  )}
-                </div>
-
-                {/* Business Model */}
-                <div>
-                  <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-green-500" />
-                    Business Model
-                  </h4>
-                  {editingSection === 'sidebar' ? (
-                    <Input
-                      value={editValues.businessModel || businessProfile.businessModel || ""}
-                      onChange={(e) => setEditValues({...editValues, businessModel: e.target.value})}
-                      placeholder="Revenue generation model"
-                      className="text-sm"
-                    />
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {businessProfile.businessModel || "Not available"}
-                    </p>
-                  )}
-                </div>
-
-                {/* Target Market */}
-                <div>
-                  <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                    <Users className="w-4 h-4 text-purple-500" />
-                    Target Market
-                  </h4>
-                  {editingSection === 'sidebar' ? (
-                    <Input
-                      value={editValues.targetMarket || businessProfile.targetMarket || ""}
-                      onChange={(e) => setEditValues({...editValues, targetMarket: e.target.value})}
-                      placeholder="Primary customers"
-                      className="text-sm"
-                    />
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {businessProfile.targetMarket || "Not available"}
-                    </p>
-                  )}
-                </div>
-
-                {/* Market Opportunity */}
-                <div>
-                  <h4 className="font-semibold text-sm mb-2">Market Opportunity</h4>
-                  {editingSection === 'sidebar' ? (
-                    <Textarea
-                      value={editValues.marketOpportunity || businessProfile.marketOpportunity || ""}
-                      onChange={(e) => setEditValues({...editValues, marketOpportunity: e.target.value})}
-                      placeholder="Describe the market opportunity"
-                      className="text-sm min-h-[60px]"
-                    />
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {businessProfile.marketOpportunity || "Not available"}
-                    </p>
-                  )}
-                </div>
-
-                {/* Competitive Advantages */}
-                <div>
-                  <h4 className="font-semibold text-sm mb-2">Key Advantages</h4>
-                  {editingSection === 'sidebar' ? (
-                    <Textarea
-                      value={Array.isArray(businessProfile.competitiveAdvantage) 
-                        ? businessProfile.competitiveAdvantage.join(", ")
-                        : businessProfile.competitiveAdvantage || ""
-                      }
-                      onChange={(e) => setEditValues({...editValues, competitiveAdvantage: e.target.value.split(", ").filter(Boolean)})}
-                      placeholder="List advantages separated by commas"
-                      className="text-sm min-h-[60px]"
-                    />
-                  ) : (
-                    <div className="space-y-1">
-                      {Array.isArray(businessProfile.competitiveAdvantage) 
-                        ? businessProfile.competitiveAdvantage.slice(0, 3).map((advantage: string, index: number) => (
-                            <p key={index} className="text-xs text-muted-foreground">• {advantage}</p>
-                          ))
-                        : <p className="text-sm text-muted-foreground">{businessProfile.competitiveAdvantage || "Not available"}</p>
-                      }
+                    
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1.5">
+                        <Target className="w-3 h-3" /> Value Proposition
+                      </h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {businessProfile.valueProposition || businessProfile.businessInsights?.valueProposition || "Not available"}
+                      </p>
+                      {businessProfile.businessInsights?.keyBusinessInsights && businessProfile.businessInsights.keyBusinessInsights.length > 0 && (
+                        <div className="mt-2">
+                          <h5 className="text-xs font-semibold text-muted-foreground">Key Insights</h5>
+                          <ul className="mt-0.5 space-y-0.5">
+                            {businessProfile.businessInsights.keyBusinessInsights.map((insight: string, i: number) => (
+                              <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5">
+                                <span className="text-primary mt-0.5">•</span> {insight}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-
-                {/* Research Sources */}
-                <div>
-                  <h4 className="font-semibold text-sm mb-2">Research Sources</h4>
-                  <div className="flex flex-wrap gap-1">
-                    {businessProfile.researchSources?.map((source: string, index: number) => (
-                      <Badge key={index} variant="outline" className="text-xs">
-                        {source}
-                      </Badge>
-                    ))}
+                  </div>
+                  
+                  {/* Right Column */}
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <h4 className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1.5">
+                          <TrendingUp className="w-3 h-3" /> Model
+                        </h4>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          {businessProfile.businessModel || "Not available"}
+                        </p>
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1.5">
+                          <Users className="w-3 h-3" /> Market
+                        </h4>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          {businessProfile.targetMarket || "Not available"}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-500 uppercase">Market Opportunity</h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {businessProfile.marketOpportunity || "Not available"}
+                      </p>
+                    </div>
+                    
+                    {businessProfile.competitiveAdvantage && (
+                      <div>
+                        <h4 className="text-xs font-semibold text-gray-500 uppercase">Key Advantages</h4>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {Array.isArray(businessProfile.competitiveAdvantage) 
+                            ? businessProfile.competitiveAdvantage.map((adv: string, i: number) => (
+                                <Badge key={i} variant="outline" className="text-xs">{adv}</Badge>
+                              ))
+                            : <p className="text-sm text-muted-foreground">{businessProfile.competitiveAdvantage}</p>
+                          }
+                        </div>
+                      </div>
+                    )}
+                    
+                    {businessProfile.researchSources && businessProfile.researchSources.length > 0 && (
+                      <div>
+                        <h4 className="text-xs font-semibold text-gray-500 uppercase">Sources</h4>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {businessProfile.researchSources.map((source: string, i: number) => (
+                            <Badge key={i} variant="secondary" className="text-xs">{source}</Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
-
-                {editingSection === 'sidebar' && (
-                  <div className="flex gap-2 pt-2">
-                    <Button 
-                      size="sm" 
-                      onClick={() => {
-                        updateBusinessProfileMutation.mutate(editValues);
-                      }}
-                      disabled={updateBusinessProfileMutation.isPending}
-                    >
-                      {updateBusinessProfileMutation.isPending ? (
-                        <Loader2 className="w-3 h-3 animate-spin mr-1" />
-                      ) : null}
-                      Save Changes
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={handleCancelEdit}>
-                      Cancel
-                    </Button>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+              )}
+            </CardContent>
+          </Card>
+        )}
         </div>
       </div>
     </ProjectLayoutWithHeader>
