@@ -18,7 +18,7 @@ interface LayoutProps {
 }
 
 export default function Layout({ children }: LayoutProps) {
-  const { user, signOut } = useAuth();
+  const { user, signOut, isAdmin } = useAuth();
   const [location] = useLocation();
 
   const navigation = [
@@ -120,14 +120,16 @@ export default function Layout({ children }: LayoutProps) {
                       </div>
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link href="/admin/templates">
-                      <div className="flex items-center w-full cursor-pointer">
-                        <Shield className="mr-2 h-4 w-4" />
-                        <span>Admin - Templates</span>
-                      </div>
-                    </Link>
-                  </DropdownMenuItem>
+                  {isAdmin && (
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin/templates">
+                        <div className="flex items-center w-full cursor-pointer">
+                          <Shield className="mr-2 h-4 w-4" />
+                          <span>Admin - Templates</span>
+                        </div>
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-red-600">
                     <LogOut className="mr-2 h-4 w-4" />

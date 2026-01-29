@@ -12,6 +12,7 @@ export function useAuth() {
     user: context.user,
     isLoading: context.loading,
     isAuthenticated: !!context.user,
+    isAdmin: context.isAdmin,
     signOut: context.signOut,
     devLogin: context.devLogin,
   };
