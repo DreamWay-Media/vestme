@@ -443,25 +443,46 @@ export default function ProjectBrandKit() {
                     </div>
                   </div>
                   
-                  {/* Color Preview Section */}
+                  {/* Preview Section */}
                   <div className="border rounded-lg p-4 bg-white">
-                    <Label className="text-sm font-medium mb-3 block">Color Preview</Label>
+                    <Label className="text-sm font-medium mb-3 block">Preview</Label>
                     <div 
                       className="rounded-lg overflow-hidden border"
-                      style={{ backgroundColor: editingBrandKit?.secondaryColor || "#F8FAFC" }}
+                      style={{ 
+                        backgroundColor: editingBrandKit?.secondaryColor || "#F8FAFC",
+                        fontFamily: editingBrandKit?.fontFamily || "Inter"
+                      }}
                     >
                       <div 
-                        className="p-4"
+                        className="p-4 flex items-center gap-3"
                         style={{ backgroundColor: editingBrandKit?.primaryColor || "#000000" }}
                       >
-                        <h3 className="text-white font-semibold text-lg">Your Brand Headline</h3>
-                        <p className="text-white/80 text-sm">Primary color as header background</p>
+                        {editingBrandKit?.logoUrl && (
+                          <img 
+                            src={editingBrandKit.logoUrl} 
+                            alt="Logo" 
+                            className="h-10 w-auto object-contain bg-white/10 rounded p-1"
+                          />
+                        )}
+                        <div>
+                          <h3 className="text-white font-semibold text-lg" style={{ fontFamily: editingBrandKit?.fontFamily || "Inter" }}>
+                            Your Brand Headline
+                          </h3>
+                          <p className="text-white/80 text-sm" style={{ fontFamily: editingBrandKit?.fontFamily || "Inter" }}>
+                            Primary color as header background
+                          </p>
+                        </div>
                       </div>
                       <div className="p-4">
-                        <p className="text-gray-700 mb-3">This is how your content will look with your chosen colors.</p>
+                        <p className="text-gray-700 mb-3" style={{ fontFamily: editingBrandKit?.fontFamily || "Inter" }}>
+                          This is how your content will look with {editingBrandKit?.fontFamily || "Inter"} font.
+                        </p>
                         <button
                           className="px-4 py-2 rounded-md text-white font-medium"
-                          style={{ backgroundColor: editingBrandKit?.accentColor || "#64748B" }}
+                          style={{ 
+                            backgroundColor: editingBrandKit?.accentColor || "#64748B",
+                            fontFamily: editingBrandKit?.fontFamily || "Inter"
+                          }}
                         >
                           Accent Button
                         </button>
@@ -873,25 +894,46 @@ export default function ProjectBrandKit() {
                         </div>
                       </div>
                       
-                      {/* Color Preview Section */}
+                      {/* Preview Section */}
                       <div className="border rounded-lg p-4 bg-white">
-                        <Label className="text-sm font-medium mb-3 block">Color Preview</Label>
+                        <Label className="text-sm font-medium mb-3 block">Preview</Label>
                         <div 
                           className="rounded-lg overflow-hidden border"
-                          style={{ backgroundColor: editingBrandKit?.secondaryColor || "#F8FAFC" }}
+                          style={{ 
+                            backgroundColor: editingBrandKit?.secondaryColor || "#F8FAFC",
+                            fontFamily: editingBrandKit?.fontFamily || "Inter"
+                          }}
                         >
                           <div 
-                            className="p-4"
+                            className="p-4 flex items-center gap-3"
                             style={{ backgroundColor: editingBrandKit?.primaryColor || "#000000" }}
                           >
-                            <h3 className="text-white font-semibold text-lg">Your Brand Headline</h3>
-                            <p className="text-white/80 text-sm">Primary color as header</p>
+                            {editingBrandKit?.logoUrl && (
+                              <img 
+                                src={editingBrandKit.logoUrl} 
+                                alt="Logo" 
+                                className="h-10 w-auto object-contain bg-white/10 rounded p-1"
+                              />
+                            )}
+                            <div>
+                              <h3 className="text-white font-semibold text-lg" style={{ fontFamily: editingBrandKit?.fontFamily || "Inter" }}>
+                                Your Brand Headline
+                              </h3>
+                              <p className="text-white/80 text-sm" style={{ fontFamily: editingBrandKit?.fontFamily || "Inter" }}>
+                                Primary color as header
+                              </p>
+                            </div>
                           </div>
                           <div className="p-4">
-                            <p className="text-gray-700 mb-3">Preview of your chosen colors.</p>
+                            <p className="text-gray-700 mb-3" style={{ fontFamily: editingBrandKit?.fontFamily || "Inter" }}>
+                              Preview with {editingBrandKit?.fontFamily || "your selected"} font.
+                            </p>
                             <button
                               className="px-4 py-2 rounded-md text-white font-medium"
-                              style={{ backgroundColor: editingBrandKit?.accentColor || "#64748B" }}
+                              style={{ 
+                                backgroundColor: editingBrandKit?.accentColor || "#64748B",
+                                fontFamily: editingBrandKit?.fontFamily || "Inter"
+                              }}
                             >
                               Accent Button
                             </button>
