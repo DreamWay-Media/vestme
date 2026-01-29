@@ -72,6 +72,11 @@ In production, only real Supabase authentication is available.
 - Themes are also database-stored with enable/disable controls
 
 ## Recent Changes
+- Enabled free navigation between all project steps - users can now move freely between Discovery, Media Library, Brand Kit, and Deck Generator without completing previous steps
+- Removed bottom navigation buttons and progress indicators from step pages (Media Library, Brand Kit) to reduce clutter
+- Simplified sidebar navigation - removed progress footer and disabled state logic
+- Fixed double scrollbar issue on project layout by removing h-screen and adding proper overflow controls
+- Redesigned Discovery Results with card-based layout, featured Investment Thesis, 3-column info grid, and cleaner visual hierarchy
 - Redesigned Discovery page with cleaner, more compact UI: inline project info header, 2-column grid layout for results, streamlined document upload section
 - Added preloader/loading state to Discovery step that shows "Loading Your Results" after AI analysis completes while data is being fetched
 - Completely removed website color extraction - users now pick their own brand colors with neutral defaults (#000000, #F8FAFC, #64748B)
