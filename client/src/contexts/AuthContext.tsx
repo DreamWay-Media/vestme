@@ -69,10 +69,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return;
       }
 
-      // Try to fetch user from our database
-      const response = await fetch('/api/auth/user', {
+      // Try to fetch user from our database (add timestamp to bust cache)
+      const response = await fetch(`/api/auth/user?_t=${Date.now()}`, {
         headers: {
-          'Authorization': `Bearer ${session.access_token}`
+          'Authorization': `Bearer ${session.access_token}`,
+          'Cache-Control': 'no-cache',
         }
       });
 
@@ -82,24 +83,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setUser(userData);
       } else {
         console.log('Failed to fetch from DB, using Supabase metadata');
-        // Fallback to Supabase metadata
+        // Fallback to Supabase metadata (no admin access)
         setUser({
           id: supabaseUser.id,
           email: supabaseUser.email || '',
           firstName: supabaseUser.user_metadata?.full_name?.split(' ')[0] || '',
           lastName: supabaseUser.user_metadata?.full_name?.split(' ').slice(1).join(' ') || '',
           profileImageUrl: supabaseUser.user_metadata?.avatar_url || '',
+          isAdmin: false,
         });
       }
     } catch (error) {
       console.error('Error fetching user data:', error);
-      // Fallback to Supabase metadata
+      // Fallback to Supabase metadata (no admin access)
       setUser({
         id: supabaseUser.id,
         email: supabaseUser.email || '',
         firstName: supabaseUser.user_metadata?.email || '',
         lastName: supabaseUser.user_metadata?.full_name?.split(' ').slice(1).join(' ') || '',
         profileImageUrl: supabaseUser.user_metadata?.avatar_url || '',
+        isAdmin: false,
       });
     }
   };
@@ -190,17 +193,34 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, []);
 
   const signOut = async () => {
-    if (!supabase) {
-      setUser(null);
-      localStorage.removeItem('dev_user');
-      return;
-    }
     try {
-      await supabase.auth.signOut();
+      // Clear user state first
       setUser(null);
+      
+      // Clear all dev/local storage
       localStorage.removeItem('dev_user');
+      
+      // Clear all Supabase-related localStorage items
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+      
+      // Sign out from Supabase if available
+      if (supabase) {
+        await supabase.auth.signOut({ scope: 'global' });
+      }
+      
+      // Force reload to clear any cached state
+      window.location.href = '/';
     } catch (error) {
       console.error('Error signing out:', error);
+      // Force reload anyway
+      window.location.href = '/';
     }
   };
 

@@ -268,6 +268,13 @@ export function setupAuth(app: Express) {
       // Get user data from our database
       const dbUser = await storage.getUser(user.id);
       
+      // Prevent caching to ensure fresh user data (including isAdmin)
+      res.set({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      });
+      
       if (dbUser) {
         res.json({
           id: dbUser.id,
@@ -275,6 +282,7 @@ export function setupAuth(app: Express) {
           firstName: dbUser.firstName || '',
           lastName: dbUser.lastName || '',
           profileImageUrl: dbUser.profileImageUrl || '',
+          isAdmin: dbUser.isAdmin === true,
         });
       } else {
         // Fallback to Supabase metadata if user not in our database
@@ -284,6 +292,7 @@ export function setupAuth(app: Express) {
           firstName: user.user_metadata?.full_name?.split(' ')[0] || '',
           lastName: user.user_metadata?.full_name?.split(' ').slice(1).join(' ') || '',
           profileImageUrl: user.user_metadata?.avatar_url || '',
+          isAdmin: false,
         });
       }
     } catch (error) {
