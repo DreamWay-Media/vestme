@@ -111,6 +111,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
       
+      console.log('[AUTH] Raw user from storage:', JSON.stringify(user));
+      
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -126,6 +128,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       };
+      
+      console.log('[AUTH] Sending userData with isAdmin:', userData.isAdmin);
       
       // Disable caching completely - prevent 304 responses
       res.set({
