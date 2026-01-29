@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
@@ -6,7 +6,6 @@ import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { apiRequest } from "@/lib/queryClient";
 import Layout from "@/components/Layout";
-import NewProjectModal from "@/components/Projects/NewProjectModal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -108,7 +107,6 @@ export default function Projects() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
-  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
 
 
   // Redirect to login if not authenticated
@@ -256,13 +254,12 @@ export default function Projects() {
             <p className="mt-1 text-sm text-gray-600">Manage your pitch deck projects and track their progress.</p>
           </div>
           <div className="mt-4 sm:mt-0">
-            <Button 
-              onClick={() => setShowNewProjectModal(true)}
-              className="inline-flex items-center px-4 py-2 bg-primary-500 text-white font-medium rounded-lg hover:bg-primary-600 transition-colors shadow-material"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              New Project
-            </Button>
+            <Link to="/projects/new">
+              <Button className="inline-flex items-center px-4 py-2 bg-primary-500 text-white font-medium rounded-lg hover:bg-primary-600 transition-colors shadow-material">
+                <Plus className="h-4 w-4 mr-2" />
+                New Project
+              </Button>
+            </Link>
           </div>
         </div>
       </div>
@@ -297,13 +294,12 @@ export default function Projects() {
           </div>
           <h3 className="text-lg font-medium text-gray-900 mb-2">No projects yet</h3>
           <p className="text-gray-600 mb-6">Get started by creating your first pitch deck project.</p>
-          <Button 
-            onClick={() => setShowNewProjectModal(true)}
-            className="bg-primary-500 hover:bg-primary-600"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Create Your First Project
-          </Button>
+          <Link to="/projects/new">
+            <Button className="bg-primary-500 hover:bg-primary-600">
+              <Plus className="h-4 w-4 mr-2" />
+              Create Your First Project
+            </Button>
+          </Link>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -436,12 +432,6 @@ export default function Projects() {
           })}
         </div>
       )}
-
-      {/* New Project Modal */}
-      <NewProjectModal 
-        isOpen={showNewProjectModal}
-        onClose={() => setShowNewProjectModal(false)}
-      />
     </Layout>
   );
 }

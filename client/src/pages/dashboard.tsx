@@ -2,18 +2,13 @@ import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
-import { isUnauthorizedError } from "@/lib/authUtils";
 import Layout from "@/components/Layout";
 import StatsCard from "@/components/Dashboard/StatsCard";
 import RecentProjects from "@/components/Dashboard/RecentProjects";
-import { Button } from "@/components/ui/button";
-import { useState } from "react";
-import NewProjectModal from "@/components/Projects/NewProjectModal";
 
 export default function Dashboard() {
   const { isAuthenticated, isLoading } = useAuth();
   const { toast } = useToast();
-  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -57,20 +52,9 @@ export default function Dashboard() {
     <Layout>
       {/* Dashboard Header */}
       <div className="mb-8">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-            <p className="mt-1 text-sm text-gray-600">Welcome back! Here's what's happening with your projects.</p>
-          </div>
-          <div className="mt-4 sm:mt-0">
-            <Button 
-              onClick={() => setShowNewProjectModal(true)}
-              className="inline-flex items-center px-4 py-2 bg-primary-500 text-white font-medium rounded-lg hover:bg-primary-600 transition-colors shadow-material"
-            >
-              <i className="fas fa-plus mr-2"></i>
-              New Project
-            </Button>
-          </div>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p className="mt-1 text-sm text-gray-600">Welcome back! Here's what's happening with your projects.</p>
         </div>
       </div>
 
@@ -116,12 +100,6 @@ export default function Dashboard() {
 
       {/* Recent Projects */}
       <RecentProjects />
-
-      {/* New Project Modal */}
-      <NewProjectModal 
-        isOpen={showNewProjectModal}
-        onClose={() => setShowNewProjectModal(false)}
-      />
     </Layout>
   );
 }
