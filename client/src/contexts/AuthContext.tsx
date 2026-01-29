@@ -192,17 +192,34 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, []);
 
   const signOut = async () => {
-    if (!supabase) {
-      setUser(null);
-      localStorage.removeItem('dev_user');
-      return;
-    }
     try {
-      await supabase.auth.signOut();
+      // Clear user state first
       setUser(null);
+      
+      // Clear all dev/local storage
       localStorage.removeItem('dev_user');
+      
+      // Clear all Supabase-related localStorage items
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+      
+      // Sign out from Supabase if available
+      if (supabase) {
+        await supabase.auth.signOut({ scope: 'global' });
+      }
+      
+      // Force reload to clear any cached state
+      window.location.href = '/';
     } catch (error) {
       console.error('Error signing out:', error);
+      // Force reload anyway
+      window.location.href = '/';
     }
   };
 
