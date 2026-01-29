@@ -268,6 +268,13 @@ export function setupAuth(app: Express) {
       // Get user data from our database
       const dbUser = await storage.getUser(user.id);
       
+      // Prevent caching to ensure fresh user data (including isAdmin)
+      res.set({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      });
+      
       if (dbUser) {
         res.json({
           id: dbUser.id,
