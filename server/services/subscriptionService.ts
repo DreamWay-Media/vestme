@@ -67,6 +67,13 @@ export class SubscriptionService {
   }
   
   /**
+   * Get user subscription (alias for getActiveSubscription for backward compatibility)
+   */
+  async getUserSubscription(userId: string) {
+    return this.getActiveSubscription(userId);
+  }
+  
+  /**
    * Create or update subscription
    */
   async upsertSubscription(data: {

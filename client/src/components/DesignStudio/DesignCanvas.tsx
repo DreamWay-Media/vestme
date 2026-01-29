@@ -10,7 +10,7 @@ import { useDesignStudioStore } from '@/stores/designStudioStore';
 import type { VisualElement } from '@/stores/designStudioStore';
 
 export function DesignCanvas() {
-  const canvasRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
   const [activeDragElement, setActiveDragElement] = useState<any>(null);
 
   const {
@@ -34,7 +34,9 @@ export function DesignCanvas() {
   // Monitor drag events
   useDndMonitor({
     onDragStart(event) {
-      setActiveDragElement(event.active.data.current);
+      if (event.active?.data?.current) {
+        setActiveDragElement(event.active.data.current);
+      }
     },
     onDragEnd(event) {
       const { active, over } = event;
@@ -44,6 +46,9 @@ export function DesignCanvas() {
         return;
       }
 
+      // Check if active.data.current exists
+      if (!active?.data?.current) return;
+
       // Get canvas bounds
       const canvasRect = canvasRef.current?.getBoundingClientRect();
       if (!canvasRect) return;
@@ -52,17 +57,22 @@ export function DesignCanvas() {
       const dropX = (event.activatorEvent as MouseEvent).clientX - canvasRect.left;
       const dropY = (event.activatorEvent as MouseEvent).clientY - canvasRect.top;
 
+      const elementData = active.data.current;
+      const defaultHeight = typeof elementData.defaultSize.height === 'number'
+        ? elementData.defaultSize.height
+        : 50;
+
       // Adjust for zoom
-      const x = dropX / canvas.zoom - (active.data.current.defaultSize.width / 2);
-      const y = dropY / canvas.zoom - ((typeof active.data.current.defaultSize.height === 'number' ? active.data.current.defaultSize.height : 50) / 2);
+      const x = dropX / canvas.zoom - (elementData.defaultSize.width / 2);
+      const y = dropY / canvas.zoom - (defaultHeight / 2);
 
       // Create new element
       const newElement = {
-        type: active.data.current.type,
+        type: elementData.type,
         position: { x: Math.max(0, x), y: Math.max(0, y) },
-        size: active.data.current.defaultSize,
-        config: active.data.current.defaultConfig,
-        style: active.data.current.defaultStyle,
+        size: elementData.defaultSize,
+        config: elementData.defaultConfig,
+        style: elementData.defaultStyle,
       };
 
       addElement(newElement);
@@ -266,7 +276,7 @@ function ElementContent({ element }: { element: VisualElement }) {
           style={style}
           className="w-full h-full flex items-center justify-center p-2"
         >
-          {element.config.defaultValue || 'Text'}
+          {'defaultValue' in element.config ? element.config.defaultValue : 'Text'}
         </div>
       );
 
@@ -285,31 +295,34 @@ function ElementContent({ element }: { element: VisualElement }) {
         >
           <div className="text-center text-sm text-muted-foreground">
             <div className="text-2xl mb-1">
-              {element.config.mediaType === 'logo' ? '🏢' : '🖼️'}
+              {('mediaType' in element.config && element.config.mediaType === 'logo') ? '🏢' : '🖼️'}
             </div>
-            {element.config.label || element.config.mediaType}
+            {'label' in element.config ? element.config.label : ('mediaType' in element.config ? element.config.mediaType : 'Image')}
           </div>
         </div>
       );
 
-    case 'shape':
-      if (element.config.shape === 'circle') {
+    case 'shape': {
+      // Cast config to any to access shape-specific properties safely since we're inside the shape case
+      const config = element.config as any;
+
+      if (config.shape === 'circle') {
         return (
           <div
             style={{
-              backgroundColor: element.config.fill,
-              border: `${element.config.strokeWidth}px solid ${element.config.stroke}`,
+              backgroundColor: config.fill,
+              border: `${config.strokeWidth}px solid ${config.stroke}`,
               borderRadius: '50%',
             }}
             className="w-full h-full"
           />
         );
-      } else if (element.config.shape === 'line') {
+      } else if (config.shape === 'line') {
         return (
           <div
             style={{
-              backgroundColor: element.config.stroke,
-              height: `${element.config.strokeWidth}px`,
+              backgroundColor: config.stroke,
+              height: `${config.strokeWidth}px`,
             }}
             className="w-full"
           />
@@ -318,26 +331,29 @@ function ElementContent({ element }: { element: VisualElement }) {
         return (
           <div
             style={{
-              backgroundColor: element.config.fill,
-              border: `${element.config.strokeWidth}px solid ${element.config.stroke}`,
+              backgroundColor: config.fill,
+              border: `${config.strokeWidth}px solid ${config.stroke}`,
               borderRadius: '0px',
             }}
             className="w-full h-full"
           />
         );
       }
+    }
 
-    case 'data':
+    case 'data': {
+      const config = element.config as any;
       return (
         <div
           style={style}
           className="w-full h-full flex items-center justify-center p-2"
         >
-          {element.config.prefix || ''}
-          {element.config.defaultValue || '--'}
-          {element.config.suffix || ''}
+          {config.prefix || ''}
+          {config.defaultValue || '--'}
+          {config.suffix || ''}
         </div>
       );
+    }
 
     default:
       return <div className="w-full h-full bg-gray-100" />;

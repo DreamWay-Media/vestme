@@ -1,0 +1,84 @@
+
+> rest-express@1.0.0 check
+> tsc
+
+client/src/components/Templates/SlidePreviewModal.tsx(39,4): error TS2552: Cannot find name 'TemplatePreviewModalProps'. Did you mean 'SlidePreviewModalProps'?
+client/src/components/Templates/ThemeSlideGallery.tsx(32,4): error TS2552: Cannot find name 'ThemeTemplateGalleryProps'. Did you mean 'ThemeSlideGalleryProps'?
+client/src/pages/admin/template-design-studio.tsx(46,44): error TS2554: Expected 0 arguments, but got 1.
+client/src/pages/admin/template-design-studio.tsx(450,29): error TS2339: Property 'label' does not exist on type '{}'.
+client/src/pages/admin/template-design-studio.tsx(451,35): error TS2339: Property 'placeholder' does not exist on type '{}'.
+client/src/pages/admin/template-design-studio.tsx(454,32): error TS2339: Property 'required' does not exist on type '{}'.
+client/src/pages/admin/template-design-studio.tsx(475,32): error TS2339: Property 'dataPath' does not exist on type '{}'.
+client/src/pages/admin/template-management.tsx(134,5): error TS2353: Object literal may only specify known properties, and 'accessTier' does not exist in type 'Partial<Template> | (() => Partial<Template>)'.
+client/src/pages/admin/template-management.tsx(275,7): error TS2353: Object literal may only specify known properties, and 'accessTier' does not exist in type 'SetStateAction<Partial<Template>>'.
+client/src/pages/admin/template-management.tsx(390,7): error TS2353: Object literal may only specify known properties, and 'accessTier' does not exist in type 'SetStateAction<Partial<Template>>'.
+client/src/pages/admin/template-management.tsx(495,47): error TS2339: Property 'split' does not exist on type 'never'.
+client/src/pages/admin/template-management.tsx(510,9): error TS2353: Object literal may only specify known properties, and 'accessTier' does not exist in type 'SetStateAction<Partial<Template>>'.
+client/src/pages/admin/template-management.tsx(541,27): error TS2339: Property 'version' does not exist on type 'Template'.
+client/src/pages/admin/template-management.tsx(1085,69): error TS2339: Property 'accessTier' does not exist on type 'Partial<Template>'.
+client/src/pages/admin/template-management.tsx(1086,83): error TS2353: Object literal may only specify known properties, and 'accessTier' does not exist in type 'SetStateAction<Partial<Template>>'.
+client/src/pages/admin/template-management.tsx(1272,31): error TS2339: Property 'isSystem' does not exist on type 'Template'.
+client/src/pages/admin/template-management.tsx(1275,31): error TS2339: Property 'isSystem' does not exist on type 'Template'.
+client/src/pages/admin/template-management.tsx(1301,31): error TS2339: Property 'isSystem' does not exist on type 'Template'.
+client/src/pages/admin/template-management.tsx(1351,65): error TS2345: Argument of type '(prev: Partial<Template>) => { category: string; id?: string | undefined; name?: string | undefined; description?: string | undefined; thumbnail?: string | undefined; ... 12 more ...; canvas?: any; }' is not assignable to parameter of type 'SetStateAction<Partial<Template>>'.
+  Type '(prev: Partial<Template>) => { category: string; id?: string | undefined; name?: string | undefined; description?: string | undefined; thumbnail?: string | undefined; ... 12 more ...; canvas?: any; }' is not assignable to type '(prevState: Partial<Template>) => Partial<Template>'.
+    Call signature return types '{ category: string; id?: string | undefined; name?: string | undefined; description?: string | undefined; thumbnail?: string | undefined; themeAccessTier?: "premium" | "free" | undefined; ... 11 more ...; canvas?: any; }' and 'Partial<Template>' are incompatible.
+      The types of 'category' are incompatible between these types.
+        Type 'string' is not assignable to type '"data" | "title" | "content" | "closing" | undefined'.
+client/src/pages/admin/template-management.tsx(1368,43): error TS2339: Property 'accessTier' does not exist on type 'Partial<Template>'.
+client/src/pages/admin/template-management.tsx(1556,74): error TS2339: Property 'accessTier' does not exist on type 'Partial<Template>'.
+client/src/pages/admin/template-management.tsx(1560,63): error TS2339: Property 'version' does not exist on type 'Partial<Template>'.
+client/src/pages/admin/theme-editor.tsx(143,11): error TS2322: Type '{ name: string; slug: string; description: string; accessTier: "premium" | "free"; isDefault: boolean; isEnabled: boolean; tags: string[]; styling: { colorScheme: string | { primary: string; secondary: string; accent: string; contrast: string; }; typography: any; background: any; style: any; } | undefined; } | undef...' is not assignable to type 'Partial<ThemeFormData> | undefined'.
+  Type '{ name: string; slug: string; description: string; accessTier: "premium" | "free"; isDefault: boolean; isEnabled: boolean; tags: string[]; styling: { colorScheme: string | { primary: string; secondary: string; accent: string; contrast: string; }; typography: any; background: any; style: any; } | undefined; }' is not assignable to type 'Partial<ThemeFormData>'.
+    Types of property 'styling' are incompatible.
+      Type '{ colorScheme: string | { primary: string; secondary: string; accent: string; contrast: string; }; typography: any; background: any; style: any; } | undefined' is not assignable to type 'ThemeStyling | undefined'.
+        Type '{ colorScheme: string | { primary: string; secondary: string; accent: string; contrast: string; }; typography: any; background: any; style: any; }' is not assignable to type 'ThemeStyling'.
+          Types of property 'colorScheme' are incompatible.
+            Type 'string | { primary: string; secondary: string; accent: string; contrast: string; }' is not assignable to type '{ primary: string; secondary: string; accent: string; contrast?: string | undefined; }'.
+              Type 'string' is not assignable to type '{ primary: string; secondary: string; accent: string; contrast?: string | undefined; }'.
+client/src/pages/admin/theme/[themeId]/templates.tsx(106,9): error TS2322: Type '{ colorScheme: string | { primary: string; secondary: string; accent: string; contrast: string; }; typography: any; background: any; style: any; }' is not assignable to type 'ThemeStyling'.
+  Types of property 'colorScheme' are incompatible.
+    Type 'string | { primary: string; secondary: string; accent: string; contrast: string; }' is not assignable to type '{ primary: string; secondary: string; accent: string; contrast?: string | undefined; }'.
+      Type 'string' is not assignable to type '{ primary: string; secondary: string; accent: string; contrast?: string | undefined; }'.
+client/src/pages/auth-callback.tsx(51,7): error TS2552: Cannot find name 'navigate'. Did you mean 'navigator'?
+client/src/pages/deck-viewer.tsx(2545,21): error TS7006: Parameter 'content' implicitly has an 'any' type.
+client/src/pages/project-generate-deck.tsx(211,17): error TS2339: Property 'themeId' does not exist on type 'Response'.
+client/src/pages/project-generate-deck.tsx(212,33): error TS2339: Property 'themeId' does not exist on type 'Response'.
+client/src/pages/project-media-library.tsx(37,30): error TS2322: Type '{ children: Element; project: any; }' is not assignable to type 'IntrinsicAttributes & ProjectLayoutWithHeaderProps'.
+  Property 'project' does not exist on type 'IntrinsicAttributes & ProjectLayoutWithHeaderProps'.
+server/middleware/rateLimiter.ts(19,30): error TS2802: Type 'MapIterator<[string, RateLimitEntry]>' can only be iterated through when using the '--downlevelIteration' flag or with a '--target' of 'es2015' or higher.
+server/middleware/rateLimiter.ts(97,39): error TS2345: Argument of type 'any[]' is not assignable to parameter of type '[chunk: any, encoding: BufferEncoding, cb?: (() => void) | undefined]'.
+  Target requires 2 element(s) but source may have fewer.
+server/routes.ts(1405,25): error TS2339: Property 'user' does not exist on type 'Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>'.
+server/routes.ts(1411,52): error TS2554: Expected 2 arguments, but got 1.
+server/routes.ts(1414,30): error TS2304: Cannot find name 'ObjectPermission'.
+server/routes.ts(1419,43): error TS2345: Argument of type 'Buffer<ArrayBufferLike> | null' is not assignable to parameter of type 'string'.
+  Type 'null' is not assignable to type 'string'.
+server/routes.ts(1431,50): error TS2554: Expected 2 arguments, but got 0.
+server/routes.ts(1440,25): error TS2339: Property 'user' does not exist on type 'Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>'.
+server/routes.ts(2277,9): error TS2345: Argument of type '{ id: string; name: string; projectId: string; fontFamily: string | null; brandAssets: unknown; logoUrl: string | null; primaryColor: string | null; secondaryColor: string | null; accentColor: string | null; createdAt: Date | null; updatedAt: Date | null; } | null | undefined' is not assignable to parameter of type '{ id: string; name: string; projectId: string; fontFamily: string | null; brandAssets: unknown; logoUrl: string | null; primaryColor: string | null; secondaryColor: string | null; accentColor: string | null; createdAt: Date | null; updatedAt: Date | null; } | null'.
+  Type 'undefined' is not assignable to type '{ id: string; name: string; projectId: string; fontFamily: string | null; brandAssets: unknown; logoUrl: string | null; primaryColor: string | null; secondaryColor: string | null; accentColor: string | null; createdAt: Date | null; updatedAt: Date | null; } | null'.
+server/routes.ts(2373,62): error TS2339: Property 'companyName' does not exist on type '{}'.
+server/routes.ts(2373,101): error TS2339: Property 'businessName' does not exist on type '{}'.
+server/routes.ts(2444,9): error TS2345: Argument of type '{ themeMetadata: any; id: string; name: string; projectId: string; fontFamily: string | null; brandAssets: unknown; logoUrl: string | null; primaryColor: string | null; secondaryColor: string | null; accentColor: string | null; createdAt: Date | null; updatedAt: Date | null; } | { ...; } | null' is not assignable to parameter of type '{ id: string; name: string; projectId: string; fontFamily: string | null; brandAssets: unknown; logoUrl: string | null; primaryColor: string | null; secondaryColor: string | null; accentColor: string | null; createdAt: Date | null; updatedAt: Date | null; } | null'.
+  Type '{ themeMetadata: any; }' is missing the following properties from type '{ id: string; name: string; projectId: string; fontFamily: string | null; brandAssets: unknown; logoUrl: string | null; primaryColor: string | null; secondaryColor: string | null; accentColor: string | null; createdAt: Date | null; updatedAt: Date | null; }': id, name, projectId, fontFamily, and 7 more.
+server/routes.ts(3133,34): error TS2802: Type 'Set<any>' can only be iterated through when using the '--downlevelIteration' flag or with a '--target' of 'es2015' or higher.
+server/services/brandAnalyzer.ts(136,13): error TS7034: Variable 'inlineStyles' implicitly has type 'any[]' in some locations where its type cannot be determined.
+server/services/brandAnalyzer.ts(149,45): error TS7005: Variable 'inlineStyles' implicitly has an 'any[]' type.
+server/services/brandAnalyzer.ts(188,13): error TS7034: Variable 'computedStyles' implicitly has type 'any[]' in some locations where its type cannot be determined.
+server/services/brandAnalyzer.ts(201,50): error TS7005: Variable 'computedStyles' implicitly has an 'any[]' type.
+server/services/brandAnalyzer.ts(280,30): error TS2802: Type 'Set<string>' can only be iterated through when using the '--downlevelIteration' flag or with a '--target' of 'es2015' or higher.
+server/services/brandAnalyzer.ts(281,29): error TS2802: Type 'Set<string>' can only be iterated through when using the '--downlevelIteration' flag or with a '--target' of 'es2015' or higher.
+server/services/openai.ts(120,40): error TS7006: Parameter 't' implicitly has an 'any' type.
+server/services/openai.ts(161,38): error TS7006: Parameter 't' implicitly has an 'any' type.
+server/templates/templateManager.ts(2200,9): error TS2322: Type '{ id: string; slug: string; name: string; description: string | null; thumbnail: string | null; accessTier: string; isDefault: boolean | null; isEnabled: boolean | null; displayOrder: number | null; tags: string[] | null; metadata: unknown; createdAt: Date | null; updatedAt: Date | null; }' is not assignable to type 'Theme'.
+  Types of property 'thumbnail' are incompatible.
+    Type 'string | null' is not assignable to type 'string'.
+      Type 'null' is not assignable to type 'string'.
+server/templates/templateManager.ts(2280,7): error TS2322: Type '{ id: string; slug: string; name: string; description: string | null; thumbnail: string | null; accessTier: string; isDefault: boolean | null; isEnabled: boolean | null; displayOrder: number | null; tags: string[] | null; metadata: unknown; createdAt: Date | null; updatedAt: Date | null; }[]' is not assignable to type 'Theme[]'.
+  Type '{ id: string; slug: string; name: string; description: string | null; thumbnail: string | null; accessTier: string; isDefault: boolean | null; isEnabled: boolean | null; displayOrder: number | null; tags: string[] | null; metadata: unknown; createdAt: Date | null; updatedAt: Date | null; }' is not assignable to type 'Theme'.
+    Types of property 'thumbnail' are incompatible.
+      Type 'string | null' is not assignable to type 'string'.
+        Type 'null' is not assignable to type 'string'.
+server/templates/templateManager.ts(2308,7): error TS2322: Type '{ id: string; slug: string; name: string; category: string; description: string | null; thumbnail: string | null; isDefault: boolean | null; isEnabled: boolean | null; displayOrder: number | null; tags: string[]; version: string | null; }[]' is not assignable to type 'TemplateDefinition[]'.
+  Type '{ id: string; slug: string; name: string; category: string; description: string | null; thumbnail: string | null; isDefault: boolean | null; isEnabled: boolean | null; displayOrder: number | null; tags: string[]; version: string | null; }' is missing the following properties from type 'TemplateDefinition': themeId, layout, styling, contentSchema, metadata

@@ -32,6 +32,7 @@ export const users = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
+  isAdmin: boolean("is_admin").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -55,7 +56,8 @@ export const brandKits = pgTable("brand_kits", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   projectId: uuid("project_id").notNull().references(() => projects.id),
   name: varchar("name").notNull(),
-  logoUrl: varchar("logo_url"),
+  logoUrl: varchar("logo_url"), // Kept for backward compatibility
+  logoAssetId: uuid("logo_asset_id").references(() => mediaAssets.id), // Reference to media library asset
   primaryColor: varchar("primary_color"),
   secondaryColor: varchar("secondary_color"),
   accentColor: varchar("accent_color"),
@@ -94,6 +96,7 @@ export const decks = pgTable("decks", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   projectId: uuid("project_id").notNull().references(() => projects.id),
   brandKitId: uuid("brand_kit_id").references(() => brandKits.id),
+  themeId: uuid("theme_id").references(() => themes.id, { onDelete: "set null" }), // Theme used for deck generation
   title: varchar("title").notNull(),
   slides: jsonb("slides").notNull(), // Array of slide objects with content and layout
   pdfUrl: varchar("pdf_url"), // Generated PDF URL
@@ -102,7 +105,9 @@ export const decks = pgTable("decks", {
   status: varchar("status").notNull().default("draft"), // draft, generated, published
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_decks_theme_id").on(table.themeId),
+]);
 
 // CRM Contacts table
 export const crmContacts = pgTable("crm_contacts", {
@@ -208,6 +213,10 @@ export const decksRelations = relations(decks, ({ one, many }) => ({
   brandKit: one(brandKits, {
     fields: [decks.brandKitId],
     references: [brandKits.id],
+  }),
+  theme: one(themes, {
+    fields: [decks.themeId],
+    references: [themes.id],
   }),
   campaigns: many(campaigns),
 }));
@@ -337,14 +346,16 @@ export const slideTemplates = pgTable("slide_templates", {
   description: text("description"),
   thumbnail: varchar("thumbnail"),
   
+  // Theme relationship (required - all templates must belong to a theme)
+  themeId: uuid("theme_id").notNull().references(() => themes.id, { onDelete: "cascade" }),
+  
   // Template configuration
   layout: jsonb("layout").notNull(),
   defaultStyling: jsonb("default_styling").notNull(),
   contentSchema: jsonb("content_schema").notNull(),
   positioningRules: jsonb("positioning_rules"),
   
-  // Access control
-  accessTier: varchar("access_tier").notNull().default("premium"), // 'free' or 'premium'
+  // Template settings (access tier inherited from theme)
   isDefault: boolean("is_default").default(false),
   isEnabled: boolean("is_enabled").default(true),
   displayOrder: integer("display_order").default(0),
@@ -362,7 +373,9 @@ export const slideTemplates = pgTable("slide_templates", {
   
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_slide_templates_theme_id").on(table.themeId),
+]);
 
 // User Subscriptions table
 export const userSubscriptions = pgTable("user_subscriptions", {
@@ -389,11 +402,37 @@ export const projectTemplateOverrides = pgTable("project_template_overrides", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Themes table
+export const themes = pgTable("themes", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  slug: varchar("slug").notNull().unique(), // String identifier like 'modern-minimal-v1'
+  name: varchar("name").notNull(),
+  description: text("description"),
+  thumbnail: varchar("thumbnail"), // Preview image for the theme
+  accessTier: varchar("access_tier").notNull().default("premium"), // 'free' or 'premium'
+  isDefault: boolean("is_default").default(false), // Default theme for new users
+  isEnabled: boolean("is_enabled").default(true),
+  displayOrder: integer("display_order").default(0),
+  tags: text("tags").array().default(sql`'{}'::text[]`),
+  metadata: jsonb("metadata"), // Additional theme info (style, colorScheme, etc.)
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_themes_slug").on(table.slug),
+  index("idx_themes_display_order").on(table.displayOrder),
+]);
+
+// Note: Junction table removed - templates now have direct themeId FK (one-to-many relationship)
+
 // Relations for new tables
 export const slideTemplatesRelations = relations(slideTemplates, ({ one, many }) => ({
   user: one(users, {
     fields: [slideTemplates.userId],
     references: [users.id],
+  }),
+  theme: one(themes, {
+    fields: [slideTemplates.themeId],
+    references: [themes.id],
   }),
   projectOverrides: many(projectTemplateOverrides),
 }));
@@ -416,6 +455,10 @@ export const projectTemplateOverridesRelations = relations(projectTemplateOverri
   }),
 }));
 
+export const themesRelations = relations(themes, ({ many }) => ({
+  templates: many(slideTemplates),
+}));
+
 // Insert schemas for new tables
 export const insertSlideTemplateSchema = createInsertSchema(slideTemplates).omit({
   id: true,
@@ -434,6 +477,13 @@ export const insertProjectTemplateOverrideSchema = createInsertSchema(projectTem
   createdAt: true,
   updatedAt: true,
 });
+
+export const insertThemeSchema = createInsertSchema(themes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 
 export type InsertProject = z.infer<typeof insertProjectSchema>;
 export type Project = typeof projects.$inferSelect;
@@ -457,3 +507,5 @@ export type InsertUserSubscription = z.infer<typeof insertUserSubscriptionSchema
 export type UserSubscription = typeof userSubscriptions.$inferSelect;
 export type InsertProjectTemplateOverride = z.infer<typeof insertProjectTemplateOverrideSchema>;
 export type ProjectTemplateOverride = typeof projectTemplateOverrides.$inferSelect;
+export type InsertTheme = z.infer<typeof insertThemeSchema>;
+export type Theme = typeof themes.$inferSelect;

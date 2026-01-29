@@ -79,18 +79,61 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
-  const distPath = path.resolve(__dirname, "public");
-
-  if (!fs.existsSync(distPath)) {
+  // In production, the bundled code is in dist/, and the static files are in dist/public
+  // Try multiple path resolution strategies to handle different deployment scenarios
+  let distPath: string;
+  
+  // Strategy 1: Relative to __dirname (works when bundled code is in dist/)
+  const pathFromDirname = path.resolve(__dirname, "public");
+  
+  // Strategy 2: Relative to process.cwd() (works in most deployment scenarios)
+  const pathFromCwd = path.resolve(process.cwd(), "dist", "public");
+  
+  // Strategy 3: Relative to __dirname's parent (handles nested dist structures)
+  const pathFromParent = path.resolve(__dirname, "..", "public");
+  
+  // Check which path exists
+  if (fs.existsSync(pathFromDirname)) {
+    distPath = pathFromDirname;
+  } else if (fs.existsSync(pathFromCwd)) {
+    distPath = pathFromCwd;
+  } else if (fs.existsSync(pathFromParent)) {
+    distPath = pathFromParent;
+  } else {
+    // Log all attempted paths for debugging
+    console.error(`[serveStatic] Could not find build directory. Attempted paths:`);
+    console.error(`  - ${pathFromDirname}`);
+    console.error(`  - ${pathFromCwd}`);
+    console.error(`  - ${pathFromParent}`);
+    console.error(`  - __dirname: ${__dirname}`);
+    console.error(`  - process.cwd(): ${process.cwd()}`);
     throw new Error(
-      `Could not find the build directory: ${distPath}, make sure to build the client first`,
+      `Could not find the build directory. Attempted: ${pathFromDirname}, ${pathFromCwd}, ${pathFromParent}. Make sure to build the client first.`,
     );
   }
 
+  console.log(`[serveStatic] Serving static files from: ${distPath}`);
   app.use(express.static(distPath));
 
   // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
+  // This catch-all must be last to handle SPA routes
+  app.get("*", (req, res, next) => {
+    // Skip API routes and object storage routes
+    if (req.path.startsWith('/api') || req.path.startsWith('/objects')) {
+      return next();
+    }
+    
+    // Skip requests that look like they're for static assets (have file extensions)
+    if (req.path.includes('.') && !req.path.endsWith('/')) {
+      return next();
+    }
+    
+    // Serve index.html for all other routes (SPA fallback)
+    const indexPath = path.resolve(distPath, "index.html");
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      next();
+    }
   });
 }

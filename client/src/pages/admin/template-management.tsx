@@ -22,7 +22,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -58,14 +60,65 @@ import {
   useUpdateTemplate,
   useSetDefaultTemplate,
   useUpdateTemplateAccess,
+  useUpdateTemplateEnabled,
   useReloadTemplates,
   useDeleteTemplate,
 } from "@/hooks/useAdminTemplates";
+import { useAdminThemes, useUpdateTheme } from "@/hooks/useAdminThemes";
 import type { Template } from "@/hooks/useTemplates";
+import { ThemeCard } from "@/components/Templates/ThemeCard";
+
+// Component for theme card with enabled toggle
+function ThemeCardWithToggle({ 
+  theme, 
+  onToggleEnabled, 
+  onClick 
+}: { 
+  theme: any; 
+  onToggleEnabled: (isEnabled: boolean) => void; 
+  onClick: () => void;
+}) {
+  const updateTheme = useUpdateTheme(theme.id);
+  const { toast } = useToast();
+  
+  return (
+    <div className="relative">
+      <ThemeCard
+        theme={theme}
+        onClick={onClick}
+      />
+      <div className="absolute top-2 right-2 z-10 bg-white/90 backdrop-blur-sm rounded-lg p-2 border shadow-sm">
+        <div className="flex items-center gap-2">
+          <Label htmlFor={`theme-enabled-${theme.id}`} className="text-xs">
+            Enabled
+          </Label>
+          <Switch
+            id={`theme-enabled-${theme.id}`}
+            checked={theme.isEnabled}
+            disabled={updateTheme.isPending}
+            onCheckedChange={async (checked) => {
+              try {
+                await updateTheme.mutateAsync({ isEnabled: checked });
+                onToggleEnabled(checked);
+              } catch (error: any) {
+                toast({
+                  title: "Error",
+                  description: error.message || "Failed to update theme",
+                  variant: "destructive",
+                });
+              }
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function TemplateManagement() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const [activeTab, setActiveTab] = useState<"themes" | "templates">("themes");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [deleteConfirm, setDeleteConfirm] = useState<Template | null>(null);
@@ -90,14 +143,34 @@ export default function TemplateManagement() {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importPreview, setImportPreview] = useState<Partial<Template> | null>(null);
   
+  const { data: themes, isLoading: isLoadingThemes } = useAdminThemes({
+    search: searchTerm || undefined,
+  });
+  
+  // Handler for toggling theme enabled status
+  const handleThemeToggleEnabled = async (themeId: string, isEnabled: boolean) => {
+    // This will be handled by the ThemeCardWithToggle component
+    // We just show the toast here
+    toast({
+      title: isEnabled ? "Theme Enabled" : "Theme Disabled",
+      description: `Theme is now ${isEnabled ? "visible" : "hidden"} to users`,
+    });
+  };
+  
   const { data: templates, isLoading } = useAdminTemplates({
     category: selectedCategory === "all" ? undefined : selectedCategory,
     search: searchTerm || undefined,
   });
   
+  // Create theme lookup map for displaying theme names
+  const themeMap = new Map(
+    (themes || []).map(theme => [theme.id, theme])
+  );
+  
   const createTemplateMutation = useCreateTemplate();
   const setDefaultMutation = useSetDefaultTemplate();
   const updateAccessMutation = useUpdateTemplateAccess();
+  const updateEnabledMutation = useUpdateTemplateEnabled(); // BUG FIX 3: Separate mutation for enabled status
   const updateTemplateMutation = useUpdateTemplate();
   const reloadMutation = useReloadTemplates();
   const deleteMutation = useDeleteTemplate();
@@ -114,7 +187,7 @@ export default function TemplateManagement() {
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to set default template",
+        description: "Failed to set default slide",
         variant: "destructive",
       });
     }
@@ -134,17 +207,17 @@ export default function TemplateManagement() {
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to update template access",
+        description: "Failed to update slide access",
         variant: "destructive",
       });
     }
   };
   
-  const handleToggleEnabled = async (templateId: string, isEnabled: boolean, currentAccessTier: string) => {
+  // BUG FIX 3: Update only enabled status, not theme access tier
+  const handleToggleEnabled = async (templateId: string, isEnabled: boolean) => {
     try {
-      await updateAccessMutation.mutateAsync({
+      await updateEnabledMutation.mutateAsync({
         templateId,
-        accessTier: currentAccessTier as 'free' | 'premium',
         isEnabled,
       });
       toast({
@@ -154,7 +227,7 @@ export default function TemplateManagement() {
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to update template status",
+        description: "Failed to update slide status",
         variant: "destructive",
       });
     }
@@ -170,7 +243,7 @@ export default function TemplateManagement() {
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to reload templates",
+        description: "Failed to reload slides",
         variant: "destructive",
       });
     }
@@ -180,14 +253,14 @@ export default function TemplateManagement() {
     try {
       await deleteMutation.mutateAsync(template.id);
       toast({
-        title: "Template Deleted",
+        title: "Slide Deleted",
         description: `${template.name} has been removed`,
       });
       setDeleteConfirm(null);
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "Failed to delete template",
+        description: error.message || "Failed to delete slide",
         variant: "destructive",
       });
     }
@@ -204,7 +277,7 @@ export default function TemplateManagement() {
       layout: template.layout,
       defaultStyling: template.defaultStyling,
       contentSchema: template.contentSchema,
-      accessTier: template.accessTier,
+      accessTier: template.themeAccessTier || 'free', // BUG FIX: Templates inherit from theme, use themeAccessTier
       isEnabled: template.isEnabled,
       displayOrder: template.displayOrder,
       tags: template.tags || [],
@@ -299,8 +372,8 @@ export default function TemplateManagement() {
         updates,
       });
       toast({
-        title: "Template Updated",
-        description: "Template has been successfully updated",
+        title: "Slide Updated",
+        description: "Slide has been successfully updated",
       });
       setEditingTemplateId(null);
       setEditFormData({});
@@ -308,7 +381,7 @@ export default function TemplateManagement() {
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "Failed to update template",
+        description: error.message || "Failed to update slide",
         variant: "destructive",
       });
     }
@@ -430,8 +503,8 @@ export default function TemplateManagement() {
       await createTemplateMutation.mutateAsync(templateData);
       
       toast({
-        title: "Template Created",
-        description: "The new template has been created successfully",
+        title: "Slide Created",
+        description: "The new slide has been created successfully",
       });
       
       setShowCreateModal(false);
@@ -451,7 +524,7 @@ export default function TemplateManagement() {
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "Failed to create template",
+        description: error.message || "Failed to create slide",
         variant: "destructive",
       });
     }
@@ -468,7 +541,7 @@ export default function TemplateManagement() {
         layout: template.layout,
         defaultStyling: template.defaultStyling,
         contentSchema: template.contentSchema,
-        accessTier: template.accessTier,
+        accessTier: template.themeAccessTier || 'free', // BUG FIX: Templates inherit from theme, use themeAccessTier
         tags: template.tags,
         version: template.version || '1.0.0',
       };
@@ -491,7 +564,7 @@ export default function TemplateManagement() {
     } catch (error: any) {
       toast({
         title: "Export Failed",
-        description: error.message || "Failed to export template",
+        description: error.message || "Failed to export slide",
         variant: "destructive",
       });
     }
@@ -557,7 +630,7 @@ export default function TemplateManagement() {
     } catch (error: any) {
       toast({
         title: "Import Failed",
-        description: error.message || "Failed to import template",
+        description: error.message || "Failed to import slide",
         variant: "destructive",
       });
     }
@@ -580,9 +653,9 @@ export default function TemplateManagement() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold">Template Management</h1>
+              <h1 className="text-3xl font-bold">Slide Management</h1>
               <p className="text-gray-600 mt-1">
-                Manage slide templates, access control, and settings
+                Manage slides, access control, and settings
               </p>
             </div>
             
@@ -595,17 +668,26 @@ export default function TemplateManagement() {
                 <RefreshCw className={`h-4 w-4 mr-2 ${reloadMutation.isPending ? 'animate-spin' : ''}`} />
                 Reload from Files
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => setShowImportModal(true)}
-              >
-                <FileUp className="h-4 w-4 mr-2" />
-                Import Template
-              </Button>
-              <Button onClick={handleOpenCreate}>
-                <Plus className="h-4 w-4 mr-2" />
-                Create New Template
-              </Button>
+              {activeTab === 'themes' ? (
+                <Button onClick={() => setLocation('/admin/themes/new')}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create New Theme
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowImportModal(true)}
+                  >
+                    <FileUp className="h-4 w-4 mr-2" />
+                    Import Slide
+                  </Button>
+                  <Button onClick={handleOpenCreate}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create New Slide
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -613,16 +695,78 @@ export default function TemplateManagement() {
       
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Filters */}
-        <div className="bg-white rounded-lg border p-4 mb-6">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                type="text"
-                placeholder="Search templates..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "themes" | "templates")} className="mb-6">
+          <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsTrigger value="themes">Themes</TabsTrigger>
+            <TabsTrigger value="templates">Slides</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="themes" className="space-y-6">
+            {/* Theme Filters */}
+            <div className="bg-white rounded-lg border p-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  type="text"
+                  placeholder="Search themes..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+
+            {/* Themes Grid */}
+            {isLoadingThemes ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[...Array(6)].map((_, i) => (
+                  <Card key={i}>
+                    <CardContent className="p-6">
+                      <Skeleton className="aspect-video w-full mb-4" />
+                      <Skeleton className="h-4 w-3/4 mb-2" />
+                      <Skeleton className="h-3 w-1/2" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : themes && themes.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {themes.map((theme) => (
+                  <ThemeCardWithToggle
+                    key={theme.id}
+                    theme={theme}
+                    onToggleEnabled={(isEnabled) => handleThemeToggleEnabled(theme.id, isEnabled)}
+                    onClick={() => setLocation(`/admin/themes/${theme.id}/templates`)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 bg-white rounded-lg border">
+                <Palette className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No themes found</h3>
+                <p className="text-gray-600 mb-4">
+                  {searchTerm ? "Try adjusting your search" : "Get started by creating your first theme"}
+                </p>
+                <Button onClick={() => setLocation('/admin/themes/new')}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Theme
+                </Button>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="templates" className="space-y-6">
+            {/* Filters */}
+            <div className="bg-white rounded-lg border p-4">
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    type="text"
+                    placeholder="Search slides..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
               />
             </div>
@@ -643,7 +787,7 @@ export default function TemplateManagement() {
           </div>
         </div>
         
-        {/* Templates Table */}
+        {/* Slides Table */}
         <div className="bg-white rounded-lg border overflow-hidden">
           {isLoading ? (
             <div className="p-6 space-y-4">
@@ -664,7 +808,7 @@ export default function TemplateManagement() {
                   <TableHead className="w-24">Preview</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Category</TableHead>
-                  <TableHead>Access Tier</TableHead>
+                  <TableHead>Theme</TableHead>
                   <TableHead className="text-center">Default</TableHead>
                   <TableHead className="text-center">Status</TableHead>
                   <TableHead className="text-center">Usage</TableHead>
@@ -710,33 +854,33 @@ export default function TemplateManagement() {
                       </Badge>
                     </TableCell>
                     
-                    {/* Access Tier Selector */}
+                    {/* Theme Name - BUG FIX: Display theme name instead of access tier dropdown */}
                     <TableCell>
-                      <Select
-                        value={template.accessTier}
-                        onValueChange={(value) =>
-                          handleAccessTierChange(template.id, value as 'free' | 'premium', template.isEnabled)
+                      {(() => {
+                        // Get themeId from template (may be in template object or as a property)
+                        const templateThemeId = (template as any).themeId;
+                        const theme = templateThemeId ? themeMap.get(templateThemeId) : null;
+                        
+                        if (theme) {
+                          return (
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs">
+                                {theme.name}
+                              </Badge>
+                              {theme.accessTier === 'premium' && (
+                                <Lock className="h-3 w-3 text-amber-600" />
+                              )}
+                            </div>
+                          );
                         }
-                        disabled={updateAccessMutation.isPending}
-                      >
-                        <SelectTrigger className="w-32">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="free">
-                            <span className="flex items-center">
-                              <Unlock className="mr-2 h-4 w-4" />
-                              Free
-                            </span>
-                          </SelectItem>
-                          <SelectItem value="premium">
-                            <span className="flex items-center">
-                              <Lock className="mr-2 h-4 w-4" />
-                              Premium
-                            </span>
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
+                        
+                        // Fallback if theme not found
+                        return (
+                          <span className="text-xs text-gray-400 italic">
+                            {templateThemeId ? 'Unknown theme' : 'No theme'}
+                          </span>
+                        );
+                      })()}
                     </TableCell>
                     
                     {/* Default Toggle */}
@@ -768,9 +912,9 @@ export default function TemplateManagement() {
                         <Switch
                           checked={template.isEnabled}
                           onCheckedChange={(checked) =>
-                            handleToggleEnabled(template.id, checked, template.accessTier)
+                            handleToggleEnabled(template.id, checked) // BUG FIX 3: Only update enabled status
                           }
-                          disabled={updateAccessMutation.isPending}
+                          disabled={updateEnabledMutation.isPending}
                         />
                         <span className="text-xs text-gray-500">
                           {template.isEnabled ? "On" : "Off"}
@@ -812,7 +956,7 @@ export default function TemplateManagement() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleExportTemplate(template)}
-                          title="Export template as JSON"
+                          title="Export slide as JSON"
                           className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                         >
                           <FileDown className="h-4 w-4" />
@@ -822,7 +966,7 @@ export default function TemplateManagement() {
                           size="sm"
                           onClick={() => setDeleteConfirm(template)}
                           className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                          title="Delete template"
+                          title="Delete slide"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -837,7 +981,7 @@ export default function TemplateManagement() {
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
                 <Filter className="h-8 w-8 text-gray-400" />
               </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No templates found</h3>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No slides found</h3>
               <p className="text-gray-600">Try adjusting your search or filters</p>
             </div>
           )}
@@ -847,19 +991,19 @@ export default function TemplateManagement() {
         {templates && templates.length > 0 && (
           <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-white p-4 rounded-lg border">
-              <div className="text-sm text-gray-600">Total Templates</div>
+              <div className="text-sm text-gray-600">Total Slides</div>
               <div className="text-2xl font-bold mt-1">{templates.length}</div>
             </div>
             <div className="bg-white p-4 rounded-lg border">
-              <div className="text-sm text-gray-600">Free Templates</div>
+              <div className="text-sm text-gray-600">Themes</div>
               <div className="text-2xl font-bold mt-1">
-                {templates.filter((t) => t.accessTier === "free").length}
+                {themes?.length || 0}
               </div>
             </div>
             <div className="bg-white p-4 rounded-lg border">
-              <div className="text-sm text-gray-600">Premium Templates</div>
+              <div className="text-sm text-gray-600">Enabled Templates</div>
               <div className="text-2xl font-bold mt-1">
-                {templates.filter((t) => t.accessTier === "premium").length}
+                {templates.filter((t) => t.isEnabled).length}
               </div>
             </div>
             <div className="bg-white p-4 rounded-lg border">
@@ -870,6 +1014,8 @@ export default function TemplateManagement() {
             </div>
           </div>
         )}
+        </TabsContent>
+        </Tabs>
       </div>
       
       {/* Edit Template Dialog */}
@@ -939,9 +1085,10 @@ export default function TemplateManagement() {
             {/* Access Tier */}
             <div>
               <label className="text-sm font-medium">Access Tier</label>
+              {/* BUG FIX: Use themeAccessTier since templates inherit from theme */}
               <Select
-                value={editFormData.accessTier}
-                onValueChange={(value: any) => setEditFormData({ ...editFormData, accessTier: value })}
+                value={editFormData.themeAccessTier || editFormData.accessTier || 'free'}
+                onValueChange={(value: any) => setEditFormData({ ...editFormData, accessTier: value, themeAccessTier: value })}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select access tier" />
@@ -1127,7 +1274,7 @@ export default function TemplateManagement() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {deleteConfirm?.isSystem ? "⚠️ Delete System Template?" : "Delete Template?"}
+              {deleteConfirm?.isSystem ? "⚠️ Delete System Slide?" : "Delete Slide?"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {deleteConfirm?.isSystem ? (
@@ -1162,13 +1309,13 @@ export default function TemplateManagement() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Create Template Modal */}
+      {/* Create Slide Modal */}
       <AlertDialog open={showCreateModal} onOpenChange={setShowCreateModal}>
         <AlertDialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <AlertDialogHeader>
-            <AlertDialogTitle>Create New Template</AlertDialogTitle>
+            <AlertDialogTitle>Create New Slide</AlertDialogTitle>
             <AlertDialogDescription>
-              Create a new template from scratch. Fill in all required fields.
+              Create a new slide from scratch. Fill in all required fields.
             </AlertDialogDescription>
           </AlertDialogHeader>
           
@@ -1361,13 +1508,13 @@ export default function TemplateManagement() {
               onClick={handleCreateTemplate}
               disabled={createTemplateMutation.isPending}
             >
-              {createTemplateMutation.isPending ? "Creating..." : "Create Template"}
+              {createTemplateMutation.isPending ? "Creating..." : "Create Slide"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Import Template Modal */}
+      {/* Import Slide Modal */}
       <AlertDialog open={showImportModal} onOpenChange={(open) => {
         setShowImportModal(open);
         if (!open) {
@@ -1377,9 +1524,9 @@ export default function TemplateManagement() {
       }}>
         <AlertDialogContent className="max-w-2xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>Import Template</AlertDialogTitle>
+            <AlertDialogTitle>Import Slide</AlertDialogTitle>
             <AlertDialogDescription>
-              Upload a template JSON file to import it into your template library.
+              Upload a slide JSON file to import it into your slide library.
             </AlertDialogDescription>
           </AlertDialogHeader>
           
@@ -1446,7 +1593,7 @@ export default function TemplateManagement() {
               onClick={handleImportTemplate}
               disabled={!importPreview || createTemplateMutation.isPending}
             >
-              {createTemplateMutation.isPending ? "Importing..." : "Import Template"}
+              {createTemplateMutation.isPending ? "Importing..." : "Import Slide"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

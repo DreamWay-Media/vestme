@@ -50,6 +50,7 @@ services:
     routes:
       - path: /
       - path: /api
+      - path: /admin
       - path: /assets
       - path: /favicon.ico
       - path: /robots.txt

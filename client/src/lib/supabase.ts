@@ -1,32 +1,47 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
+// Check if we're in development mode
+export const isDevelopment = import.meta.env.DEV || import.meta.env.MODE === 'development';
+
+// Allow the app to run without Supabase credentials
+const hasSupabaseConfig = supabaseUrl && supabaseAnonKey;
+
+if (!hasSupabaseConfig) {
+  console.warn('Missing Supabase environment variables. Authentication features will be disabled.');
+} else if (isDevelopment) {
+  console.log('Development mode: Both dev login and real auth are available');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true,
-    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-  },
-  global: {
-    headers: {
-      'X-Client-Info': 'pitch-perfect-web',
-    },
-  },
-});
+export const supabase: SupabaseClient | null = hasSupabaseConfig 
+  ? createClient(supabaseUrl!, supabaseAnonKey!, {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: true,
+        storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+      },
+      global: {
+        headers: {
+          'X-Client-Info': 'pitch-perfect-web',
+        },
+      },
+    })
+  : null;
 
 // Auth helper functions
 export const signInWithGoogle = async () => {
+  if (!supabase) {
+    throw new Error('Authentication is not configured');
+  }
+  
+  // Standard redirect flow - Supabase handles the OAuth flow
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: `${window.location.origin}`,
+      redirectTo: `${window.location.origin}/auth/callback`,
     },
   });
   
@@ -35,17 +50,37 @@ export const signInWithGoogle = async () => {
 };
 
 export const signOut = async () => {
+  if (!supabase) {
+    throw new Error('Authentication is not configured');
+  }
+  
+  // Sign out and clear all local session data
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
+  
+  // Clear any cached data including localStorage
+  localStorage.removeItem('dev_user');
+  
+  // Clear Supabase's stored session data
+  const storageKeys = Object.keys(localStorage).filter(key => 
+    key.startsWith('sb-') || key.includes('supabase')
+  );
+  storageKeys.forEach(key => localStorage.removeItem(key));
 };
 
 export const getCurrentUser = async () => {
+  if (!supabase) {
+    return null;
+  }
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error) throw error;
   return user;
 };
 
 export const onAuthStateChange = (callback: (user: any) => void) => {
+  if (!supabase) {
+    return { data: { subscription: { unsubscribe: () => {} } } };
+  }
   return supabase.auth.onAuthStateChange((event, session) => {
     callback(session?.user || null);
   });

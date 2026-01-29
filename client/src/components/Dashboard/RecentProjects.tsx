@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
-import { Trash2 } from "lucide-react";
+import { Trash2, Edit } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -174,8 +174,8 @@ export default function RecentProjects() {
         {(projects as Project[]).map((project: Project) => {
           const statusConfig = getStatusConfig(project.status);
           return (
-            <div key={project.id} className="flex items-center justify-between py-4 border-b border-gray-100 last:border-b-0">
-              <div className="flex items-center space-x-4">
+            <div key={project.id} className="flex items-center justify-between py-4 border-b border-gray-100 last:border-b-0 hover:bg-gray-50 -mx-2 px-2 rounded-lg transition-colors">
+              <Link to={`/projects/${project.id}/discovery`} className="flex items-center space-x-4 flex-1 cursor-pointer">
                 <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
                   <i className={getProjectIcon(project.industry)}></i>
                 </div>
@@ -183,14 +183,22 @@ export default function RecentProjects() {
                   <h3 className="font-medium text-gray-900">{project.name}</h3>
                   <p className="text-sm text-gray-600">{statusConfig.description}</p>
                 </div>
-              </div>
-              <div className="flex items-center space-x-4">
+              </Link>
+              <div className="flex items-center space-x-3">
                 <span className={cn(
                   "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium",
                   statusConfig.color
                 )}>
                   {statusConfig.label}
                 </span>
+                <Link to={`/projects/${project.id}/discovery`}>
+                  <button 
+                    className="text-gray-400 hover:text-primary-600 transition-colors"
+                    title="Edit project"
+                  >
+                    <Edit className="h-4 w-4" />
+                  </button>
+                </Link>
                 <button 
                   onClick={() => handleDeleteProject(project.id, project.name)}
                   disabled={deleteProjectMutation.isPending}
