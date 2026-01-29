@@ -37,11 +37,15 @@ export const signInWithGoogle = async () => {
     throw new Error('Authentication is not configured');
   }
   
-  // Standard redirect flow - works in same window
+  // Standard redirect flow with prompt for account selection
+  // This ensures users must select an account even if previously logged in
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
       redirectTo: `${window.location.origin}/auth/callback`,
+      queryParams: {
+        prompt: 'select_account', // Force Google to show account picker
+      },
     },
   });
   
@@ -53,8 +57,12 @@ export const signOut = async () => {
   if (!supabase) {
     throw new Error('Authentication is not configured');
   }
-  const { error } = await supabase.auth.signOut();
+  // Sign out from all sessions (global scope clears all tabs/devices)
+  const { error } = await supabase.auth.signOut({ scope: 'global' });
   if (error) throw error;
+  
+  // Clear any cached data
+  localStorage.removeItem('dev_user');
 };
 
 export const getCurrentUser = async () => {
