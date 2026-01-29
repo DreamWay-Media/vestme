@@ -105,47 +105,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
 
-  // Auth routes - return user data with admin status
-  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const user = await storage.getUser(userId);
-      
-      console.log('[AUTH] Raw user from storage:', JSON.stringify(user));
-      
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-      
-      // Return user data with isAdmin explicitly included
-      const userData = {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        profileImageUrl: user.profileImageUrl,
-        isAdmin: user.isAdmin === true,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      };
-      
-      console.log('[AUTH] Sending userData with isAdmin:', userData.isAdmin);
-      
-      // Disable caching completely - prevent 304 responses
-      res.set({
-        'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
-        'Pragma': 'no-cache',
-        'Expires': '-1',
-      });
-      // Remove any etag to prevent 304 responses
-      res.removeHeader('ETag');
-      res.status(200).json(userData);
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      res.status(500).json({ message: "Failed to fetch user" });
-    }
-  });
-
   // Dev login endpoint for development/testing without Supabase
   // Only available in development mode when Supabase is NOT configured
   const DEV_USER_ID = 'dev-demo-user';

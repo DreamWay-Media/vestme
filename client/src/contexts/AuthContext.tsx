@@ -69,10 +69,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return;
       }
 
-      // Try to fetch user from our database
-      const response = await fetch('/api/auth/user', {
+      // Try to fetch user from our database (add timestamp to bust cache)
+      const response = await fetch(`/api/auth/user?_t=${Date.now()}`, {
         headers: {
-          'Authorization': `Bearer ${session.access_token}`
+          'Authorization': `Bearer ${session.access_token}`,
+          'Cache-Control': 'no-cache',
         }
       });
 
