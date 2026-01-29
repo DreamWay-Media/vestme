@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useParams, Link, useLocation } from "wouter";
+import { useParams } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Palette, CheckCircle, Upload, Image } from "lucide-react";
+import { Palette, Upload, Image, CheckCircle } from "lucide-react";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { MediaLibraryPicker } from "@/components/MediaLibrary/MediaLibraryPicker";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,6 @@ interface BrandKit {
 
 export default function ProjectBrandKit() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [, navigate] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [customizing, setCustomizing] = useState(false);
@@ -263,10 +262,6 @@ export default function ProjectBrandKit() {
   const handleCancelEdit = () => {
     setCustomizing(false);
     setEditingBrandKit(null);
-  };
-
-  const handleContinue = () => {
-    navigate(`/projects/${projectId}/media-library`);
   };
 
   if (projectLoading || !project) {
@@ -1261,14 +1256,6 @@ export default function ProjectBrandKit() {
             </Card>
           )}
 
-          {hasBrandKit && (
-            <div className="mt-6">
-              <Button onClick={handleContinue} className="w-full">
-                Continue to Media Library
-                <ArrowRight className="h-4 w-4 ml-2" />
-              </Button>
-            </div>
-          )}
         </div>
       </div>
     </ProjectLayoutWithHeader>

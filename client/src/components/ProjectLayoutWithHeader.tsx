@@ -14,10 +14,7 @@ import {
   FileText, 
   Send, 
   BarChart3,
-  Settings,
-  CheckCircle,
-  Circle,
-  Clock
+  Settings
 } from "lucide-react";
 
 interface ProjectLayoutWithHeaderProps {
@@ -92,43 +89,6 @@ const sidebarItems = [
   }
 ];
 
-const getStepStatus = (stepId: string, projectStatus: string, businessProfile?: any) => {
-  switch (stepId) {
-    case "discovery":
-      return projectStatus === "draft" ? "pending" : "completed";
-    case "media-library":
-      return ["draft"].includes(projectStatus) ? "pending" : 
-             ["discovery"].includes(projectStatus) ? "current" : "completed";
-    case "brand-kit":
-      return ["draft", "discovery"].includes(projectStatus) ? "pending" :
-             ["media_library"].includes(projectStatus) ? "current" : "completed";
-    case "deck-generator":
-      return ["draft", "discovery", "media_library"].includes(projectStatus) ? "pending" :
-             ["brand_kit"].includes(projectStatus) ? "current" : "completed";
-    case "campaign":
-      return ["draft", "discovery", "media_library", "brand_kit"].includes(projectStatus) ? "pending" :
-             ["deck_ready"].includes(projectStatus) ? "current" : "completed";
-    case "analytics":
-      return "available";
-    case "settings":
-      return "available";
-    default:
-      return "pending";
-  }
-};
-
-const getStatusIcon = (status: string) => {
-  switch (status) {
-    case "completed":
-      return <CheckCircle className="h-4 w-4 text-green-600" />;
-    case "current":
-      return <Clock className="h-4 w-4 text-primary-600" />;
-    case "available":
-      return <Circle className="h-4 w-4 text-gray-400" />;
-    default:
-      return <Circle className="h-4 w-4 text-gray-300" />;
-  }
-};
 
 export default function ProjectLayoutWithHeader({ children }: ProjectLayoutWithHeaderProps) {
   const params = useParams();
@@ -206,8 +166,6 @@ export default function ProjectLayoutWithHeader({ children }: ProjectLayoutWithH
           <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
             {sidebarItems.map((item) => {
               const isActive = currentPath === item.path;
-              const status = getStepStatus(item.id, project?.status || "draft", project?.businessProfile);
-              const isDisabled = status === "pending" || item.comingSoon;
               const Icon = item.icon;
 
               return (
@@ -216,7 +174,7 @@ export default function ProjectLayoutWithHeader({ children }: ProjectLayoutWithH
                     to={item.comingSoon ? "#" : `/projects/${projectId}${item.path}`}
                     className={cn(
                       "block w-full",
-                      isDisabled && "pointer-events-none"
+                      item.comingSoon && "pointer-events-none"
                     )}
                   >
                     <div
@@ -224,8 +182,6 @@ export default function ProjectLayoutWithHeader({ children }: ProjectLayoutWithH
                         "flex items-center space-x-3 px-3 py-3 rounded-lg transition-all duration-200",
                         isActive
                           ? "bg-primary-50 text-primary-700 border border-primary-200"
-                          : isDisabled
-                          ? "text-gray-400 cursor-not-allowed"
                           : "text-gray-700 hover:bg-gray-50 hover:text-gray-900",
                         item.comingSoon && "opacity-60"
                       )}
@@ -238,9 +194,6 @@ export default function ProjectLayoutWithHeader({ children }: ProjectLayoutWithH
                             {item.description}
                           </div>
                         </div>
-                      </div>
-                      <div className="flex-shrink-0">
-                        {!item.comingSoon && getStatusIcon(status)}
                       </div>
                     </div>
                   </Link>
@@ -259,25 +212,6 @@ export default function ProjectLayoutWithHeader({ children }: ProjectLayoutWithH
             })}
           </nav>
 
-          {/* Progress Footer */}
-          <div className="p-4 border-t border-gray-200 shrink-0">
-            <div className="text-xs text-gray-500 mb-2">Project Progress</div>
-            <div className="space-y-1">
-              {sidebarItems.slice(0, 4).map((item) => {
-                const status = getStepStatus(item.id, project?.status || "draft", project?.businessProfile);
-                return (
-                  <div key={item.id} className="flex items-center space-x-2">
-                    <div className="flex-shrink-0">
-                      {getStatusIcon(status)}
-                    </div>
-                    <div className="text-xs text-gray-600 truncate">
-                      {item.label}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
         </div>
 
         {/* Main Content */}
