@@ -177,9 +177,9 @@ export default function ProjectLayoutWithHeader({ children }: ProjectLayoutWithH
     <Layout>
       <div className="flex h-screen">
         {/* Sidebar */}
-        <div className="w-64 bg-white shadow-sm border-r border-gray-200 flex flex-col">
+        <div className="w-64 bg-white shadow-sm border-r border-gray-200 flex flex-col overflow-hidden">
           {/* Project Header */}
-          <div className="p-6 border-b border-gray-200">
+          <div className="p-6 border-b border-gray-200 shrink-0">
             <div className="flex items-center space-x-3 mb-4">
               <Link 
                 to="/projects"
@@ -203,7 +203,7 @@ export default function ProjectLayoutWithHeader({ children }: ProjectLayoutWithH
           </div>
 
           {/* Navigation Items */}
-          <nav className="flex-1 p-4 space-y-1">
+          <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
             {sidebarItems.map((item) => {
               const isActive = currentPath === item.path;
               const status = getStepStatus(item.id, project?.status || "draft", project?.businessProfile);
@@ -260,7 +260,7 @@ export default function ProjectLayoutWithHeader({ children }: ProjectLayoutWithH
           </nav>
 
           {/* Progress Footer */}
-          <div className="p-4 border-t border-gray-200">
+          <div className="p-4 border-t border-gray-200 shrink-0">
             <div className="text-xs text-gray-500 mb-2">Project Progress</div>
             <div className="space-y-1">
               {sidebarItems.slice(0, 4).map((item) => {
