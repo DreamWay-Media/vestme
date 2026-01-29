@@ -82,24 +82,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setUser(userData);
       } else {
         console.log('Failed to fetch from DB, using Supabase metadata');
-        // Fallback to Supabase metadata
+        // Fallback to Supabase metadata (no admin access)
         setUser({
           id: supabaseUser.id,
           email: supabaseUser.email || '',
           firstName: supabaseUser.user_metadata?.full_name?.split(' ')[0] || '',
           lastName: supabaseUser.user_metadata?.full_name?.split(' ').slice(1).join(' ') || '',
           profileImageUrl: supabaseUser.user_metadata?.avatar_url || '',
+          isAdmin: false,
         });
       }
     } catch (error) {
       console.error('Error fetching user data:', error);
-      // Fallback to Supabase metadata
+      // Fallback to Supabase metadata (no admin access)
       setUser({
         id: supabaseUser.id,
         email: supabaseUser.email || '',
         firstName: supabaseUser.user_metadata?.email || '',
         lastName: supabaseUser.user_metadata?.full_name?.split(' ').slice(1).join(' ') || '',
         profileImageUrl: supabaseUser.user_metadata?.avatar_url || '',
+        isAdmin: false,
       });
     }
   };
