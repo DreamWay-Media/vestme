@@ -359,145 +359,172 @@ export default function ProjectBrandKit() {
               </CardContent>
             </Card>
           ) : !hasBrandKit && customizing ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Palette className="h-5 w-5" />
-                  Create Brand Kit
-                </CardTitle>
-                <CardDescription>
-                  Customize your brand kit colors, fonts, and logos
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="brand-name-new">Brand Kit Name</Label>
-                    <Input
-                      id="brand-name-new"
-                      value={editingBrandKit?.name || ""}
-                      onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, name: e.target.value} : null)}
-                      placeholder="Enter brand kit name"
-                    />
-                  </div>
-                  
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <Label htmlFor="primary-color-new">Primary Color</Label>
-                      <p className="text-xs text-muted-foreground mb-2">Your main brand color (headings, buttons)</p>
-                      <div className="flex gap-2 items-center">
-                        <Input
-                          id="primary-color-new"
-                          type="color"
-                          value={editingBrandKit?.primaryColor || "#000000"}
-                          onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, primaryColor: e.target.value} : null)}
-                          className="w-12 h-10 p-1 border rounded cursor-pointer"
-                        />
-                        <Input
-                          value={editingBrandKit?.primaryColor || "#000000"}
-                          onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, primaryColor: e.target.value} : null)}
-                          placeholder="#000000"
-                          className="flex-1 font-mono text-sm"
-                        />
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="secondary-color-new">Secondary Color</Label>
-                      <p className="text-xs text-muted-foreground mb-2">Background and accent areas</p>
-                      <div className="flex gap-2 items-center">
-                        <Input
-                          id="secondary-color-new"
-                          type="color"
-                          value={editingBrandKit?.secondaryColor || "#F8FAFC"}
-                          onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, secondaryColor: e.target.value} : null)}
-                          className="w-12 h-10 p-1 border rounded cursor-pointer"
-                        />
-                        <Input
-                          value={editingBrandKit?.secondaryColor || "#F8FAFC"}
-                          onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, secondaryColor: e.target.value} : null)}
-                          placeholder="#F8FAFC"
-                          className="flex-1 font-mono text-sm"
-                        />
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="accent-color-new">Accent Color</Label>
-                      <p className="text-xs text-muted-foreground mb-2">Highlights and call-to-actions</p>
-                      <div className="flex gap-2 items-center">
-                        <Input
-                          id="accent-color-new"
-                          type="color"
-                          value={editingBrandKit?.accentColor || "#64748B"}
-                          onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, accentColor: e.target.value} : null)}
-                          className="w-12 h-10 p-1 border rounded cursor-pointer"
-                        />
-                        <Input
-                          value={editingBrandKit?.accentColor || "#64748B"}
-                          onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, accentColor: e.target.value} : null)}
-                          placeholder="#64748B"
-                          className="flex-1 font-mono text-sm"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Preview Section */}
-                  <div className="border rounded-lg p-4 bg-white">
-                    <Label className="text-sm font-medium mb-3 block">Preview</Label>
-                    <div 
-                      className="rounded-lg overflow-hidden border"
-                      style={{ 
-                        backgroundColor: editingBrandKit?.secondaryColor || "#F8FAFC",
-                        fontFamily: editingBrandKit?.fontFamily || "Inter"
-                      }}
-                    >
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Live Preview - Prominent on the right */}
+              <div className="lg:col-span-1 order-first lg:order-last">
+                <div className="sticky top-4">
+                  <Card className="border-2 border-primary/20">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base">Live Preview</CardTitle>
+                    </CardHeader>
+                    <CardContent>
                       <div 
-                        className="p-4 flex items-center gap-3"
-                        style={{ backgroundColor: editingBrandKit?.primaryColor || "#000000" }}
+                        className="rounded-lg overflow-hidden border shadow-sm"
+                        style={{ 
+                          backgroundColor: editingBrandKit?.secondaryColor || "#F8FAFC",
+                          fontFamily: editingBrandKit?.fontFamily || "Inter"
+                        }}
                       >
-                        {editingBrandKit?.logoUrl && (
-                          <img 
-                            src={editingBrandKit.logoUrl} 
-                            alt="Logo" 
-                            className="h-10 w-auto object-contain bg-white/10 rounded p-1"
-                          />
-                        )}
-                        <div>
-                          <h3 className="text-white font-semibold text-lg" style={{ fontFamily: editingBrandKit?.fontFamily || "Inter" }}>
-                            Your Brand Headline
-                          </h3>
-                          <p className="text-white/80 text-sm" style={{ fontFamily: editingBrandKit?.fontFamily || "Inter" }}>
-                            Primary color as header background
+                        <div 
+                          className="p-4"
+                          style={{ backgroundColor: editingBrandKit?.primaryColor || "#000000" }}
+                        >
+                          <div className="flex items-center gap-3">
+                            {(() => {
+                              const logoUrl = editingBrandKit?.logoUrl || 
+                                (editingBrandKit?.brandAssets?.find((a: any) => a.type === 'logo')?.url);
+                              return logoUrl ? (
+                                <img 
+                                  src={logoUrl} 
+                                  alt="Logo" 
+                                  className="h-12 w-auto object-contain bg-white/20 rounded p-1"
+                                />
+                              ) : (
+                                <div className="h-12 w-12 bg-white/20 rounded flex items-center justify-center">
+                                  <span className="text-white/60 text-xs">Logo</span>
+                                </div>
+                              );
+                            })()}
+                            <div>
+                              <h3 className="text-white font-bold text-lg" style={{ fontFamily: editingBrandKit?.fontFamily || "Inter" }}>
+                                {editingBrandKit?.name || "Your Brand"}
+                              </h3>
+                              <p className="text-white/70 text-sm" style={{ fontFamily: editingBrandKit?.fontFamily || "Inter" }}>
+                                Tagline goes here
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="p-4">
+                          <h4 className="font-semibold mb-2" style={{ fontFamily: editingBrandKit?.fontFamily || "Inter", color: editingBrandKit?.primaryColor || "#000" }}>
+                            About Us
+                          </h4>
+                          <p className="text-gray-600 text-sm mb-4" style={{ fontFamily: editingBrandKit?.fontFamily || "Inter" }}>
+                            This is how your content will look with the {editingBrandKit?.fontFamily || "Inter"} font.
                           </p>
+                          <button
+                            className="px-4 py-2 rounded-md text-white font-medium text-sm"
+                            style={{ 
+                              backgroundColor: editingBrandKit?.accentColor || "#64748B",
+                              fontFamily: editingBrandKit?.fontFamily || "Inter"
+                            }}
+                          >
+                            Call to Action
+                          </button>
                         </div>
                       </div>
-                      <div className="p-4">
-                        <p className="text-gray-700 mb-3" style={{ fontFamily: editingBrandKit?.fontFamily || "Inter" }}>
-                          This is how your content will look with {editingBrandKit?.fontFamily || "Inter"} font.
-                        </p>
-                        <button
-                          className="px-4 py-2 rounded-md text-white font-medium"
-                          style={{ 
-                            backgroundColor: editingBrandKit?.accentColor || "#64748B",
-                            fontFamily: editingBrandKit?.fontFamily || "Inter"
-                          }}
-                        >
-                          Accent Button
-                        </button>
+                      <p className="text-xs text-muted-foreground mt-3 text-center">
+                        Updates as you make changes
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+
+              {/* Form - on the left */}
+              <div className="lg:col-span-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Palette className="h-5 w-5" />
+                      Create Brand Kit
+                    </CardTitle>
+                    <CardDescription>
+                      Customize your brand kit colors, fonts, and logos
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="space-y-4">
+                      <div>
+                        <Label htmlFor="brand-name-new">Brand Kit Name</Label>
+                        <Input
+                          id="brand-name-new"
+                          value={editingBrandKit?.name || ""}
+                          onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, name: e.target.value} : null)}
+                          placeholder="Enter brand kit name"
+                        />
                       </div>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <Label htmlFor="font-family-new">Font Family</Label>
-                    <select
-                      id="font-family-new"
-                      value={editingBrandKit?.fontFamily || "Inter"}
-                      onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, fontFamily: e.target.value} : null)}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
+                      
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <Label htmlFor="primary-color-new">Primary Color</Label>
+                          <p className="text-xs text-muted-foreground mb-2">Headings & buttons</p>
+                          <div className="flex gap-2 items-center">
+                            <Input
+                              id="primary-color-new"
+                              type="color"
+                              value={editingBrandKit?.primaryColor || "#000000"}
+                              onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, primaryColor: e.target.value} : null)}
+                              className="w-12 h-10 p-1 border rounded cursor-pointer"
+                            />
+                            <Input
+                              value={editingBrandKit?.primaryColor || "#000000"}
+                              onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, primaryColor: e.target.value} : null)}
+                              placeholder="#000000"
+                              className="flex-1 font-mono text-sm"
+                            />
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <Label htmlFor="secondary-color-new">Secondary Color</Label>
+                          <p className="text-xs text-muted-foreground mb-2">Backgrounds</p>
+                          <div className="flex gap-2 items-center">
+                            <Input
+                              id="secondary-color-new"
+                              type="color"
+                              value={editingBrandKit?.secondaryColor || "#F8FAFC"}
+                              onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, secondaryColor: e.target.value} : null)}
+                              className="w-12 h-10 p-1 border rounded cursor-pointer"
+                            />
+                            <Input
+                              value={editingBrandKit?.secondaryColor || "#F8FAFC"}
+                              onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, secondaryColor: e.target.value} : null)}
+                              placeholder="#F8FAFC"
+                              className="flex-1 font-mono text-sm"
+                            />
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <Label htmlFor="accent-color-new">Accent Color</Label>
+                          <p className="text-xs text-muted-foreground mb-2">CTAs & highlights</p>
+                          <div className="flex gap-2 items-center">
+                            <Input
+                              id="accent-color-new"
+                              type="color"
+                              value={editingBrandKit?.accentColor || "#64748B"}
+                              onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, accentColor: e.target.value} : null)}
+                              className="w-12 h-10 p-1 border rounded cursor-pointer"
+                            />
+                            <Input
+                              value={editingBrandKit?.accentColor || "#64748B"}
+                              onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, accentColor: e.target.value} : null)}
+                              placeholder="#64748B"
+                              className="flex-1 font-mono text-sm"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <Label htmlFor="font-family-new">Font Family</Label>
+                        <select
+                          id="font-family-new"
+                          value={editingBrandKit?.fontFamily || "Inter"}
+                          onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, fontFamily: e.target.value} : null)}
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
                       <optgroup label="Popular Sans-Serif">
                         <option value="Inter">Inter - Modern & Clean</option>
                         <option value="Roboto">Roboto - Professional & Readable</option>
@@ -608,59 +635,61 @@ export default function ProjectBrandKit() {
                         <option value="Verdana">Verdana - Web Safe Sans-Serif</option>
                         <option value="Trebuchet MS">Trebuchet MS - Humanist Sans-Serif</option>
                       </optgroup>
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <Label htmlFor="logo-url-new">Logo (Optional)</Label>
+                        </select>
+                      </div>
+                      
+                      <div>
+                        <Label htmlFor="logo-url-new">Logo (Optional)</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id="logo-url-new"
+                            value={editingBrandKit?.logoUrl || ""}
+                            onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, logoUrl: e.target.value || null, logoAssetId: null} : null)}
+                            placeholder="Enter logo image URL"
+                            className="flex-1"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setShowMediaLibraryPicker(true)}
+                            className="flex items-center gap-2"
+                          >
+                            <Image className="h-4 w-4" />
+                            Choose from Media Library
+                          </Button>
+                        </div>
+                        {showMediaLibraryPicker && (
+                          <MediaLibraryPicker
+                            projectId={projectId!}
+                            open={showMediaLibraryPicker}
+                            onClose={() => setShowMediaLibraryPicker(false)}
+                            onSelect={handleSelectLogoFromMediaLibrary}
+                            currentValue={editingBrandKit?.logoUrl}
+                          />
+                        )}
+                      </div>
+                    </div>
+                    
                     <div className="flex gap-2">
-                      <Input
-                        id="logo-url-new"
-                        value={editingBrandKit?.logoUrl || ""}
-                        onChange={(e) => setEditingBrandKit(prev => prev ? {...prev, logoUrl: e.target.value || null, logoAssetId: null} : null)}
-                        placeholder="Enter logo image URL"
+                      <Button 
+                        onClick={handleSaveBrandKit}
+                        disabled={createBrandKitMutation.isPending}
                         className="flex-1"
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => setShowMediaLibraryPicker(true)}
-                        className="flex items-center gap-2"
                       >
-                        <Image className="h-4 w-4" />
-                        Choose from Media Library
+                        {createBrandKitMutation.isPending ? "Creating..." : "Create Brand Kit"}
+                      </Button>
+                      <Button 
+                        variant="outline"
+                        onClick={handleCancelEdit}
+                        disabled={createBrandKitMutation.isPending}
+                      >
+                        Cancel
                       </Button>
                     </div>
-                    {showMediaLibraryPicker && (
-                      <MediaLibraryPicker
-                        projectId={projectId!}
-                        open={showMediaLibraryPicker}
-                        onClose={() => setShowMediaLibraryPicker(false)}
-                        onSelect={handleSelectLogoFromMediaLibrary}
-                        currentValue={editingBrandKit?.logoUrl}
-                      />
-                    )}
-                  </div>
-                </div>
-                
-                <div className="flex gap-2">
-                  <Button 
-                    onClick={handleSaveBrandKit}
-                    disabled={createBrandKitMutation.isPending}
-                    className="flex-1"
-                  >
-                    {createBrandKitMutation.isPending ? "Creating..." : "Create Brand Kit"}
-                  </Button>
-                  <Button 
-                    variant="outline"
-                    onClick={handleCancelEdit}
-                    disabled={createBrandKitMutation.isPending}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
           ) : (
             <Card>
               <CardHeader>
@@ -908,13 +937,17 @@ export default function ProjectBrandKit() {
                             className="p-4 flex items-center gap-3"
                             style={{ backgroundColor: editingBrandKit?.primaryColor || "#000000" }}
                           >
-                            {editingBrandKit?.logoUrl && (
-                              <img 
-                                src={editingBrandKit.logoUrl} 
-                                alt="Logo" 
-                                className="h-10 w-auto object-contain bg-white/10 rounded p-1"
-                              />
-                            )}
+                            {(() => {
+                              const logoUrl = editingBrandKit?.logoUrl || 
+                                (editingBrandKit?.brandAssets?.find((a: any) => a.type === 'logo')?.url);
+                              return logoUrl ? (
+                                <img 
+                                  src={logoUrl} 
+                                  alt="Logo" 
+                                  className="h-10 w-auto object-contain bg-white/10 rounded p-1"
+                                />
+                              ) : null;
+                            })()}
                             <div>
                               <h3 className="text-white font-semibold text-lg" style={{ fontFamily: editingBrandKit?.fontFamily || "Inter" }}>
                                 Your Brand Headline
