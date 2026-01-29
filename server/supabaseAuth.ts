@@ -275,6 +275,7 @@ export function setupAuth(app: Express) {
           firstName: dbUser.firstName || '',
           lastName: dbUser.lastName || '',
           profileImageUrl: dbUser.profileImageUrl || '',
+          isAdmin: dbUser.isAdmin === true,
         });
       } else {
         // Fallback to Supabase metadata if user not in our database
@@ -284,6 +285,7 @@ export function setupAuth(app: Express) {
           firstName: user.user_metadata?.full_name?.split(' ')[0] || '',
           lastName: user.user_metadata?.full_name?.split(' ').slice(1).join(' ') || '',
           profileImageUrl: user.user_metadata?.avatar_url || '',
+          isAdmin: false,
         });
       }
     } catch (error) {
