@@ -175,7 +175,7 @@ export default function ProjectLayoutWithHeader({ children }: ProjectLayoutWithH
 
   return (
     <Layout>
-      <div className="flex h-screen">
+      <div className="flex">
         {/* Sidebar */}
         <div className="w-64 bg-white shadow-sm border-r border-gray-200 flex flex-col overflow-hidden">
           {/* Project Header */}
