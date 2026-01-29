@@ -72,6 +72,8 @@ In production, only real Supabase authentication is available.
 - Themes are also database-stored with enable/disable controls
 
 ## Recent Changes
+- **Complete Brand Kit page redesign** - Unified 2-column layout with always-editable form (left) and live pitch deck slide preview (right)
+- Brand Kit page: Single state management (no separate view/edit/create modes), instant live preview, simplified font options, removed AI analysis boxes
 - Enabled free navigation between all project steps - users can now move freely between Discovery, Media Library, Brand Kit, and Deck Generator without completing previous steps
 - Removed bottom navigation buttons and progress indicators from step pages (Media Library, Brand Kit) to reduce clutter
 - Simplified sidebar navigation - removed progress footer and disabled state logic
@@ -79,11 +81,7 @@ In production, only real Supabase authentication is available.
 - Redesigned Discovery Results with card-based layout, featured Investment Thesis, 3-column info grid, and cleaner visual hierarchy
 - Redesigned Discovery page with cleaner, more compact UI: inline project info header, 2-column grid layout for results, streamlined document upload section
 - Added preloader/loading state to Discovery step that shows "Loading Your Results" after AI analysis completes while data is being fetched
-- Completely removed website color extraction - users now pick their own brand colors with neutral defaults (#000000, #F8FAFC, #64748B)
-- Redesigned brand kit creation page with cleaner, user-driven flow: centered layout, "Start Customizing" button, visual preview of color roles
-- Added helpful descriptions for each color (Primary = headlines/buttons, Secondary = backgrounds, Accent = highlights/CTAs)
-- Added real-time Color Preview section showing how selected colors look together
-- Expanded font options to 100+ Google Fonts organized into 7 categories (Popular Sans-Serif, Modern Sans-Serif, Display & Headlines, Elegant Serif, Script & Handwritten, Monospace & Technical, System Fonts)
+- Completely removed website color extraction - users now pick their own brand colors with neutral defaults (#000000, #F8FAFC, #3B82F6)
 - Enhanced brand kit logo selection with priority-based approach: (1) user-selected from media library, (2) auto-detected logos in media library via `findProjectLogos()`, (3) extracted from website URL
 - Added `findProjectLogos()` method to media manager that searches by tags, filenames, SVG format, and dimensions
 - Added admin role-based access control with database-backed verification
